@@ -1,0 +1,862 @@
+<html lang="en" class="dark"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hardcore English - Deep Practice</title>
+<script src="https://unpkg.com/lucide@latest"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+/* Custom Utilities for smooth transitions and specific UI behaviors */
+body {
+font-feature-settings: "cv11", "ss01";
+-webkit-font-smoothing: antialiased;
+-moz-osx-font-smoothing: grayscale;
+}
+/* Blur Effect for Phase 1 */
+.blur-text {
+color: #e4e4e7;
+filter: blur(8px);
+user-select: none;
+transition: all 0.5s ease;
+}
+.blur-text.revealed {
+filter: none;
+user-select: text;
+}
+/* Cloze Effect for Phase 2 */
+.cloze-word {
+transition: all 0.2s ease;
+cursor: pointer;
+border-bottom: 1px solid transparent;
+}
+.cloze-active {
+background-color: #27272a; /* zinc-800 */
+color: transparent !important;
+border-bottom: 1px solid #52525b; /* zinc-600 */
+border-radius: 2px;
+}
+.cloze-blind {
+color: transparent !important;
+text-shadow: none !important;
+border-bottom: 1px dashed #3f3f46;
+}
+.cloze-active:active {
+color: #e4e4e7 !important;
+background-color: transparent;
+}
+/* Waveform Animation */
+@keyframes wave {
+0%, 100% { height: 20%; }
+50% { height: 100%; }
+}
+.recording .wave-bar {
+animation: wave 0.5s infinite ease-in-out;
+}
+/* Hide scrollbar for clean look */
+.no-scrollbar::-webkit-scrollbar {
+display: none;
+}
+.no-scrollbar {
+-ms-overflow-style: none;
+scrollbar-width: none;
+}
+.blur-text.active {
+text-shadow: 0 0 16px rgba(167, 139, 250, 0.4);
+}
+.ghost-highlight {
+position: absolute;
+left: 0;
+right: 0;
+height: 52px;
+border-radius: 9999px;
+background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
+pointer-events: none;
+transition: transform 120ms ease, opacity 150ms ease;
+opacity: 0;
+}
+.typing-caret {
+position: absolute;
+width: 1.5px;
+height: 1em;
+background: #fefefe;
+box-shadow: 0 0 12px rgba(255, 255, 255, 0.8);
+border-radius: 9999px;
+opacity: 0;
+transition: opacity 150ms ease;
+}
+.line-span {
+display: inline-block;
+}
+.word-mask {
+position: absolute;
+background: rgba(255, 255, 255, 0.08);
+box-shadow: 0 0 12px rgba(255, 255, 255, 0.25);
+backdrop-filter: blur(6px);
+border-radius: 6px;
+pointer-events: none;
+opacity: 0;
+transition: opacity 120ms ease;
+}
+</style><link id="all-fonts-link-font-geist" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&amp;display=swap"><style id="all-fonts-style-font-geist">.font-geist { font-family: 'Geist', sans-serif !important; }</style><link id="all-fonts-link-font-roboto" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;600;700&amp;display=swap"><style id="all-fonts-style-font-roboto">.font-roboto { font-family: 'Roboto', sans-serif !important; }</style><link id="all-fonts-link-font-montserrat" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&amp;display=swap"><style id="all-fonts-style-font-montserrat">.font-montserrat { font-family: 'Montserrat', sans-serif !important; }</style><link id="all-fonts-link-font-poppins" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&amp;display=swap"><style id="all-fonts-style-font-poppins">.font-poppins { font-family: 'Poppins', sans-serif !important; }</style><link id="all-fonts-link-font-playfair" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700;900&amp;display=swap"><style id="all-fonts-style-font-playfair">.font-playfair { font-family: 'Playfair Display', serif !important; }</style><link id="all-fonts-link-font-instrument-serif" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:wght@400;500;600;700&amp;display=swap"><style id="all-fonts-style-font-instrument-serif">.font-instrument-serif { font-family: 'Instrument Serif', serif !important; }</style><link id="all-fonts-link-font-merriweather" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Merriweather:wght@300;400;700;900&amp;display=swap"><style id="all-fonts-style-font-merriweather">.font-merriweather { font-family: 'Merriweather', serif !important; }</style><link id="all-fonts-link-font-bricolage" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@300;400;500;600;700&amp;display=swap"><style id="all-fonts-style-font-bricolage">.font-bricolage { font-family: 'Bricolage Grotesque', sans-serif !important; }</style><link id="all-fonts-link-font-jakarta" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&amp;display=swap"><style id="all-fonts-style-font-jakarta">.font-jakarta { font-family: 'Plus Jakarta Sans', sans-serif !important; }</style><link id="all-fonts-link-font-manrope" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&amp;display=swap"><style id="all-fonts-style-font-manrope">.font-manrope { font-family: 'Manrope', sans-serif !important; }</style><link id="all-fonts-link-font-space-grotesk" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;display=swap"><style id="all-fonts-style-font-space-grotesk">.font-space-grotesk { font-family: 'Space Grotesk', sans-serif !important; }</style><link id="all-fonts-link-font-work-sans" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@300;400;500;600;700;800&amp;display=swap"><style id="all-fonts-style-font-work-sans">.font-work-sans { font-family: 'Work Sans', sans-serif !important; }</style><link id="all-fonts-link-font-pt-serif" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=PT+Serif:wght@400;700&amp;display=swap"><style id="all-fonts-style-font-pt-serif">.font-pt-serif { font-family: 'PT Serif', serif !important; }</style><link id="all-fonts-link-font-geist-mono" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@300;400;500;600;700&amp;display=swap"><style id="all-fonts-style-font-geist-mono">.font-geist-mono { font-family: 'Geist Mono', monospace !important; }</style><link id="all-fonts-link-font-space-mono" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&amp;display=swap"><style id="all-fonts-style-font-space-mono">.font-space-mono { font-family: 'Space Mono', monospace !important; }</style><link id="all-fonts-link-font-quicksand" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;500;600;700&amp;display=swap"><style id="all-fonts-style-font-quicksand">.font-quicksand { font-family: 'Quicksand', sans-serif !important; }</style><link id="all-fonts-link-font-nunito" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;500;600;700;800&amp;display=swap"><style id="all-fonts-style-font-nunito">.font-nunito { font-family: 'Nunito', sans-serif !important; }</style></head>
+<body class="selection:bg-indigo-500/30 selection:text-indigo-200 min-h-screen flex items-center justify-center md:p-6 lg:p-12 text-zinc-200 bg-zinc-950 pt-0 pr-0 pb-0 pl-0">
+
+    <!-- App Container (Mobile Adaptive) -->
+    <div id="app-container" class="w-full max-w-md bg-black md:bg-zinc-900/50 md:backdrop-blur-xl md:border md:border-zinc-800 md:rounded-3xl h-screen md:h-[850px] overflow-hidden relative shadow-2xl flex flex-col transition-all duration-500">
+        <audio id="primary-audio" preload="auto" src="https://www2.cs.uic.edu/~i101/SoundFiles/StarWars3.wav"></audio>
+        
+        <!-- HEADER -->
+        <header class="absolute top-0 left-0 right-0 z-50 px-6 py-6 flex justify-between items-center bg-gradient-to-b from-black/80 to-transparent pointer-events-none">
+            <div class="flex items-center gap-2 pointer-events-auto cursor-pointer" onclick="navigateTo('home')">
+                <div class="bg-white w-2 h-2 rounded-full"></div>
+                <span class="text-sm font-semibold text-white tracking-tighter">HARDCORE.</span>
+            </div>
+            <div class="pointer-events-none"></div>
+        </header>
+
+        <!-- VIEW: SELECTION HUB (HOME) -->
+        
+
+        <!-- VIEW: PHASE 1 (BLIND LISTENING) -->
+        <main class="flex-1 overflow-y-auto no-scrollbar scroll-smooth pt-20 pr-4 pb-10 pl-4 space-y-8" id="view-home">
+            <style>
+                @keyframes enter-blur-slide {
+                    0% { opacity: 0; transform: translateY(20px) scale(0.95); filter: blur(10px); }
+                    100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+                }
+            </style>
+            
+            <!-- Section Title -->
+            <div class="px-2" style="animation: enter-blur-slide 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) 0.1s both;">
+                <h1 class="text-3xl font-semibold tracking-tight text-white mb-1">Selection Hub</h1>
+                <p class="text-sm text-zinc-500">Pick your pain. Start the grind.</p>
+            </div>
+
+            <!-- Card List -->
+            <div class="space-y-6">
+                <!-- Card 1: In Progress -->
+                <div onclick="navigateTo('listening')" class="group relative aspect-[4/5] w-full rounded-2xl overflow-hidden cursor-pointer border border-zinc-800 hover:border-zinc-600 transition-all duration-300" style="animation: enter-blur-slide 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) 0.2s both;">
+                    <img src="https://images.unsplash.com/photo-1556761175-5973dc0f32e7?q=80&amp;w=1000&amp;auto=format&amp;fit=crop" class="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:scale-105 transition-transform duration-700 grayscale hover:grayscale-0" alt="Steve Jobs">
+                    <div class="bg-gradient-to-t from-black via-black/40 to-transparent absolute top-0 right-0 bottom-0 left-0"></div>
+                    
+                    <div class="absolute bottom-0 left-0 right-0 p-6">
+                        <div class="flex items-center gap-2 mb-3">
+                            <span class="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs font-medium tracking-wide">L4 HARD</span>
+                            <span class="px-2 py-0.5 rounded-full bg-zinc-800/80 text-zinc-400 border border-zinc-700 text-xs font-medium tracking-wide">14:02</span>
+                        </div>
+                        <h2 class="text-2xl font-semibold text-white tracking-tight leading-snug mb-2">Steve Jobs: Stanford Commencement Speech</h2>
+                        
+                        <!-- Progress Bar -->
+                        <div class="flex items-center gap-3">
+                            <div class="flex-1 h-1 bg-zinc-700/50 rounded-full overflow-hidden backdrop-blur-sm">
+                                <div class="h-full bg-white w-[45%]"></div>
+                            </div>
+                            <span class="text-xs text-zinc-300 font-medium">Phase 1</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Card 2: New -->
+                <div class="group relative aspect-[4/5] w-full rounded-2xl overflow-hidden cursor-pointer border border-zinc-800 hover:border-zinc-600 transition-all duration-300" style="animation: enter-blur-slide 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) 0.3s both;">
+                    <img src="https://hoirqrkdgbmvpwutwuwj.supabase.co/storage/v1/object/public/assets/assets/917d6f93-fb36-439a-8c48-884b67b35381_1600w.jpg" class="absolute inset-0 w-full h-full object-cover opacity-50 group-hover:scale-105 transition-transform duration-700 grayscale hover:grayscale-0" alt="News">
+                    <div class="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent"></div>
+                    
+                    <div class="absolute bottom-0 left-0 right-0 p-6">
+                        <div class="flex items-center gap-2 mb-3">
+                            <span class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-medium tracking-wide">NEW</span>
+                            <span class="px-2 py-0.5 rounded-full bg-zinc-800/80 text-zinc-400 border border-zinc-700 text-xs font-medium tracking-wide">05:30</span>
+                        </div>
+                        <h2 class="text-2xl font-semibold text-white tracking-tight leading-snug mb-2">BBC News: Global Economics Update</h2>
+                        <p class="text-sm text-zinc-400 line-clamp-2">Understanding market volatility and the impact on international trade agreements.</p>
+                    </div>
+                </div>
+
+                <!-- Card 3: Mastered -->
+                <div class="group relative h-40 w-full rounded-2xl overflow-hidden cursor-pointer border border-amber-900/30 hover:border-amber-700/50 transition-all duration-300" style="animation: enter-blur-slide 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) 0.4s both;">
+                     <div class="absolute inset-0 bg-amber-950/10"></div>
+                     <img src="https://hoirqrkdgbmvpwutwuwj.supabase.co/storage/v1/object/public/assets/assets/4734259a-bad7-422f-981e-ce01e79184f2_1600w.jpg" class="absolute inset-0 w-full h-full object-cover opacity-30 mix-blend-overlay grayscale" alt="Mastered">
+                    
+                    <div class="absolute inset-0 flex items-center justify-between p-6">
+                        <div>
+                            <div class="flex items-center gap-2 mb-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="award" class="lucide lucide-award w-4 h-4 text-amber-500"><path d="m15.477 12.89 1.515 8.526a.5.5 0 0 1-.81.47l-3.58-2.687a1 1 0 0 0-1.197 0l-3.586 2.686a.5.5 0 0 1-.81-.469l1.514-8.526"></path><circle cx="12" cy="8" r="6"></circle></svg>
+                                <span class="text-amber-500 text-xs font-semibold tracking-widest uppercase">Mastered</span>
+                            </div>
+                            <h2 class="text-lg font-semibold text-zinc-300 tracking-tight">The Feynman Technique</h2>
+                        </div>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="chevron-right" class="lucide lucide-chevron-right text-zinc-600"><path d="m9 18 6-6-6-6"></path></svg>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="h-10"></div>
+        </main><div id="view-listening" class="absolute inset-0 bg-black z-40 translate-x-full transition-transform duration-500 flex flex-col">
+            <!-- Nav -->
+            <div class="px-6 py-6 flex justify-between items-center border-b border-zinc-900">
+                <button onclick="navigateTo('home')" class="p-2 -ml-2 text-zinc-400 hover:text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="arrow-left" class="lucide lucide-arrow-left w-6 h-6"><path d="m12 19-7-7 7-7"></path><path d="M19 12H5"></path></svg>
+                </button>
+                <div class="flex flex-col items-center">
+                    <span class="text-xs font-medium text-zinc-500 tracking-widest uppercase">Phase 1</span>
+                    <span class="text-sm font-semibold text-white tracking-tight">Blind Listening</span>
+                </div>
+                <div class="w-8"></div> <!-- Spacer -->
+            </div>
+
+            <!-- Content -->
+            <div class="flex-1 overflow-y-auto p-8 flex items-start justify-center relative">
+                <div id="ghost-cursor" class="ghost-highlight"></div>
+                <div id="typing-caret" class="typing-caret"></div>
+                <div id="word-mask" class="word-mask"></div>
+
+                <div id="text-container" class="space-y-6 text-lg md:text-xl font-medium leading-relaxed tracking-tight text-center max-w-sm mx-auto"></div>
+            </div>
+
+            <!-- Controls -->
+            <div class="p-8 pb-10 bg-gradient-to-t from-black via-black to-transparent">
+                <!-- Scrubber -->
+                <div id="scrubber" class="w-full h-1 bg-zinc-800 rounded-full mb-8 relative group cursor-pointer">
+                    <div id="scrubber-fill" class="absolute h-full bg-white w-0 rounded-full relative transition-all duration-150">
+                        <div id="scrubber-handle" class="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-lg scale-0 group-hover:scale-100 transition-transform"></div>
+                    </div>
+                </div>
+
+                <div class="flex justify-between items-center mb-8">
+                    <button class="text-zinc-500 hover:text-white transition-colors"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="rotate-ccw" class="lucide lucide-rotate-ccw w-6 h-6"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg></button>
+                    <button id="play-btn" class="w-16 h-16 bg-white rounded-full flex items-center justify-center text-black hover:scale-105 transition-transform">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="pause" class="lucide lucide-pause w-6 h-6 fill-current"><rect x="14" y="3" width="5" height="18" rx="1"></rect><rect x="5" y="3" width="5" height="18" rx="1"></rect></svg>
+                    </button>
+                    <button class="text-zinc-500 hover:text-white transition-colors"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="rotate-cw" class="lucide lucide-rotate-cw w-6 h-6"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path></svg></button>
+                </div>
+
+                <button id="reveal-btn" onclick="revealText()" class="w-full py-4 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-300 font-semibold text-sm tracking-wide hover:bg-zinc-800 hover:text-white transition-all flex items-center justify-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="eye" class="lucide lucide-eye w-4 h-4"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                    <span>看原</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- VIEW: PHASE 2 (ANALYSIS) -->
+        <div id="view-analysis" class="absolute inset-0 bg-black z-40 translate-x-full transition-transform duration-500 flex flex-col">
+            <!-- Nav -->
+            <div class="px-6 py-6 flex justify-between items-center border-b border-zinc-900 bg-black/90 backdrop-blur-md sticky top-0 z-10">
+                <button onclick="navigateTo('listening')" class="p-2 -ml-2 text-zinc-400 hover:text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="chevron-left" class="lucide lucide-chevron-left w-6 h-6"><path d="m15 18-6-6 6-6"></path></svg>
+                </button>
+                <div class="flex flex-col items-center">
+                    <span class="text-xs font-medium text-zinc-500 tracking-widest uppercase">Phase 2</span>
+                    <span class="text-sm font-semibold text-white tracking-tight">The Lab</span>
+                </div>
+                <button onclick="toggleCloze()" class="p-2 -mr-2 mt-2 text-zinc-400 hover:text-indigo-400 transition-colors relative">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="toggle-right" class="lucide lucide-toggle-right w-6 h-6"><circle cx="15" cy="12" r="3"></circle><rect width="20" height="14" x="2" y="5" rx="7"></rect></svg>
+                    <span class="absolute top-1 right-0 w-2 h-2 bg-indigo-500 rounded-full"></span>
+                </button>
+            </div>
+
+            <!-- Content -->
+            <div class="flex-1 overflow-y-auto p-6 space-y-8">
+                <div id="analysis-text" class="text-lg leading-loose font-normal text-zinc-300 tracking-tight"></div>
+            </div>
+
+            <!-- Context Menu (Definition - Hidden by default) -->
+            <div id="definition-toast" class="absolute bottom-24 left-6 right-6 bg-zinc-900 border border-zinc-800 p-4 rounded-xl shadow-2xl transform translate-y-10 opacity-0 pointer-events-none transition-all duration-300">
+                <div class="flex justify-between items-start mb-1">
+                    <h3 class="text-white font-semibold">dogma</h3>
+                    <span class="text-xs text-zinc-500 italic">noun</span>
+                </div>
+                <p class="text-sm text-zinc-400 leading-snug">A principle or set of principles laid down by an authority as incontrovertibly true.</p>
+            </div>
+
+            <!-- Footer Action -->
+            <div class="p-6 bg-black border-t border-zinc-900">
+                 <button onclick="navigateTo('shadowing')" class="w-full py-4 rounded-xl bg-white text-black font-semibold text-sm tracking-wide hover:bg-zinc-200 transition-all flex items-center justify-center gap-2 shadow-lg shadow-white/5">
+                    <span>开始录音</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="arrow-right" class="lucide lucide-arrow-right w-4 h-4"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- VIEW: PHASE 3 (SHADOWING) -->
+        <div id="view-shadowing" class="absolute inset-0 bg-black z-40 translate-x-full transition-transform duration-500 flex flex-col">
+            <!-- Nav -->
+            <div class="px-6 pt-10 pb-4 flex items-start justify-between gap-6">
+                <button onclick="navigateTo('analysis')" class="p-2 text-zinc-400 hover:text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="x" class="lucide lucide-x w-6 h-6"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+                </button>
+                <div class="flex flex-col items-center flex-1">
+                    <span class="text-xs font-medium text-emerald-500 tracking-widest uppercase">Phase 3</span>
+                    <span class="text-sm font-semibold text-white tracking-tight">The Mirror</span>
+                </div>
+                <div class="flex gap-2 bg-zinc-900 rounded-lg p-1 mt-4">
+                    <button class="text-[10px] font-bold px-2 py-1 rounded text-zinc-500 hover:text-white">0.8</button>
+                    <button class="text-[10px] font-bold px-2 py-1 rounded bg-zinc-700 text-white">1.0</button>
+                    <button class="text-[10px] font-bold px-2 py-1 rounded text-zinc-500 hover:text-white">1.2</button>
+                </div>
+            </div>
+
+            <!-- Waveform Visualizer -->
+            <div class="flex-1 flex flex-col justify-center items-center gap-1 px-4">
+                
+                <!-- Original Audio Track -->
+                <div id="original-waveform" class="w-full h-24 flex items-center justify-center gap-[2px] opacity-80"></div>
+
+                <!-- Divider -->
+                <div class="w-full h-[1px] bg-zinc-800 my-2"></div>
+
+                <!-- User Audio Track -->
+                <div id="user-waveform" class="w-full h-24 flex items-center justify-center gap-[2px]">
+                    <span class="text-xs text-zinc-600 font-medium tracking-widest">HOLD TO RECORD</span>
+                </div>
+            </div>
+
+            <!-- Recorder Control -->
+            <div class="p-10 flex flex-col items-center justify-center pb-16">
+                <button id="record-btn" class="w-20 h-20 rounded-full bg-red-500 hover:bg-red-600 active:scale-95 transition-all shadow-2xl shadow-red-900/50 flex items-center justify-center relative overflow-hidden" onmousedown="startRecording()" onmouseup="stopRecording()" ontouchstart="startRecording()" ontouchend="stopRecording()">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="mic" class="lucide lucide-mic w-8 h-8 text-white relative z-10"><path d="M12 19v3"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><rect x="9" y="2" width="6" height="13" rx="3"></rect></svg>
+                    <div id="record-ripple" class="absolute inset-0 bg-red-400 rounded-full scale-0 transition-transform duration-200"></div>
+                </button>
+                <p class="mt-6 text-xs text-zinc-500 font-medium">让你的语音波形尽量和原文同频</p>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        lucide.createIcons();
+
+        const transcript = [
+            { start: 0.0, end: 2.0, text: "Thank you." },
+            { start: 6.0, end: 12.0, text: "I'm honored to be with you today for your commencement from one of the finest universities in the world." },
+            { start: 15.0, end: 25.0, text: "Truth be told, I never graduated from college, and this is the closest I've ever gotten to a college graduation." },
+            { start: 26.0, end: 30.0, text: "Today, I want to tell you three stories from my life." },
+            { start: 30.0, end: 34.0, text: "That's it. No big deal. Just three stories." },
+            { start: 35.0, end: 38.0, text: "The first story is about connecting the dots." },
+            { start: 40.0, end: 47.0, text: "I dropped out of Reed College after the first six months, but then stayed around as a drop-in for another 18 months or so before I really quit." },
+            { start: 48.0, end: 50.0, text: "So why'd I drop out?" },
+            { start: 51.0, end: 53.0, text: "It started before I was born." },
+            { start: 54.0, end: 60.0, text: "My biological mother was a young, unwed graduate student, and she decided to put me up for adoption." },
+            { start: 61.0, end: 69.0, text: "She felt very strongly that I should be adopted by college graduates, so everything was all set for me to be adopted at birth by a lawyer and his wife." }
+        ];
+
+        const metrics = { startSessions: 0, revealClicks: 0 };
+        const audioSrc = './演讲音频.m4a';
+        const audioEl = document.getElementById('primary-audio');
+        audioEl.src = audioSrc;
+        let ghostAnimation;
+        let isListeningActive = false;
+
+        // Helpers
+        function generateWaveform(containerId, colorClass, animate = false) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            container.innerHTML = '';
+            for (let i = 0; i < 60; i++) {
+                const h = Math.floor(Math.random() * 80) + 10;
+                const bar = document.createElement('div');
+                bar.className = `w-1 ${colorClass} rounded-full transition-all duration-300 ${animate ? 'wave-bar' : ''}`;
+                bar.style.height = `${h}%`;
+                if (animate) bar.style.animationDelay = `${i * 0.04}s`;
+                container.appendChild(bar);
+            }
+        }
+
+        // Build word-level timings by distributing segment duration across words
+        function buildWordTiming(seg) {
+            const words = seg.text.split(/\\s+/).filter(Boolean);
+            const dur = Math.max(0.01, seg.end - seg.start);
+            const step = dur / Math.max(1, words.length);
+            return words.map((w, idx) => ({
+                word: w,
+                start: seg.start + idx * step,
+                end: seg.start + (idx + 1) * step
+            }));
+        }
+
+        // Render Phase 1 text with blur per word (for word-level mask)
+        function renderPhase1() {
+            const container = document.getElementById('text-container');
+            container.innerHTML = '';
+            transcript.forEach((seg) => {
+                const p = document.createElement('p');
+                p.className = 'blur-text transition-all duration-300';
+                p.dataset.start = seg.start;
+                p.dataset.end = seg.end;
+                const timings = buildWordTiming(seg);
+                timings.forEach((entry, idx) => {
+                    const span = document.createElement('span');
+                    span.className = 'line-span';
+                    span.dataset.start = entry.start;
+                    span.dataset.end = entry.end;
+                    span.textContent = entry.word;
+                    p.appendChild(span);
+                    if (idx !== timings.length - 1) p.appendChild(document.createTextNode(' '));
+                });
+                container.appendChild(p);
+            });
+        }
+
+        // Render Phase 2 text with cloze-ready spans
+        function renderAnalysis() {
+            const container = document.getElementById('analysis-text');
+            container.innerHTML = '';
+            transcript.forEach((seg, idx) => {
+                const p = document.createElement('p');
+                if (idx < transcript.length - 1) p.classList.add('mb-6');
+                const words = seg.text.split(/(\s+)/);
+                words.forEach((chunk) => {
+                    if (chunk.trim() === '') {
+                        p.appendChild(document.createTextNode(chunk));
+                    } else {
+                        const span = document.createElement('span');
+                        span.className = 'cloze-word';
+                        span.dataset.word = chunk.replace(/[^\w']/g, '');
+                        const isPunct = /^[^a-zA-Z0-9]+$/.test(chunk);
+                        if (isPunct) span.dataset.punct = '1';
+                        span.textContent = chunk;
+                        p.appendChild(span);
+                    }
+                });
+                container.appendChild(p);
+            });
+        }
+
+        renderPhase1();
+        renderAnalysis();
+        generateWaveform('original-waveform', 'bg-indigo-400');
+        lucide.createIcons();
+
+        // Ghost cursor + progress sync
+        function syncGhostAndProgress() {
+            const current = audioEl.currentTime;
+            const duration = audioEl.duration || 1;
+            const fill = document.getElementById('scrubber-fill');
+            const handle = document.getElementById('scrubber-handle');
+            const percent = Math.min(100, (current / duration) * 100);
+            fill.style.width = `${percent}%`;
+            handle.style.transform = `translateY(-50%) scale(1)`;
+
+            const ghost = document.getElementById('ghost-cursor');
+            const caret = document.getElementById('typing-caret');
+            const wordMask = document.getElementById('word-mask');
+            const scrollBox = document.querySelector('#view-listening .flex-1');
+            const paragraphs = Array.from(document.querySelectorAll('#text-container .blur-text'));
+            let active;
+            paragraphs.forEach((p) => {
+                const start = parseFloat(p.dataset.start);
+                const end = parseFloat(p.dataset.end);
+                if (current >= start && current <= end) active = p;
+                p.classList.toggle('active', p === active);
+            });
+
+            if (active) {
+                const rect = active.getBoundingClientRect();
+                const parentRect = active.parentElement.getBoundingClientRect();
+                ghost.style.opacity = 0; // avoid masking整行，转为逐词遮罩
+                ghost.style.transform = `translateY(${rect.top - parentRect.top - 8}px)`;
+                const boxRect = scrollBox.getBoundingClientRect();
+                const delta = (rect.top + rect.height / 2) - (boxRect.top + boxRect.height / 2);
+                scrollBox.scrollBy({ top: delta, behavior: 'smooth' });
+
+                const words = Array.from(active.querySelectorAll('.line-span'));
+                let activeWord = null;
+                for (const w of words) {
+                    const s = parseFloat(w.dataset.start);
+                    const e = parseFloat(w.dataset.end);
+                    if (current >= s && current <= e) {
+                        activeWord = { el: w, s, e };
+                        break;
+                    }
+                }
+
+                if (activeWord) {
+                    const { el, s, e } = activeWord;
+                    const textRect = el.getBoundingClientRect();
+                    const style = window.getComputedStyle(el);
+                    const fontSize = parseFloat(style.fontSize) || 16;
+                    const caretHeight = fontSize * 1.0;
+                    const caretY = textRect.top - parentRect.top + (textRect.height - caretHeight) / 2;
+                    const subProgress = Math.min(1, Math.max(0, (current - s) / Math.max(0.01, e - s)));
+                    const caretX = textRect.left - parentRect.left + textRect.width * subProgress;
+                    caret.style.opacity = 1;
+                    caret.style.top = `${caretY}px`;
+                    caret.style.left = `${caretX}px`;
+                    caret.style.height = `${caretHeight}px`;
+
+                    wordMask.style.opacity = 0.5;
+                    wordMask.style.top = `${textRect.top - parentRect.top}px`;
+                    wordMask.style.left = `${textRect.left - parentRect.left}px`;
+                    wordMask.style.height = `${textRect.height}px`;
+                    wordMask.style.width = `${textRect.width}px`; // 仅高亮当前单词
+                } else {
+                    caret.style.opacity = 0;
+                    wordMask.style.opacity = 0;
+                }
+            } else {
+                ghost.style.opacity = 0;
+                caret.style.opacity = 0;
+                wordMask.style.opacity = 0;
+            }
+        }
+
+        function startGhostLoop() {
+            cancelAnimationFrame(ghostAnimation);
+            const loop = () => {
+                if (isListeningActive) {
+                    syncGhostAndProgress();
+                    ghostAnimation = requestAnimationFrame(loop);
+                }
+            };
+            ghostAnimation = requestAnimationFrame(loop);
+        }
+
+        audioEl.addEventListener('timeupdate', syncGhostAndProgress);
+        audioEl.addEventListener('loadeddata', () => {
+            drawWaveformFromAudio(audioSrc, 'original-waveform', 'bg-indigo-400');
+        });
+
+        // Seek by tapping blurred text
+        document.getElementById('text-container').addEventListener('click', (e) => {
+            const target = e.target.closest('.blur-text');
+            if (!target) return;
+            const start = parseFloat(target.dataset.start);
+            if (!Number.isNaN(start)) {
+                audioEl.currentTime = start;
+                syncGhostAndProgress();
+            }
+        });
+
+        // Scrubber interaction
+        document.getElementById('scrubber').addEventListener('click', (e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const percent = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+            audioEl.currentTime = percent * (audioEl.duration || 0);
+            syncGhostAndProgress();
+        });
+
+        function navigateTo(viewId) {
+            const views = ['home', 'listening', 'analysis', 'shadowing'];
+            views.forEach((v) => {
+                const el = document.getElementById(`view-${v}`);
+                if (!el) return;
+                if (v === 'home') {
+                    // Home stays static; overlays slide over it
+                    return;
+                }
+                if (v === viewId) {
+                    el.classList.remove('translate-x-full');
+                    el.classList.remove('hidden');
+                    el.style.transform = 'translateX(0%)';
+                } else {
+                    el.classList.add('translate-x-full');
+                    el.classList.add('hidden');
+                    el.style.transform = 'translateX(100%)';
+                }
+            });
+
+            if (viewId === 'listening') {
+                isListeningActive = true;
+                metrics.startSessions += 1;
+                audioEl.play().catch(() => {});
+                startGhostLoop();
+            } else {
+                isListeningActive = false;
+                if (viewId === 'shadowing') {
+                    audioEl.play().catch(() => {});
+                } else {
+                    audioEl.pause();
+                }
+                cancelAnimationFrame(ghostAnimation);
+            }
+        }
+
+        // Phase 1: Reveal Logic
+        function revealText() {
+            const texts = document.querySelectorAll('.blur-text');
+            const btn = document.getElementById('reveal-btn');
+            metrics.revealClicks += 1;
+
+            texts.forEach((t) => {
+                t.classList.add('revealed');
+            });
+
+            btn.innerHTML = `<span>开始精研</span> <i data-lucide="arrow-right" class="w-4 h-4"></i>`;
+            btn.classList.remove('bg-zinc-900', 'border-zinc-800', 'text-zinc-300');
+            btn.classList.add('bg-white', 'text-black', 'border-transparent', 'shadow-lg');
+            btn.onclick = () => navigateTo('analysis');
+            lucide.createIcons();
+        }
+
+        // Phase 2: Cloze Toggle (3 levels per PRD)
+        let clozeLevel = 0;
+        function toggleCloze() {
+            clozeLevel = (clozeLevel + 1) % 3;
+            const words = document.querySelectorAll('.cloze-word');
+            words.forEach((w) => {
+                w.classList.remove('cloze-active', 'cloze-blind');
+            });
+
+        if (clozeLevel === 1) {
+            words.forEach((w, idx) => {
+                if (w.dataset.punct) return;
+                if (Math.random() < 0.7) w.classList.add('cloze-active');
+            });
+        } else if (clozeLevel === 2) {
+            words.forEach((w) => {
+                if (!w.dataset.punct) w.classList.add('cloze-blind');
+            });
+            }
+        }
+
+        // Translate helper (English -> Chinese)
+        async function translateToChinese(text) {
+            try {
+                const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|zh-CN`);
+                const data = await res.json();
+                return data?.responseData?.translatedText || text;
+            } catch (err) {
+                return text;
+            }
+        }
+
+        // Definition Toast + lookup (Chinese explanation)
+        async function showDefinition(word) {
+            const toast = document.getElementById('definition-toast');
+            const title = toast.querySelector('h3');
+            const desc = toast.querySelector('p');
+            title.textContent = word || '词语';
+            desc.textContent = '加载释义...';
+            toast.classList.remove('translate-y-10', 'opacity-0', 'pointer-events-none');
+
+            try {
+                const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`);
+                const data = await res.json();
+                const meaning = data?.[0]?.meanings?.[0]?.definitions?.[0]?.definition;
+                if (meaning) {
+                    const zh = await translateToChinese(meaning);
+                    desc.textContent = zh;
+                } else {
+                    desc.textContent = '未找到释义，保持硬核。';
+                }
+            } catch (err) {
+                desc.textContent = '网络不可用，暂无法获取中文释义。';
+            }
+        }
+
+        document.getElementById('analysis-text').addEventListener('click', (e) => {
+            const target = e.target.closest('.cloze-word');
+            if (!target || target.dataset.punct) return;
+            showDefinition(target.dataset.word || target.textContent.trim());
+        });
+
+        // 简易语法解析（启发式，无需联网）
+        function parseGrammar(text) {
+            const clean = text.replace(/[^\w\s',-]/g, '').trim();
+            const clauses = clean.split(/[,;](?![^()]*\))/).map(c => c.trim()).filter(Boolean);
+            const verbList = ['am','is','are','was','were','be','been','being','have','has','had','do','does','did','will','would','can','could','may','might','should','shall','must','want','wants','wanted','need','needs','needed','go','goes','went','make','makes','made','tell','tells','told','say','says','said','feel','feels','felt','drop','drops','dropped','stay','stays','stayed'];
+            const results = clauses.map((clause) => {
+                const tokens = clause.split(/\s+/).filter(Boolean);
+                let verbIdx = tokens.findIndex(t => verbList.includes(t.toLowerCase()));
+                if (verbIdx === -1 && tokens.length > 0) verbIdx = Math.min(1, tokens.length - 1); // fallback
+                const subj = tokens.slice(0, verbIdx).join(' ');
+                const verb = tokens[verbIdx] || '';
+                const obj = tokens.slice(verbIdx + 1).join(' ');
+                return { clause, subj, verb, obj };
+            });
+            return results;
+        }
+
+        // Sentence grammar popup on selection within The Lab
+        function showGrammar(text) {
+            const toast = document.getElementById('definition-toast');
+            const title = toast.querySelector('h3');
+            const desc = toast.querySelector('p');
+            title.textContent = '语法解析';
+            desc.textContent = '正在解析...';
+            toast.classList.remove('translate-y-10', 'opacity-0', 'pointer-events-none');
+
+            const parsed = parseGrammar(text);
+            const lines = parsed.map((p, i) => {
+                return `子句${i + 1}: [主] ${p.subj || '(未识别)'} | [谓] ${p.verb || '(未识别)'} | [宾/补] ${p.obj || '(未识别)'}`;
+            });
+            desc.textContent = `句子：${text}\n` + lines.join('\n');
+        }
+
+        let lastGrammarText = '';
+        function maybeShowGrammarFromSelection() {
+            const sel = window.getSelection();
+            if (!sel || sel.isCollapsed) return;
+            const text = sel.toString().trim();
+            if (!text || text.length < 3 || text === lastGrammarText) return;
+            const anchorNode = sel.anchorNode;
+            const focusNode = sel.focusNode;
+            const container = document.getElementById('analysis-text');
+            if (!container.contains(anchorNode) || !container.contains(focusNode)) return;
+            lastGrammarText = text;
+            showGrammar(text);
+        }
+
+        document.getElementById('analysis-text').addEventListener('mouseup', () => {
+            setTimeout(maybeShowGrammarFromSelection, 0);
+        });
+        document.addEventListener('selectionchange', () => {
+            setTimeout(maybeShowGrammarFromSelection, 0);
+        });
+
+        // Close definition toast when clicking outside
+        document.addEventListener('click', (e) => {
+            const toast = document.getElementById('definition-toast');
+            const isToast = toast.contains(e.target);
+            const isWord = e.target.closest('.cloze-word');
+            if (!isToast && !isWord) {
+                toast.classList.add('translate-y-10', 'opacity-0', 'pointer-events-none');
+            }
+        });
+
+        // Waveform drawing from audio buffer (for reference + recorded)
+        async function drawWaveformFromAudio(src, containerId, colorClass) {
+            try {
+                const res = await fetch(src);
+                const arr = await res.arrayBuffer();
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const audioBuffer = await ctx.decodeAudioData(arr);
+                const data = audioBuffer.getChannelData(0);
+                renderWaveformFromData(data, containerId, colorClass);
+            } catch (e) {
+                generateWaveform(containerId, colorClass);
+            }
+        }
+
+        function renderWaveformFromData(data, containerId, colorClass) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            container.innerHTML = '';
+            const samples = 60;
+            const block = Math.floor(data.length / samples);
+            for (let i = 0; i < samples; i++) {
+                const slice = data.slice(i * block, (i + 1) * block);
+                const max = Math.max(...slice);
+                const min = Math.min(...slice);
+                const amp = Math.max(Math.abs(max), Math.abs(min));
+                const h = Math.max(10, Math.round(amp * 100));
+                const bar = document.createElement('div');
+                bar.className = `w-1 ${colorClass} rounded-full`;
+                bar.style.height = `${h}%`;
+                container.appendChild(bar);
+            }
+        }
+
+        // Phase 3: Recording with live waveform
+        let recorder;
+        let analyser;
+        let audioContext;
+        let liveWaveformLoop;
+
+        async function startRecording() {
+            document.getElementById('record-ripple').classList.remove('scale-0');
+            const container = document.getElementById('user-waveform');
+            container.classList.add('recording');
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const source = audioContext.createMediaStreamSource(stream);
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 256;
+                source.connect(analyser);
+
+                recorder = new MediaRecorder(stream);
+                const chunks = [];
+                recorder.ondataavailable = (e) => chunks.push(e.data);
+                recorder.onstop = async () => {
+                    stream.getTracks().forEach((t) => t.stop());
+                    cancelAnimationFrame(liveWaveformLoop);
+                    try {
+                        const blob = new Blob(chunks, { type: 'audio/webm' });
+                        const arrayBuffer = await blob.arrayBuffer();
+                        const decoded = await audioContext.decodeAudioData(arrayBuffer);
+                        renderWaveformFromData(decoded.getChannelData(0), 'user-waveform', 'bg-emerald-400');
+                    } catch (err) {
+                        generateWaveform('user-waveform', 'bg-emerald-400');
+                    }
+                    document.getElementById('record-ripple').classList.add('scale-0');
+                    container.classList.remove('recording');
+                };
+
+                recorder.start();
+                drawLiveWaveform();
+            } catch (err) {
+                // Fallback: simulated waveform
+                generateWaveform('user-waveform', 'bg-red-500', true);
+            }
+        }
+
+        function drawLiveWaveform() {
+            const container = document.getElementById('user-waveform');
+            const buffer = new Uint8Array(analyser.frequencyBinCount);
+            const update = () => {
+                analyser.getByteTimeDomainData(buffer);
+                container.innerHTML = '';
+                const step = Math.floor(buffer.length / 60);
+                for (let i = 0; i < 60; i++) {
+                    const slice = buffer.slice(i * step, (i + 1) * step);
+                    const value = slice.reduce((sum, v) => sum + Math.abs(v - 128), 0) / slice.length;
+                    const h = Math.max(10, Math.min(100, (value / 128) * 100));
+                    const bar = document.createElement('div');
+                    bar.className = 'w-1 bg-red-500 rounded-full';
+                    bar.style.height = `${h}%`;
+                    container.appendChild(bar);
+                }
+                liveWaveformLoop = requestAnimationFrame(update);
+            };
+            liveWaveformLoop = requestAnimationFrame(update);
+        }
+
+        function stopRecording() {
+            document.getElementById('record-ripple').classList.add('scale-0');
+            if (recorder && recorder.state === 'recording') {
+                recorder.stop();
+            } else {
+                const container = document.getElementById('user-waveform');
+                container.classList.remove('recording');
+            }
+            if (liveWaveformLoop) cancelAnimationFrame(liveWaveformLoop);
+        }
+
+        // Playback speed (phase 3)
+        document.querySelectorAll('#view-shadowing .flex.gap-2 button').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                const rate = parseFloat(btn.textContent);
+                document.querySelectorAll('#view-shadowing .flex.gap-2 button').forEach((b) => b.classList.remove('bg-zinc-700', 'text-white'));
+                btn.classList.add('bg-zinc-700', 'text-white');
+                audioEl.playbackRate = rate;
+            });
+        });
+
+        // Play / Pause control
+        const playBtn = document.getElementById('play-btn');
+        function setPlayIcon(playing) {
+            if (playing) {
+                playBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-pause w-6 h-6 fill-current"><rect x="14" y="3" width="5" height="18" rx="1"></rect><rect x="5" y="3" width="5" height="18" rx="1"></rect></svg>`;
+            } else {
+                playBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play w-6 h-6 fill-current"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`;
+            }
+        }
+        setPlayIcon(false);
+
+        playBtn.addEventListener('click', () => {
+            if (audioEl.paused) {
+                audioEl.play().catch(() => {});
+                isListeningActive = true;
+                startGhostLoop();
+            } else {
+                audioEl.pause();
+                isListeningActive = false;
+            }
+        });
+
+        audioEl.addEventListener('play', () => setPlayIcon(true));
+        audioEl.addEventListener('pause', () => setPlayIcon(false));
+        audioEl.addEventListener('ended', () => setPlayIcon(false));
+
+        // Keep page interactive on load
+        navigateTo('home');
+    </script>
+
+</body></html>
