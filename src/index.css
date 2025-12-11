@@ -1,3 +1,18 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+
+  html,
+  body {
+    overscroll-behavior-y: none;
+    height: 100%;
+    overflow: hidden;
+    /* Force app-like behavior, scroll only in specific containers */
+  }
+
+  body {
+    background-color: black;
+  }
+}

@@ -15,12 +15,17 @@ export function useAudio(src: string) {
     const onPlay = () => setIsPlaying(true);
     const onPause = () => setIsPlaying(false);
     const onEnded = () => setIsPlaying(false);
+    const onError = (e: Event) => console.error("Audio error:", audio.error);
 
     audio.addEventListener('timeupdate', updateTime);
     audio.addEventListener('loadedmetadata', updateDuration);
     audio.addEventListener('play', onPlay);
     audio.addEventListener('pause', onPause);
     audio.addEventListener('ended', onEnded);
+    audio.addEventListener('error', onError);
+
+    // Auto-play on source change
+    audio.play().catch(e => console.log("Auto-play blocked or failed:", e));
 
     return () => {
       audio.pause();
@@ -29,15 +34,21 @@ export function useAudio(src: string) {
       audio.removeEventListener('play', onPlay);
       audio.removeEventListener('pause', onPause);
       audio.removeEventListener('ended', onEnded);
+      audio.removeEventListener('error', onError);
     };
   }, [src]);
 
-  const togglePlay = () => {
+  const togglePlay = async () => {
     if (audioRef.current) {
       if (isPlaying) {
         audioRef.current.pause();
       } else {
-        audioRef.current.play();
+        try {
+          await audioRef.current.play();
+        } catch (err) {
+          console.error("Playback failed:", err);
+          // Optional: Notify user via state if needed, but console is start
+        }
       }
     }
   };
@@ -45,8 +56,21 @@ export function useAudio(src: string) {
   const seek = (time: number) => {
     if (audioRef.current) {
       audioRef.current.currentTime = time;
+      setCurrentTime(time); // Update state immediately for UI responsiveness
     }
   };
 
-  return { isPlaying, currentTime, duration, togglePlay, seek, audioRef };
+  const play = async () => {
+    try {
+      await audioRef.current?.play();
+    } catch (err) {
+      console.error("Playback failed:", err);
+    }
+  };
+
+  const pause = () => {
+    audioRef.current?.pause();
+  };
+
+  return { isPlaying, currentTime, duration, togglePlay, play, pause, seek, audioRef };
 }

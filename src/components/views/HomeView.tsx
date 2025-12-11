@@ -1,12 +1,70 @@
-import { Award, ChevronRight } from "lucide-react";
+import { useRef, useState, useEffect } from "react";
+import { MaterialCard, type Material } from "@/components/MaterialCard";
 
 interface HomeViewProps {
-  onNavigate: (view: 'listening') => void;
+  onPlay: (audioUrl: string) => void;
 }
 
-export function HomeView({ onNavigate }: HomeViewProps) {
+const MATERIALS: Material[] = [
+  {
+    id: '1',
+    title: 'Steve Jobs: Stanford Commencement Speech',
+    imageUrl: 'https://images.unsplash.com/photo-1556761175-5973dc0f32e7?q=80&w=1000&auto=format&fit=crop',
+    duration: '14:02',
+    label: { text: 'L4 HARD', type: 'hard' },
+    progress: 45,
+    audioUrl: '/演讲音频.m4a'
+  },
+  {
+    id: '2',
+    title: 'BBC News: Global Economics Update',
+    subtitle: 'Understanding market volatility and the impact on international trade agreements.',
+    imageUrl: 'https://hoirqrkdgbmvpwutwuwj.supabase.co/storage/v1/object/public/assets/assets/917d6f93-fb36-439a-8c48-884b67b35381_1600w.jpg',
+    duration: '05:30',
+    label: { text: 'NEW', type: 'new' },
+    audioUrl: '/演讲音频.m4a' // Placeholder
+  },
+  {
+    id: '3',
+    title: 'The Feynman Technique',
+    imageUrl: 'https://hoirqrkdgbmvpwutwuwj.supabase.co/storage/v1/object/public/assets/assets/4734259a-bad7-422f-981e-ce01e79184f2_1600w.jpg',
+    label: { text: 'MASTERED', type: 'mastered' },
+    audioUrl: '/演讲音频.m4a' // Placeholder
+  }
+];
+
+export function HomeView({ onPlay }: HomeViewProps) {
+  const [activeId, setActiveId] = useState<string>('1');
+  const observerRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            // Use dataset id to identify the card
+            const id = (entry.target as HTMLElement).dataset.id;
+            if (id) setActiveId(id);
+          }
+        });
+      },
+      {
+        root: null,
+        // Trigger when the element touches the middle ~50% of the screen
+        rootMargin: '-25% 0px -25% 0px',
+        threshold: 0.4
+      }
+    );
+
+    observerRefs.current.forEach((el) => {
+      if (el) observer.observe(el);
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <main className="flex-1 overflow-y-auto no-scrollbar scroll-smooth pt-20 pr-4 pb-10 pl-4 space-y-8">
+    <main className="flex-1 overflow-y-auto no-scrollbar scroll-smooth pt-[calc(1.5rem+env(safe-area-inset-top))] pr-4 pb-10 pl-4 space-y-8">
       <style>{`
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
@@ -23,85 +81,23 @@ export function HomeView({ onNavigate }: HomeViewProps) {
       </div>
 
       {/* Card List */}
-      <div className="space-y-6">
-        {/* Card 1: In Progress */}
-        <div 
-          onClick={() => onNavigate('listening')} 
-          className="group relative aspect-[4/5] w-full rounded-2xl overflow-hidden cursor-pointer border border-zinc-800 hover:border-zinc-600 transition-all duration-300" 
-          style={{ animation: "enter-blur-slide 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) 0.2s both" }}
-        >
-          <img 
-            src="https://images.unsplash.com/photo-1556761175-5973dc0f32e7?q=80&w=1000&auto=format&fit=crop" 
-            className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:scale-105 transition-transform duration-700 grayscale hover:grayscale-0" 
-            alt="Steve Jobs" 
-          />
-          <div className="bg-gradient-to-t from-black via-black/40 to-transparent absolute top-0 right-0 bottom-0 left-0"></div>
-          
-          <div className="absolute bottom-0 left-0 right-0 p-6">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs font-medium tracking-wide">L4 HARD</span>
-              <span className="px-2 py-0.5 rounded-full bg-zinc-800/80 text-zinc-400 border border-zinc-700 text-xs font-medium tracking-wide">14:02</span>
-            </div>
-            <h2 className="text-2xl font-semibold text-white tracking-tight leading-snug mb-2">Steve Jobs: Stanford Commencement Speech</h2>
-            
-            {/* Progress Bar */}
-            <div className="flex items-center gap-3">
-              <div className="flex-1 h-1 bg-zinc-700/50 rounded-full overflow-hidden backdrop-blur-sm">
-                <div className="h-full bg-white w-[45%]"></div>
-              </div>
-              <span className="text-xs text-zinc-300 font-medium">Phase 1</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Card 2: New */}
-        <div 
-          className="group relative aspect-[4/5] w-full rounded-2xl overflow-hidden cursor-pointer border border-zinc-800 hover:border-zinc-600 transition-all duration-300" 
-          style={{ animation: "enter-blur-slide 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) 0.3s both" }}
-        >
-          <img 
-            src="https://hoirqrkdgbmvpwutwuwj.supabase.co/storage/v1/object/public/assets/assets/917d6f93-fb36-439a-8c48-884b67b35381_1600w.jpg" 
-            className="absolute inset-0 w-full h-full object-cover opacity-50 group-hover:scale-105 transition-transform duration-700 grayscale hover:grayscale-0" 
-            alt="News" 
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent"></div>
-          
-          <div className="absolute bottom-0 left-0 right-0 p-6">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-medium tracking-wide">NEW</span>
-              <span className="px-2 py-0.5 rounded-full bg-zinc-800/80 text-zinc-400 border border-zinc-700 text-xs font-medium tracking-wide">05:30</span>
-            </div>
-            <h2 className="text-2xl font-semibold text-white tracking-tight leading-snug mb-2">BBC News: Global Economics Update</h2>
-            <p className="text-sm text-zinc-400 line-clamp-2">Understanding market volatility and the impact on international trade agreements.</p>
-          </div>
-        </div>
-
-        {/* Card 3: Mastered */}
-        <div 
-          className="group relative h-40 w-full rounded-2xl overflow-hidden cursor-pointer border border-amber-900/30 hover:border-amber-700/50 transition-all duration-300" 
-          style={{ animation: "enter-blur-slide 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) 0.4s both" }}
-        >
-             <div className="absolute inset-0 bg-amber-950/10"></div>
-             <img 
-               src="https://hoirqrkdgbmvpwutwuwj.supabase.co/storage/v1/object/public/assets/assets/4734259a-bad7-422f-981e-ce01e79184f2_1600w.jpg" 
-               className="absolute inset-0 w-full h-full object-cover opacity-30 mix-blend-overlay grayscale" 
-               alt="Mastered" 
+      <div className="space-y-6 pb-20"> {/* pb-20 gives space at bottom to scroll last item to center */}
+        {MATERIALS.map((material, index) => (
+          <div
+            key={material.id}
+            data-id={material.id}
+            ref={el => { if (el) observerRefs.current[index] = el; }}
+            style={{ animation: `enter-blur-slide 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) ${0.2 + index * 0.1}s both` }}
+          >
+            <MaterialCard
+              material={material}
+              isActive={activeId === material.id}
+              onClick={() => onPlay(material.audioUrl)}
             />
-            
-            <div className="absolute inset-0 flex items-center justify-between p-6">
-                <div>
-                    <div className="flex items-center gap-2 mb-2">
-                        <Award className="w-4 h-4 text-amber-500" />
-                        <span className="text-amber-500 text-xs font-semibold tracking-widest uppercase">Mastered</span>
-                    </div>
-                    <h2 className="text-lg font-semibold text-zinc-300 tracking-tight">The Feynman Technique</h2>
-                </div>
-                <ChevronRight className="text-zinc-600" />
-            </div>
-        </div>
+          </div>
+        ))}
       </div>
-      
-      <div className="h-10"></div>
     </main>
   );
 }
+
