@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from 'react';
 
-export function useAudio(src: string) {
+export function useAudio(src: string, enabled: boolean = false) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -24,8 +24,10 @@ export function useAudio(src: string) {
     audio.addEventListener('ended', onEnded);
     audio.addEventListener('error', onError);
 
-    // Auto-play on source change
-    audio.play().catch(e => console.log("Auto-play blocked or failed:", e));
+    // Initial play if enabled
+    if (enabled) {
+      audio.play().catch(e => console.log("Auto-play blocked:", e));
+    }
 
     return () => {
       audio.pause();
@@ -37,6 +39,17 @@ export function useAudio(src: string) {
       audio.removeEventListener('error', onError);
     };
   }, [src]);
+
+  // Reactive Play/Pause based on enabled prop
+  useEffect(() => {
+    if (audioRef.current) {
+      if (enabled && audioRef.current.paused) {
+        audioRef.current.play().catch(e => console.log("Reactive play failed:", e));
+      } else if (!enabled && !audioRef.current.paused) {
+        audioRef.current.pause();
+      }
+    }
+  }, [enabled]);
 
   const togglePlay = async () => {
     if (audioRef.current) {

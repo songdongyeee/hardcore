@@ -1,10 +1,17 @@
+export interface Word {
+  text: string;
+  start: number;
+  end: number;
+}
+
 export interface TranscriptSegment {
   start: number;
   end: number;
   text: string;
+  words?: Word[];
 }
 
-export const transcript: TranscriptSegment[] = [
+const rawTranscript: TranscriptSegment[] = [
   { start: 0.0, end: 2.0, text: "Thank you." },
   { start: 6.0, end: 12.0, text: "I'm honored to be with you today for your commencement from one of the finest universities in the world." },
   { start: 15.0, end: 25.0, text: "Truth be told, I never graduated from college, and this is the closest I've ever gotten to a college graduation." },
@@ -17,3 +24,19 @@ export const transcript: TranscriptSegment[] = [
   { start: 54.0, end: 60.0, text: "My biological mother was a young, unwed graduate student, and she decided to put me up for adoption." },
   { start: 61.0, end: 69.0, text: "She felt very strongly that I should be adopted by college graduates, so everything was all set for me to be adopted at birth by a lawyer and his wife." }
 ];
+
+// Helper to generate word timestamps (Mock Strategy)
+export const transcript: TranscriptSegment[] = rawTranscript.map(seg => {
+  const words = seg.text.split(' ');
+  const duration = seg.end - seg.start;
+  const wordDuration = duration / words.length;
+
+  return {
+    ...seg,
+    words: words.map((word, i) => ({
+      text: word,
+      start: seg.start + (i * wordDuration),
+      end: seg.start + ((i + 1) * wordDuration)
+    }))
+  };
+});

@@ -85,24 +85,34 @@ export function ListeningView({
       </div>
 
       {/* Content */}
+      {/* Content */}
       <div className="flex-1 overflow-y-auto p-8 flex items-start justify-center relative" ref={scrollBoxRef}>
         <div ref={containerRef} className="space-y-6 text-lg md:text-xl font-medium leading-relaxed tracking-tight text-left max-w-md">
-          {transcript.map((seg, idx) => {
-            const isActive = idx === activeSegmentIndex;
-            return (
-              <p
-                key={idx}
-                className={cn(
-                  "blur-text transition-all duration-500 cursor-pointer",
-                  isActive ? "active text-shadow-glow" : "blur-[8px] text-zinc-400 select-none"
+          {transcript.map((seg, idx) => (
+            <p key={idx} className="mb-6 leading-loose" onClick={() => seek(seg.start)}>
+              {seg.words?.map((word, wIdx) => {
+                // Check if this word is currently active
+                const isWordActive = currentTime >= word.start && currentTime < word.end;
+
+                return (
+                  <span
+                    key={wIdx}
+                    className={cn(
+                      "inline-block mr-1.5 px-0.5 rounded transition-all duration-100",
+                      isWordActive
+                        ? "filter blur-[4px] bg-indigo-500/50 text-white"
+                        : "filter blur-[8px] text-zinc-400"
+                    )}
+                  >
+                    {word.text}
+                  </span>
+                );
+              }) || (
+                  // Fallback if no words (shouldn't happen with new data)
+                  <span className="blur-[8px] text-zinc-400">{seg.text}</span>
                 )}
-                style={isActive ? { filter: 'none', color: '#fff', textShadow: '0 0 16px rgba(167, 139, 250, 0.4)' } : {}}
-                onClick={() => seek(seg.start)}
-              >
-                {seg.text}
-              </p>
-            );
-          })}
+            </p>
+          ))}
         </div>
       </div>
 

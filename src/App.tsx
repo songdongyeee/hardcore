@@ -12,7 +12,8 @@ type ViewState = 'home' | 'listening' | 'analysis' | 'shadowing';
 function App() {
   const [activeView, setActiveView] = useState<ViewState>('home');
   const [currentSrc, setCurrentSrc] = useState<string>('/演讲音频.m4a');
-  const { isPlaying, currentTime, togglePlay, seek, audioRef, pause, play } = useAudio(currentSrc);
+  // Only enable audio when in 'listening' view
+  const { isPlaying, currentTime, togglePlay, seek, audioRef, pause, play } = useAudio(currentSrc, activeView === 'listening');
 
   const handlePlay = (audioUrl: string) => {
     if (audioUrl === currentSrc) {
@@ -45,28 +46,17 @@ function App() {
         <div className="relative w-full h-full flex-1 flex flex-col">
           <HomeView onPlay={handlePlay} />
 
-          {activeView === 'listening' && (
-            <ListeningView
-              onBack={() => {
-                pause();
-                setActiveView('home');
-              }}
+          {activeView === 'analysis' && (
+            <AnalysisView
+              onBack={() => setActiveView('listening')}
               onNextPhase={() => {
                 pause();
-                setActiveView('analysis');
+                setActiveView('shadowing');
               }}
               audioRef={audioRef}
               currentTime={currentTime}
               isPlaying={isPlaying}
-              togglePlay={togglePlay}
               seek={seek}
-            />
-          )}
-
-          {activeView === 'analysis' && (
-            <AnalysisView
-              onBack={() => setActiveView('listening')}
-              onNextPhase={() => setActiveView('shadowing')}
             />
           )}
 
