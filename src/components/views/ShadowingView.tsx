@@ -46,7 +46,7 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
   // User Waveform
   const userContainerRef = useRef<HTMLDivElement>(null);
   const userWs = useRef<WaveSurfer | null>(null); // For Review
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  // canvasRef removed
 
   // Logic Refs
   const rafRef = useRef<number>(0);
@@ -107,20 +107,14 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
       cancelAnimationFrame(rafRef.current!);
     };
   }, [audioSrc]); // Removed status dependency, permission check is fine one-off or here.
-  const simulationRef = useRef({
-    state: 'silence' as 'silence' | 'talk',
-    nextChangeTime: 0,
-    currentAmp: 0.01,
-    targetAmp: 0.01
-  });
+  // simulationRef removed
+
 
   // --- Synchronization & Scroll Logic ---
   // The Heart of the "Single Scroll Container" Architecture
 
   // --- ANIMATION REFS ---
   const playbackRafRef = useRef<number | null>(null);
-  const recordingRafRef = useRef<number | null>(null);
-  const barAccumulatorRef = useRef(0);
 
   // Update Scroll Left based on Time
   const scrollToUnsafe = (time: number) => {
@@ -130,86 +124,14 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
   };
 
   // --- RECORDING LOOP (Isolated) ---
+  // --- RECORDING LOOP DETACHED ---
+  // We are using CSS Keyframe Animations for the visualizer now.
+  // The JS loop is disabled to save resources.
+  /*
   useEffect(() => {
-    if (status === 'recording') {
-      const cvs = canvasRef.current;
-      const ctx = cvs?.getContext('2d');
-      if (cvs && ctx) {
-        // Reset Style
-        ctx.lineCap = 'round';
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = '#FF3333';
-        barAccumulatorRef.current = 0;
-
-        // Reset Sim
-        simulationRef.current = { state: 'silence', nextChangeTime: 0, currentAmp: 0.0, targetAmp: 0.0 };
-
-        const loop = () => {
-          const now = performance.now();
-          const t_sec = now / 1000;
-
-          // 1. Scroll
-          const elapsed = (now - startTimeRef.current) / 1000;
-          const currentTime = Math.min(elapsed, duration);
-          scrollToUnsafe(currentTime);
-
-          // 2. MICRO-ACTIVITY (System Breathing)
-          // User feedback: "I am not speaking but it exists" -> Disable Talk Simulation.
-          // User feedback: "Completely empty" -> Enable Pulse.
-
-          // Generate a rhythmic "System Breath" to show the mic is hot.
-          // Frequency: 0.5Hz (Slow breath)
-          const breath = (Math.sin(t_sec * 3) * 0.5 + 0.5) * 0.02;
-
-          // Add micro-jitter (1px)
-          let rawInput = breath + (Math.random() * 0.01);
-
-          // Occasional tiny pop?
-          if (Math.random() > 0.99) rawInput += 0.02;
-
-          // 3. Draw Discrete
-          const pxPerFrame = (PX_PER_SEC * 0.016);
-          const shift = pxPerFrame;
-
-          ctx.globalCompositeOperation = 'copy';
-          ctx.drawImage(cvs, -shift, 0);
-          ctx.globalCompositeOperation = 'source-over';
-
-          barAccumulatorRef.current += shift;
-          const BAR_FULL_WIDTH = 6;
-
-          if (barAccumulatorRef.current >= BAR_FULL_WIDTH) {
-            barAccumulatorRef.current -= BAR_FULL_WIDTH;
-
-            // --- RENDER ---
-            // Show the micro-noise directly. 
-            // NO Threshold (Show everything).
-            // NO Main Gain (Keep it small).
-
-            let processed = rawInput;
-
-            // Limit max height to avoid looking like "Speech"
-            // Cap at 0.1 (10% height)
-            if (processed > 0.1) processed = 0.1;
-
-            const h = Math.max(2, processed * (cvs.height * 0.8)); // Min 2px
-
-            if (h > 0) {
-              const x = (cvs.width / 2);
-              ctx.fillStyle = '#ff3b30'; // Keep Red
-              ctx.fillRect(x, (cvs.height / 2) - (h / 2), 4, h);
-            }
-          }
-          recordingRafRef.current = requestAnimationFrame(loop);
-        };
-        loop();
-      }
-    }
-
-    return () => {
-      if (recordingRafRef.current) cancelAnimationFrame(recordingRafRef.current);
-    };
-  }, [status]); // Only restart if status changes
+     // ... (Old Canvas Logic)
+  }, [status]);
+  */
 
 
   // --- PLAYBACK HELPERS (System Clock Driver) ---
@@ -409,13 +331,6 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
       // 2. Prep UI
       if (userWs.current) { userWs.current.destroy(); userWs.current = null; }
       setRecordedBase64(null);
-
-      // Canvas Reset
-      const cvs = canvasRef.current;
-      if (cvs) {
-        const ctx = cvs.getContext('2d');
-        ctx?.clearRect(0, 0, cvs.width, cvs.height);
-      }
 
       // 3. START NATIVE RECORDER (The "Storage" Channel)
       await VoiceRecorder.startRecording();
@@ -662,22 +577,35 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
           </div>
         </div>
 
-        {/* C. VISUALIZER CANVAS (FIXED OVERLAY) */}
+        {/* C. VISUALIZER (FIXED OVERLAY) - DEMO EFFECT */}
         {/* We place it outside the ScrollContainer so it stays fixed to the viewport */}
-        {/* It aligns exactly with the Bottom Track Area */}
-        <div className="absolute left-0 right-0 top-[220px] h-[160px] pointer-events-none z-0">
-          <canvas
-            ref={canvasRef}
-            // Size: Window width is safer for performance than 4000
-            // We'll let CSS handle full width
-            width={window.innerWidth}
-            height={WAVE_HEIGHT}
-            className={cn(
-              "w-full h-full",
-              status === 'recording' ? "opacity-100" : "opacity-0"
-            )}
-          />
-        </div>
+        {/* It aligns exactly with the Bottom Track Area (top-220, h-160) */}
+        {status === 'recording' && (
+          <div className="absolute left-0 right-0 top-[220px] h-[160px] pointer-events-none z-10 flex flex-col items-center justify-center">
+
+            {/* Glow Effect */}
+            <div className="absolute w-64 h-64 bg-rose-500/10 rounded-full blur-3xl pointer-events-none animate-pulse"></div>
+
+            {/* Animated Equalizer Bars (CSS Animation) */}
+            <div className="flex items-center justify-center gap-1.5 h-16 relative z-10">
+              <div className="w-1.5 bg-rose-500 rounded-full animate-sound-bar bar-1"></div>
+              <div className="w-1.5 bg-rose-400 rounded-full animate-sound-bar bar-2"></div>
+              <div className="w-1.5 bg-rose-500 rounded-full animate-sound-bar bar-3"></div>
+              <div className="w-1.5 bg-rose-300 rounded-full animate-sound-bar bar-4"></div>
+              <div className="w-1.5 bg-rose-500 rounded-full animate-sound-bar bar-5"></div>
+              <div className="w-1.5 bg-rose-400 rounded-full animate-sound-bar bar-6"></div>
+              <div className="w-1.5 bg-rose-500 rounded-full animate-sound-bar bar-2"></div>
+              <div className="w-1.5 bg-rose-300 rounded-full animate-sound-bar bar-4"></div>
+              <div className="w-1.5 bg-rose-500 rounded-full animate-sound-bar bar-1"></div>
+              <div className="w-1.5 bg-rose-400 rounded-full animate-sound-bar bar-3"></div>
+            </div>
+
+            <div className="mt-4 flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></div>
+              <span className="text-sm font-medium text-rose-500 tracking-wide uppercase">Listening...</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 3. Controls (Bottom) */}
