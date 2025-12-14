@@ -115,6 +115,7 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
 
   // --- ANIMATION REFS ---
   const playbackRafRef = useRef<number | null>(null);
+  const recordingRafRef = useRef<number | null>(null); // Re-enabled for scroll loop
 
   // Update Scroll Left based on Time
   const scrollToUnsafe = (time: number) => {
@@ -124,14 +125,26 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
   };
 
   // --- RECORDING LOOP (Isolated) ---
-  // --- RECORDING LOOP DETACHED ---
-  // We are using CSS Keyframe Animations for the visualizer now.
-  // The JS loop is disabled to save resources.
-  /*
+  // --- RECORDING LOOP (SCROLL ONLY) ---
+  // Re-enabled to support "Raw Material Scrolling" during recording.
   useEffect(() => {
-     // ... (Old Canvas Logic)
+    if (status === 'recording') {
+      const loop = () => {
+        const now = performance.now();
+        // 1. Scroll Logic
+        const elapsed = (now - startTimeRef.current) / 1000;
+        const currentTime = Math.min(elapsed, duration);
+        scrollToUnsafe(currentTime);
+
+        recordingRafRef.current = requestAnimationFrame(loop);
+      };
+      loop();
+    }
+
+    return () => {
+      if (recordingRafRef.current) cancelAnimationFrame(recordingRafRef.current);
+    };
   }, [status]);
-  */
 
 
   // --- PLAYBACK HELPERS (System Clock Driver) ---
@@ -503,12 +516,17 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
 
         {/* Global Center Line (The Needle) */}
         {/* Animated Pulse Grip during Recording */}
-        <div className={cn(
-          "absolute left-1/2 top-0 bottom-0 w-[2px] z-30 -translate-x-1/2 pointer-events-none transition-all duration-300",
-          status === 'recording'
-            ? "bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.8)] animate-pulse"
-            : "bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]"
-        )}></div>
+        {/* Global Center Line (The Needle) */}
+        {/* Animated Pulse Grip during Recording */}
+        {/* REQ: Hide in User Track (Green Box) during Recording */}
+        <div
+          className={cn(
+            "absolute left-1/2 top-0 z-30 -translate-x-1/2 w-[2px] pointer-events-none transition-all duration-300",
+            status === 'recording'
+              ? "bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.8)] animate-pulse h-[220px]" // Limit height to Top Track
+              : "bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)] bottom-0" // Full height otherwise
+          )}
+        ></div>
 
         {/* Side Play Buttons (Overlay) - Visible in Idle/Review */}
         {(status === 'idle' || status === 'review') && (
