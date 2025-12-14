@@ -1,22 +1,59 @@
 PODS:
   - Capacitor (8.0.0):
     - CapacitorCordova
+  - CapacitorCommunityAppleSignIn (7.1.0):
+    - Capacitor
   - CapacitorCordova (8.0.0)
+  - CapacitorFilesystem (8.0.0):
+    - Capacitor
+    - IONFilesystemLib (~> 1.0.1)
+  - CapacitorHaptics (8.0.0):
+    - Capacitor
+  - CapacitorPreferences (8.0.0):
+    - Capacitor
+  - CapacitorVoiceRecorder (7.0.6):
+    - Capacitor
+  - IONFilesystemLib (1.0.1)
 
 DEPENDENCIES:
   - "Capacitor (from `../../node_modules/@capacitor/ios`)"
+  - "CapacitorCommunityAppleSignIn (from `../../node_modules/@capacitor-community/apple-sign-in`)"
   - "CapacitorCordova (from `../../node_modules/@capacitor/ios`)"
+  - "CapacitorFilesystem (from `../../node_modules/@capacitor/filesystem`)"
+  - "CapacitorHaptics (from `../../node_modules/@capacitor/haptics`)"
+  - "CapacitorPreferences (from `../../node_modules/@capacitor/preferences`)"
+  - CapacitorVoiceRecorder (from `../../node_modules/capacitor-voice-recorder`)
+
+SPEC REPOS:
+  https://mirrors.tuna.tsinghua.edu.cn/git/CocoaPods/Specs.git:
+    - IONFilesystemLib
 
 EXTERNAL SOURCES:
   Capacitor:
     :path: "../../node_modules/@capacitor/ios"
+  CapacitorCommunityAppleSignIn:
+    :path: "../../node_modules/@capacitor-community/apple-sign-in"
   CapacitorCordova:
     :path: "../../node_modules/@capacitor/ios"
+  CapacitorFilesystem:
+    :path: "../../node_modules/@capacitor/filesystem"
+  CapacitorHaptics:
+    :path: "../../node_modules/@capacitor/haptics"
+  CapacitorPreferences:
+    :path: "../../node_modules/@capacitor/preferences"
+  CapacitorVoiceRecorder:
+    :path: "../../node_modules/capacitor-voice-recorder"
 
 SPEC CHECKSUMS:
   Capacitor: 341ff7cf652ec695d1a8ebf604db448ac7b6d635
+  CapacitorCommunityAppleSignIn: 271cb2860576fd2961508bbfa7a82117d93eadca
   CapacitorCordova: 5dc3912d25ef770a3fe0f431bb65c9fbfa2e92f9
+  CapacitorFilesystem: 2cb7c29536024668f333266a2177f8c10bbd9c98
+  CapacitorHaptics: 2079d9fa04c5a71e18663b4722323c304c58245c
+  CapacitorPreferences: 443fabe9670226200e595658a87ef0b1566716d4
+  CapacitorVoiceRecorder: 9158861be982f32d411769723a4d813d6ce46135
+  IONFilesystemLib: 89258b8e3e85465da93127d25d7ce37f977e8a6f
 
-PODFILE CHECKSUM: 82055463dbb59ae21ff8f4bf59d0e97e197752c9
+PODFILE CHECKSUM: 36aaa8843f9ccac6439097a2fc8879c1c1c9728f
 
 COCOAPODS: 1.16.2

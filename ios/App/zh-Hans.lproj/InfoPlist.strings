@@ -1,0 +1,9 @@
+/* 
+  InfoPlist.strings
+  App
+
+  Created by geo on 2025/12/12.
+  
+*/
+"CFBundleDisplayName" = "语核";
+"NSMicrophoneUsageDescription" = "语核需要访问麦克风以分析您的口语发音。";

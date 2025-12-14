@@ -1,15 +1,20 @@
 import { useRef, useState, useEffect } from "react";
 import { MaterialCard, type Material } from "@/components/MaterialCard";
+import { User } from "lucide-react";
+import { useUsageLimit } from "@/hooks/useUsageLimit";
+import { useAuth } from "@/hooks/useAuth";
+import { Paywall } from "@/components/Paywall";
 
 interface HomeViewProps {
   onPlay: (audioUrl: string) => void;
+  onProfile: () => void;
 }
 
 const MATERIALS: Material[] = [
   {
     id: '1',
     title: 'Steve Jobs: Stanford Commencement Speech',
-    imageUrl: 'https://images.unsplash.com/photo-1556761175-5973dc0f32e7?q=80&w=1000&auto=format&fit=crop',
+    imageUrl: '/images/steve_jobs.jpg',
     duration: '14:02',
     label: { text: 'L4 HARD', type: 'hard' },
     progress: 45,
@@ -19,7 +24,7 @@ const MATERIALS: Material[] = [
     id: '2',
     title: 'BBC News: Global Economics Update',
     subtitle: 'Understanding market volatility and the impact on international trade agreements.',
-    imageUrl: 'https://hoirqrkdgbmvpwutwuwj.supabase.co/storage/v1/object/public/assets/assets/917d6f93-fb36-439a-8c48-884b67b35381_1600w.jpg',
+    imageUrl: '/images/bbc_news.jpg',
     duration: '05:30',
     label: { text: 'NEW', type: 'new' },
     audioUrl: '/演讲音频.m4a' // Placeholder
@@ -27,15 +32,28 @@ const MATERIALS: Material[] = [
   {
     id: '3',
     title: 'The Feynman Technique',
-    imageUrl: 'https://hoirqrkdgbmvpwutwuwj.supabase.co/storage/v1/object/public/assets/assets/4734259a-bad7-422f-981e-ce01e79184f2_1600w.jpg',
+    imageUrl: '/images/feynman.jpg',
     label: { text: 'MASTERED', type: 'mastered' },
     audioUrl: '/演讲音频.m4a' // Placeholder
   }
 ];
 
-export function HomeView({ onPlay }: HomeViewProps) {
+export function HomeView({ onPlay, onProfile }: HomeViewProps) {
   const [activeId, setActiveId] = useState<string>('1');
+  const [showPaywall, setShowPaywall] = useState(false);
   const observerRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  const { user, isVip } = useAuth();
+  const { checkAccess } = useUsageLimit(isVip);
+
+  const handleCardClick = async (material: Material) => {
+    const access = await checkAccess(material.id);
+    if (access.allowed) {
+      onPlay(material.audioUrl);
+    } else {
+      setShowPaywall(true);
+    }
+  };
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -75,9 +93,18 @@ export function HomeView({ onPlay }: HomeViewProps) {
       `}</style>
 
       {/* Section Title */}
-      <div className="px-2" style={{ animation: "enter-blur-slide 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) 0.1s both" }}>
-        <h1 className="text-3xl font-semibold tracking-tight text-white mb-1">Selection Hub</h1>
-        <p className="text-sm text-zinc-500">Pick your pain. Start the grind.</p>
+      <div className="px-2 cursor-pointer flex items-center justify-between" style={{ animation: "enter-blur-slide 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) 0.1s both" }}>
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight text-white mb-1">Selection Hub</h1>
+          <p className="text-sm text-zinc-500">Pick your pain. Start the grind.</p>
+        </div>
+        <button onClick={onProfile} className="p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-white transition">
+          {user && user.avatar ? (
+            <img src={user.avatar} alt="Avatar" className="w-6 h-6 rounded-full" />
+          ) : (
+            <User className="w-6 h-6" />
+          )}
+        </button>
       </div>
 
       {/* Card List */}
@@ -92,12 +119,17 @@ export function HomeView({ onPlay }: HomeViewProps) {
             <MaterialCard
               material={material}
               isActive={activeId === material.id}
-              onClick={() => onPlay(material.audioUrl)}
+              onClick={() => handleCardClick(material)}
             />
           </div>
         ))}
       </div>
-    </main>
+
+      <Paywall
+        isOpen={showPaywall}
+        onClose={() => setShowPaywall(false)}
+        onSuccess={() => setShowPaywall(false)}
+      />
+    </main >
   );
 }
-

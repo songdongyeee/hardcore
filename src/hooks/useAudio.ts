@@ -15,7 +15,7 @@ export function useAudio(src: string, enabled: boolean = false) {
     const onPlay = () => setIsPlaying(true);
     const onPause = () => setIsPlaying(false);
     const onEnded = () => setIsPlaying(false);
-    const onError = (e: Event) => console.error("Audio error:", audio.error);
+    const onError = () => console.error("Audio error:", audio.error);
 
     audio.addEventListener('timeupdate', updateTime);
     audio.addEventListener('loadedmetadata', updateDuration);

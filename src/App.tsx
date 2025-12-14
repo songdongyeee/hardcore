@@ -6,8 +6,9 @@ import { HomeView } from "@/components/views/HomeView";
 import { ListeningView } from "@/components/views/ListeningView";
 import { AnalysisView } from "@/components/views/AnalysisView";
 import { ShadowingView } from "@/components/views/ShadowingView";
+import { ProfileView } from "@/components/views/ProfileView";
 
-type ViewState = 'home' | 'listening' | 'analysis' | 'shadowing';
+type ViewState = 'home' | 'listening' | 'analysis' | 'shadowing' | 'profile';
 
 function App() {
   const [activeView, setActiveView] = useState<ViewState>('home');
@@ -39,12 +40,30 @@ function App() {
             pause();
             setActiveView('home');
           }}
-          className={activeView === 'home' ? "" : "opacity-0 pointer-events-none transition-opacity duration-300"}
+          className={activeView === 'home' ? "" : "hidden"}
         />
 
         {/* View Manager */}
         <div className="relative w-full h-full flex-1 flex flex-col">
-          <HomeView onPlay={handlePlay} />
+          <HomeView onPlay={handlePlay} onProfile={() => setActiveView('profile')} />
+
+          {activeView === 'listening' && (
+            <ListeningView
+              onBack={() => {
+                pause();
+                setActiveView('home');
+              }}
+              onNextPhase={() => {
+                pause();
+                setActiveView('analysis');
+              }}
+              audioRef={audioRef}
+              currentTime={currentTime}
+              isPlaying={isPlaying}
+              togglePlay={togglePlay}
+              seek={seek}
+            />
+          )}
 
           {activeView === 'analysis' && (
             <AnalysisView
@@ -62,8 +81,14 @@ function App() {
 
           {activeView === 'shadowing' && (
             <ShadowingView
-              onBack={() => setActiveView('analysis')}
+              onBack={() => setActiveView('analysis')} // Back to Analysis (Top Left)
+              onHome={() => setActiveView('home')}     // Close to Home (Top Right)
+              audioSrc={currentSrc}
             />
+          )}
+
+          {activeView === 'profile' && (
+            <ProfileView onBack={() => setActiveView('home')} />
           )}
         </div>
       </div>

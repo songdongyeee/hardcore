@@ -24,7 +24,7 @@ export function ListeningView({
 }: ListeningViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollBoxRef = useRef<HTMLDivElement>(null);
-  const [activeSegmentIndex, setActiveSegmentIndex] = useState<number>(-1);
+  const [, setActiveSegmentIndex] = useState<number>(-1);
 
   // Sync active segment and scroll
   useEffect(() => {
@@ -133,7 +133,7 @@ export function ListeningView({
             e.currentTarget.releasePointerCapture(e.pointerId);
             handleSeekInteraction(e, true);
           }}
-          onPointerCancel={(e) => {
+          onPointerCancel={() => {
             setIsDragging(false);
           }}
         >
