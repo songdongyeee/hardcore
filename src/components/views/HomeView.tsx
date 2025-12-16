@@ -2,7 +2,7 @@ import { useRef, useState, useEffect } from "react";
 import { MaterialCard, type Material } from "@/components/MaterialCard";
 import { User } from "lucide-react";
 import { useUsageLimit } from "@/hooks/useUsageLimit";
-import { useAuth } from "@/hooks/useAuth";
+import { useRevenueCat } from "@/hooks/useRevenueCat";
 import { Paywall } from "@/components/Paywall";
 
 interface HomeViewProps {
@@ -43,14 +43,23 @@ export function HomeView({ onPlay, onProfile }: HomeViewProps) {
   const [showPaywall, setShowPaywall] = useState(false);
   const observerRefs = useRef<(HTMLDivElement | null)[]>([]);
 
-  const { user, isVip } = useAuth();
+  const { isVip } = useRevenueCat();
   const { checkAccess } = useUsageLimit(isVip);
 
   const handleCardClick = async (material: Material) => {
-    const access = await checkAccess(material.id);
+    // Logic: Free User can only access the first article (id '1')
+    if (!isVip && material.id !== '1') {
+      setShowPaywall(true);
+      return;
+    }
+
+    // Optional: Keep usage tracking if needed, or bypass.
+    // Let's assume usage limit is superseded by this "Free/Pro" content split.
+    const access = await checkAccess(material.id); // Validates daily limit too?
     if (access.allowed) {
       onPlay(material.audioUrl);
     } else {
+      // If daily limit also blocks?
       setShowPaywall(true);
     }
   };
@@ -99,11 +108,7 @@ export function HomeView({ onPlay, onProfile }: HomeViewProps) {
           <p className="text-sm text-zinc-500">Pick your pain. Start the grind.</p>
         </div>
         <button onClick={onProfile} className="p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-white transition">
-          {user && user.avatar ? (
-            <img src={user.avatar} alt="Avatar" className="w-6 h-6 rounded-full" />
-          ) : (
-            <User className="w-6 h-6" />
-          )}
+          <User className="w-6 h-6" />
         </button>
       </div>
 

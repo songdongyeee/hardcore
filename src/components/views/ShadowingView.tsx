@@ -156,6 +156,11 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
   // Handle Manual Scroll (Scrubbing)
   const onScroll = () => {
     if (!scrollContainerRef.current) return;
+
+    // CRITICAL FIX: If Master is playing, the Scroll is being driven by the Audio Loop.
+    // We MUST NOT seeking back to the scroll position, otherwise we create a stutter loop.
+    if (isPlayingMasterRef.current) return;
+
     // Calculate Time from Scroll Position
     // time = scrollLeft / PX_PER_SEC 
     // (Assuming padding-left creates the initial offset so 0 scroll = 0 time at center? 

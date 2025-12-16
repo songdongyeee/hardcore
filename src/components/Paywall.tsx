@@ -1,5 +1,5 @@
-import { X, Check } from "lucide-react";
-import { useAuth } from "@/hooks/useAuth";
+import { X, Check, Loader2 } from "lucide-react";
+import { useRevenueCat } from "@/hooks/useRevenueCat";
 import { useState } from "react";
 
 interface PaywallProps {
@@ -9,37 +9,43 @@ interface PaywallProps {
 }
 
 export function Paywall({ isOpen, onClose, onSuccess }: PaywallProps) {
-    const { user, loginWithApple, upgradeToVip } = useAuth();
+    const { currentOffering, purchasePackage, restorePurchases, isReady } = useRevenueCat();
     const [loading, setLoading] = useState(false);
 
     if (!isOpen) return null;
 
+    // Find custom 'monthly' package or fallback to standard monthly
+    const monthlyPackage = currentOffering?.availablePackages.find(p => p.identifier === 'monthly')
+        || currentOffering?.monthly;
+
+    // Fallback price text
+    const priceString = monthlyPackage?.product.priceString || "¥28.00";
+
     const handleSubscribe = async () => {
         setLoading(true);
 
-        // Step 1: Identity Check
-        if (!user) {
-            // Step 2: Silent Login
-            const result = await loginWithApple();
-            if (!result.success) {
-                alert("登录失败，请重试");
-                setLoading(false);
-                return;
-            }
-        }
-
-        // Step 3: Simulate Payment
-        // In real app, RevenueCat logic goes here
-        setTimeout(() => {
-            const confirm = window.confirm("Confirm Purchase: Hardcore VIP Subscription ($9.99/mo)?");
-            if (confirm) {
-                upgradeToVip();
+        // Direct Purchase (Anonymous / RevenueCat Managed)
+        if (monthlyPackage) {
+            const result = await purchasePackage(monthlyPackage);
+            if (result.success) {
                 onSuccess();
-                alert("Thank you for subscribing!");
+                onClose(); // Close on success
             }
-            setLoading(false);
-        }, 500);
+        } else {
+            alert("Configuration Error: No Package Found");
+        }
+        setLoading(false);
     };
+
+    const handleRestore = async () => {
+        setLoading(true);
+        const success = await restorePurchases();
+        if (success) {
+            onSuccess();
+            onClose();
+        }
+        setLoading(false);
+    }
 
     return (
         <div className="fixed inset-0 z-[100] flex flex-col justify-end">
@@ -48,6 +54,15 @@ export function Paywall({ isOpen, onClose, onSuccess }: PaywallProps) {
 
             {/* Sheet */}
             <div className="relative bg-zinc-900 border-t border-zinc-800 rounded-t-3xl p-6 pt-10 pb-12 animate-in slide-in-from-bottom duration-300">
+
+                {/* Restore Button (Top Left) */}
+                <button
+                    onClick={handleRestore}
+                    className="absolute top-4 left-4 text-xs text-zinc-500 font-medium hover:text-white"
+                >
+                    Restore Purchase
+                </button>
+
                 <button
                     onClick={onClose}
                     className="absolute top-4 right-4 p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-white"
@@ -84,10 +99,15 @@ export function Paywall({ isOpen, onClose, onSuccess }: PaywallProps) {
 
                     <button
                         onClick={handleSubscribe}
-                        disabled={loading}
+                        disabled={loading || !monthlyPackage}
                         className="w-full max-w-sm h-14 bg-white text-black font-bold text-lg rounded-full active:scale-95 transition disabled:opacity-50 disabled:active:scale-100 flex items-center justify-center"
                     >
-                        {loading ? "Processing..." : "立即订阅 - ¥68/年"}
+                        {loading
+                            ? <Loader2 className="w-5 h-5 animate-spin" />
+                            : !isReady
+                                ? "Loading..."
+                                : `立即订阅 - ${priceString}/月`
+                        }
                     </button>
 
                     <p className="text-xs text-zinc-600">

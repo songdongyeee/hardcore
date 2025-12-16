@@ -14,6 +14,12 @@ PODS:
   - CapacitorVoiceRecorder (7.0.6):
     - Capacitor
   - IONFilesystemLib (1.0.1)
+  - PurchasesHybridCommon (17.23.0):
+    - RevenueCat (= 5.50.0)
+  - RevenueCat (5.50.0)
+  - RevenuecatPurchasesCapacitor (11.3.0):
+    - Capacitor
+    - PurchasesHybridCommon (= 17.23.0)
 
 DEPENDENCIES:
   - "Capacitor (from `../../node_modules/@capacitor/ios`)"
@@ -23,10 +29,13 @@ DEPENDENCIES:
   - "CapacitorHaptics (from `../../node_modules/@capacitor/haptics`)"
   - "CapacitorPreferences (from `../../node_modules/@capacitor/preferences`)"
   - CapacitorVoiceRecorder (from `../../node_modules/capacitor-voice-recorder`)
+  - "RevenuecatPurchasesCapacitor (from `../../node_modules/@revenuecat/purchases-capacitor`)"
 
 SPEC REPOS:
   https://mirrors.tuna.tsinghua.edu.cn/git/CocoaPods/Specs.git:
     - IONFilesystemLib
+    - PurchasesHybridCommon
+    - RevenueCat
 
 EXTERNAL SOURCES:
   Capacitor:
@@ -43,6 +52,8 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/@capacitor/preferences"
   CapacitorVoiceRecorder:
     :path: "../../node_modules/capacitor-voice-recorder"
+  RevenuecatPurchasesCapacitor:
+    :path: "../../node_modules/@revenuecat/purchases-capacitor"
 
 SPEC CHECKSUMS:
   Capacitor: 341ff7cf652ec695d1a8ebf604db448ac7b6d635
@@ -53,7 +64,10 @@ SPEC CHECKSUMS:
   CapacitorPreferences: 443fabe9670226200e595658a87ef0b1566716d4
   CapacitorVoiceRecorder: 9158861be982f32d411769723a4d813d6ce46135
   IONFilesystemLib: 89258b8e3e85465da93127d25d7ce37f977e8a6f
+  PurchasesHybridCommon: e95a0b9bb01f6e9101d44f411343fb91030e26ae
+  RevenueCat: a5fcd0a12b5ec9bbddc0cf0dd20c14b7e6213df6
+  RevenuecatPurchasesCapacitor: 4fa710eec90225a84056f13b734093ccf35cd18c
 
-PODFILE CHECKSUM: 36aaa8843f9ccac6439097a2fc8879c1c1c9728f
+PODFILE CHECKSUM: 58d8d80e821d430027bfb2715685a818f6c7a5a8
 
 COCOAPODS: 1.16.2
