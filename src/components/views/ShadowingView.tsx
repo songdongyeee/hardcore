@@ -1,4 +1,4 @@
-import { ChevronLeft, X, Mic, Download, RotateCcw, Play, Pause } from "lucide-react";
+import { ChevronLeft, X, Mic, Download, RotateCcw, Play, Pause, Ear, EarOff } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { cn } from "@/lib/utils";
@@ -26,8 +26,12 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
 
   // --- State Machine ---
   const [status, setStatus] = useState<'idle' | 'recording' | 'review'>('idle');
-  const [isPlayingSource, setIsPlayingSource] = useState(false);
-  const [isPlayingUser, setIsPlayingUser] = useState(false);
+  const [isPlayingMaster, setIsPlayingMaster] = useState(false);
+  const isPlayingMasterRef = useRef(false); // Ref for Loop Sync
+
+  // Mixer State
+  const [isSourceMuted, setIsSourceMuted] = useState(true); // Default OFF (Ear)
+  const [isUserMuted, setIsUserMuted] = useState(false);   // Default ON (Mic)
 
   // Audio Data
   const [duration, setDuration] = useState(0); // Source Duration
@@ -93,11 +97,7 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
 
       // Loop protection for playback finish
       sourceWs.current.on('finish', () => {
-        setIsPlayingSource(false); // Update State
-        if (playbackRafRef.current) cancelAnimationFrame(playbackRafRef.current); // Stop Loop
-        sourceWs.current?.setTime(0); // Reset Cursor
-        sourceWs.current?.pause(); // Ensure Paused
-        if (status === 'recording') stopRecording();
+        // Should not auto-stop master if User track is longer. Handled by Master Loop.
       });
     }
 
@@ -147,37 +147,7 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
   }, [status]);
 
 
-  // --- PLAYBACK HELPERS (System Clock Driver) ---
-  const startPlaybackLoop = (ws: WaveSurfer) => {
-    // Kill previous
-    if (playbackRafRef.current) cancelAnimationFrame(playbackRafRef.current);
-
-    // 1. Anchor Point (The "Truth" at start)
-    const sysStart = performance.now();
-    const audioStart = ws.getCurrentTime();
-
-    // Safety: If audioStart is basically end, reset?
-    // Handled in togglePlay
-
-    const loop = () => {
-      // 2. Driven by SYSTEM CLOCK (Guaranteed Smoothness)
-      const now = performance.now();
-      const elapsed = (now - sysStart) / 1000;
-      let uiTime = audioStart + elapsed;
-
-      // 3. Drift Check (Every ~30 frames? Or just crude check)
-      // Browsers are usually good with performance.now() vs AudioContext time
-      // unless glitching.
-      // Let's trust System Clock for the "Smooth Video" feel.
-      // But clamp to duration.
-      const d = ws.getDuration();
-      if (d > 0 && uiTime > d) uiTime = d;
-
-      scrollToUnsafe(uiTime);
-      playbackRafRef.current = requestAnimationFrame(loop);
-    };
-    loop();
-  };
+  // startPlaybackLoop removed (replaced by startMasterLoop)
 
   const stopPlaybackLoop = () => {
     if (playbackRafRef.current) cancelAnimationFrame(playbackRafRef.current);
@@ -200,24 +170,17 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
 
     // Update Source WS (Visuals only, or seek if we want play from here)
     // We seek provided we are not "playing" actively in a way that fights back.
-    if (!isPlayingSource && sourceWs.current) {
-      // Silent Seek to current Viewport Time
-      // seekTo takes 0..1 progress. 
-      // Use setTime(seconds)
-      sourceWs.current.setTime(time);
-    }
-    if (!isPlayingUser && userWs.current) {
-      userWs.current.setTime(time);
-    }
+    // Unified Seek
+    if (sourceWs.current) sourceWs.current.setTime(time);
+    if (userWs.current) userWs.current.setTime(time);
   };
 
   // --- Interactions ---
 
   const handlePointerDown = () => {
     isDraggingRef.current = true;
-    // Pause all playback on interaction start
-    if (isPlayingSource) togglePlaySource();
-    if (isPlayingUser) togglePlayUser();
+    // Pause all playback on interaction start if playing
+    if (isPlayingMasterRef.current) toggleMasterPlay();
   };
 
   const handlePointerUp = () => {
@@ -228,79 +191,115 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
   // --- REFS ---
   const isTogglingRef = useRef(false);
 
-  const togglePlaySource = async () => {
-    if (!sourceWs.current || isTogglingRef.current) return;
-
+  // --- MASTER PLAYBACK LOGIC ---
+  const toggleMasterPlay = async () => {
+    if (isTogglingRef.current) return;
     isTogglingRef.current = true;
 
     try {
-      if (isPlayingSource) {
-        // STOP
-        sourceWs.current.pause();
+      if (isPlayingMasterRef.current) {
+        // STOP ALL
+        sourceWs.current?.pause();
+        userWs.current?.pause();
         stopPlaybackLoop();
-        setIsPlayingSource(false);
+        setIsPlayingMaster(false);
+        isPlayingMasterRef.current = false;
       } else {
-        // START
-        if (isPlayingUser) await togglePlayUser(); // Toggle other off
+        // START ALL
+        const scrollLeft = scrollContainerRef.current?.scrollLeft || 0;
+        const startTime = scrollLeft / PX_PER_SEC;
 
-        // UNMUTE & VOLUME UP
-        sourceWs.current.setVolume(1.0);
-        const media = sourceWs.current.getMediaElement();
-        if (media) media.muted = false;
+        const maxDur = Math.max(duration, userDuration);
 
-        // Auto-Rewind
-        const dur = sourceWs.current.getDuration();
-        const curr = sourceWs.current.getCurrentTime();
-        if (curr >= dur - 0.2) { // 200ms threshold
-          sourceWs.current.setTime(0);
+        // Auto-Rewind if at end
+        if (startTime >= maxDur - 0.2) {
+          scrollToUnsafe(0);
+          sourceWs.current?.setTime(0);
+          userWs.current?.setTime(0);
+        } else {
+          // Ensure WS are at the visual time
+          sourceWs.current?.setTime(startTime);
+          userWs.current?.setTime(startTime);
         }
 
-        await sourceWs.current.play();
-        setIsPlayingSource(true);
-        startPlaybackLoop(sourceWs.current);
+        // Apply Mutes
+        sourceWs.current?.setVolume(isSourceMuted ? 0 : 1.0);
+        if (sourceWs.current?.getMediaElement()) sourceWs.current.getMediaElement()!.muted = isSourceMuted;
+
+        userWs.current?.setVolume(isUserMuted ? 0 : 1.0);
+        if (userWs.current?.getMediaElement()) userWs.current.getMediaElement()!.muted = isUserMuted;
+
+        // Play Both
+        const p1 = sourceWs.current?.play();
+        const p2 = userWs.current?.play();
+        Promise.all([p1, p2]).catch(e => console.warn("Play error", e));
+
+        setIsPlayingMaster(true);
+        isPlayingMasterRef.current = true;
+        startMasterLoop();
       }
     } catch (e) {
-      console.error("Playback Source failed", e);
-      setIsPlayingSource(false);
+      console.error("Master toggle failed", e);
+      setIsPlayingMaster(false);
+      isPlayingMasterRef.current = false;
     } finally {
       isTogglingRef.current = false;
     }
   };
 
-  const togglePlayUser = async () => {
-    if (!userWs.current || isTogglingRef.current) return;
+  // Dedicated Master Loop
+  const startMasterLoop = () => {
+    if (playbackRafRef.current) cancelAnimationFrame(playbackRafRef.current);
+    const sysStart = performance.now();
 
-    isTogglingRef.current = true;
+    const scrollLeft = scrollContainerRef.current?.scrollLeft || 0;
+    const startAudioTime = scrollLeft / PX_PER_SEC;
 
-    try {
-      if (isPlayingUser) {
-        userWs.current.pause();
-        stopPlaybackLoop();
-        setIsPlayingUser(false);
-      } else {
-        if (isPlayingSource) await togglePlaySource();
+    const loop = () => {
+      // CHECK REF, NOT STATE (Closure Fix)
+      if (!isPlayingMasterRef.current) return;
 
-        // UNMUTE & VOLUME UP
-        userWs.current.setVolume(1.0);
-        const media = userWs.current.getMediaElement();
-        if (media) media.muted = false;
+      const now = performance.now();
+      const elapsed = (now - sysStart) / 1000;
+      let uiTime = startAudioTime + elapsed;
 
-        // Auto-Rewind
-        const dur = userWs.current.getDuration();
-        const curr = userWs.current.getCurrentTime();
-        if (curr >= dur - 0.2) {
-          userWs.current.setTime(0);
-        }
+      const maxDur = Math.max(duration, userDuration);
 
-        await userWs.current.play();
-        setIsPlayingUser(true);
-        startPlaybackLoop(userWs.current);
+      // Clamp
+      if (uiTime >= maxDur) {
+        uiTime = maxDur;
+        scrollToUnsafe(uiTime);
+        // End
+        setIsPlayingMaster(false);
+        isPlayingMasterRef.current = false;
+        sourceWs.current?.pause();
+        userWs.current?.pause();
+        cancelAnimationFrame(playbackRafRef.current!);
+        return;
       }
-    } catch (e) {
-      console.error("Playback User failed", e);
-      setIsPlayingUser(false);
-    } finally {
-      isTogglingRef.current = false;
+
+      scrollToUnsafe(uiTime);
+      playbackRafRef.current = requestAnimationFrame(loop);
+    };
+    playbackRafRef.current = requestAnimationFrame(loop);
+  };
+
+  // Toggle Mutes
+  const toggleSourceMute = () => {
+    const newState = !isSourceMuted;
+    setIsSourceMuted(newState);
+    if (sourceWs.current) {
+      sourceWs.current.setVolume(newState ? 0 : 1.0);
+      if (sourceWs.current.getMediaElement()) sourceWs.current.getMediaElement()!.muted = newState;
+    }
+  };
+
+  const toggleUserMute = () => {
+    const newState = !isUserMuted;
+    setIsUserMuted(newState);
+    if (userWs.current) {
+      userWs.current.setVolume(newState ? 0 : 1.0);
+      if (userWs.current.getMediaElement()) userWs.current.getMediaElement()!.muted = newState;
     }
   };
 
@@ -331,6 +330,23 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
       setStatus('idle');
     }
   };
+
+  // --- Auto-Rewind & Setup on Review Entry ---
+  useEffect(() => {
+    if (status === 'review') {
+      // Ensure any pending animation frames are dead
+      if (recordingRafRef.current) cancelAnimationFrame(recordingRafRef.current);
+
+      // Rewind to Start
+      requestAnimationFrame(() => {
+        scrollToUnsafe(0);
+        if (sourceWs.current) {
+          sourceWs.current.setTime(0);
+          sourceWs.current.setVolume(isSourceMuted ? 0 : 1.0); // Sync Initial Mute State
+        }
+      });
+    }
+  }, [status]);
 
   // Clean Recording Start
   const startRecording = async () => {
@@ -480,10 +496,8 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
         userWs.current?.setVolume(1.0); // Ensure audible
       });
       userWs.current.on('finish', () => {
-        setIsPlayingUser(false);
-        if (playbackRafRef.current) cancelAnimationFrame(playbackRafRef.current);
-        userWs.current?.setTime(0); // Reset for Re-play
-        userWs.current?.pause();
+        // handled by master loop
+        // userWs.current?.pause();
       });
       userWs.current.on('error', (err) => console.error("WS Error", err));
 
@@ -519,43 +533,22 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
         {/* Global Center Line (The Needle) */}
         {/* Animated Pulse Grip during Recording */}
         {/* REQ: Hide in User Track (Green Box) during Recording */}
+        {/* REQ: Stop above Play Button in Review Mode */}
         <div
           className={cn(
             "absolute left-1/2 top-0 z-30 -translate-x-1/2 w-[2px] pointer-events-none transition-all duration-300",
             status === 'recording'
               ? "bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.8)] animate-pulse h-[220px]" // Limit height to Top Track
-              : "bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)] bottom-0" // Full height otherwise
+              : status === 'review'
+                ? "bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)] bottom-[120px]" // Stop above Play Button
+                : "bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)] bottom-0" // Full height otherwise
           )}
         ></div>
 
-        {/* Side Play Buttons (Overlay) - Visible in Idle/Review */}
-        {(status === 'idle' || status === 'review') && (
-          <div className="animate-in fade-in duration-300">
-            {/* Source Play (Right of Top Track) */}
-            <button
-              onClick={(e) => { e.stopPropagation(); togglePlaySource(); }}
-              className={cn(
-                "absolute right-4 top-[110px] -translate-y-1/2 z-40 p-3 rounded-full transition-all border shadow-lg backdrop-blur-sm",
-                isPlayingSource ? "bg-white text-black border-white" : "bg-zinc-900/80 text-zinc-400 border-zinc-700 hover:bg-zinc-800"
-              )}
-            >
-              {isPlayingSource ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current ml-0.5" />}
-            </button>
-
-            {/* User Play (Right of Bottom Track) - Only in Review */}
-            {status === 'review' && (
-              <button
-                onClick={(e) => { e.stopPropagation(); togglePlayUser(); }}
-                className={cn(
-                  "absolute right-4 top-[230px] -translate-y-1/2 z-40 p-3 rounded-full transition-all border shadow-lg backdrop-blur-sm",
-                  isPlayingUser ? "bg-emerald-500 text-white border-emerald-500" : "bg-zinc-900/80 text-emerald-500 border-zinc-700 hover:bg-zinc-800"
-                )}
-              >
-                {isPlayingUser ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current ml-0.5" />}
-              </button>
-            )}
-          </div>
-        )}
+        {/* Side Play Buttons (Overlay) - Removed in favor of Unified Mixer */}
+        {/* We only show the Master Play Button on the right, but outside the scroll container to be fixed? */}
+        {/* Actually, user wants "Right Side" Play Button. If we put it here, it scrolls. */}
+        {/* We will place it in the fixed overlay area or the Footer-adjacent area. */}
 
         {/* Scrollable Timeline */}
         <div
@@ -624,6 +617,66 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
             </div>
           </div>
         )}
+
+        {/* REVIEW CONTROLS (OVERLAY ON STAGE) */}
+        {status === 'review' && (
+          <>
+            {/* --- RIGHT CONTROL SIDEBAR (New Structure) --- */}
+            <div className="absolute right-0 top-0 bottom-0 w-[48px] border-l border-zinc-800/50 bg-black/20 z-40 animate-in fade-in slide-in-from-right-8">
+
+              {/* 1. Source Toggle (Aligned with Top Track) */}
+              <div className="absolute top-[60px] left-0 right-0 flex flex-col items-center gap-2 h-[160px] justify-center">
+                <div className="flex flex-col items-center gap-1.5">
+                  <button
+                    onClick={toggleSourceMute}
+                    className={cn(
+                      "w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200",
+                      !isSourceMuted
+                        ? "bg-white text-black shadow-[0_0_15px_rgba(255,255,255,0.4)] scale-110"
+                        : "bg-zinc-800 text-zinc-500 border border-zinc-500"
+                    )}
+                  >
+                    {!isSourceMuted ? <Ear className="w-3.5 h-3.5" /> : <EarOff className="w-3.5 h-3.5" />}
+                  </button>
+                  <span className={cn(
+                    "text-[8px] font-bold tracking-widest transition-colors",
+                    !isSourceMuted ? "text-zinc-200" : "text-zinc-700"
+                  )}>ORIGIN</span>
+                </div>
+              </div>
+
+              {/* 2. User Toggle (Aligned with Bottom Track) */}
+              <div className="absolute top-[220px] left-0 right-0 flex flex-col items-center gap-2 h-[160px] justify-center">
+                <div className="flex flex-col items-center gap-1.5">
+                  <button
+                    onClick={toggleUserMute}
+                    className={cn(
+                      "w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200",
+                      !isUserMuted
+                        ? "bg-white text-black shadow-[0_0_15px_rgba(255,255,255,0.4)] scale-110"
+                        : "bg-zinc-800 text-zinc-500 border border-zinc-500"
+                    )}
+                  >
+                    {!isUserMuted ? <Ear className="w-3.5 h-3.5" /> : <EarOff className="w-3.5 h-3.5" />}
+                  </button>
+                  <span className={cn(
+                    "text-[8px] font-bold tracking-widest transition-colors",
+                    !isUserMuted ? "text-zinc-200" : "text-zinc-700"
+                  )}>RECORD</span>
+                </div>
+              </div>
+
+            </div>
+
+            {/* --- MASTER PLAY BUTTON (CENTERED) --- */}
+            <button
+              onClick={toggleMasterPlay}
+              className="absolute left-1/2 -translate-x-1/2 bottom-[30px] z-50 w-20 h-20 rounded-full bg-white text-black shadow-[0_0_40px_rgba(255,255,255,0.4)] flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
+            >
+              {isPlayingMaster ? <Pause className="w-8 h-8 fill-current" /> : <Play className="w-8 h-8 fill-current ml-1" />}
+            </button>
+          </>
+        )}
       </div>
 
       {/* 3. Controls (Bottom) */}
@@ -658,20 +711,28 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
             </div>
           )}
 
-          {/* Status 3: Review */}
+          {/* Status 3: Review (Footer Controls) */}
           {status === 'review' && (
-            <div className="w-full h-full flex items-center justify-between gap-4 animate-in fade-in slide-in-from-bottom-4 px-2">
-
-              {/* Retry Button (Large) */}
+            <div className="w-full h-full flex items-center justify-between gap-4 animate-in fade-in slide-in-from-bottom-4 px-4 relative z-50">
+              {/* Left: Retry (Large Pill) */}
               <button
-                onClick={() => setStatus('idle')}
-                className="flex-1 h-14 rounded-full bg-zinc-800 text-zinc-300 font-bold uppercase tracking-wider text-sm hover:bg-zinc-700 active:scale-95 transition flex items-center justify-center gap-2"
+                onClick={() => {
+                  if (sourceWs.current) {
+                    sourceWs.current.setTime(0);
+                    sourceWs.current.pause();
+                  }
+                  scrollToUnsafe(0);
+                  setStatus('idle');
+                }}
+                className="flex-[1.2] h-14 rounded-2xl bg-zinc-900 text-zinc-400 font-semibold tracking-wide flex items-center justify-center border border-zinc-800 hover:bg-zinc-800 hover:text-white active:scale-95 transition-all"
               >
-                <RotateCcw className="w-5 h-5" />
-                Retry
+                <div className="flex items-center gap-2">
+                  <RotateCcw className="w-5 h-5" />
+                  <span>Retry</span>
+                </div>
               </button>
 
-              {/* Save Button (Large) */}
+              {/* Right: Save (Large Pill) */}
               <button
                 onClick={async () => {
                   if (!recordedBase64) return;
@@ -685,18 +746,17 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
                     alert("Saved!");
                   } catch (e: any) { alert("Save Failed:" + e.message); }
                 }}
-                className="flex-1 h-14 rounded-full bg-emerald-600 text-white font-bold uppercase tracking-wider text-sm hover:bg-emerald-500 active:scale-95 transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20"
+                className="flex-[2] h-14 rounded-2xl bg-[#00D68F] text-black font-bold tracking-wide flex items-center justify-center hover:brightness-110 active:scale-95 transition-all shadow-lg shadow-[#00D68F]/20"
               >
-                Save
-                <Download className="w-5 h-5" />
+                <div className="flex items-center gap-2">
+                  <Download className="w-5 h-5" />
+                  <span>Save Recording</span>
+                </div>
               </button>
-
             </div>
           )}
         </div>
       </div>
-
     </div>
   );
 }
-
