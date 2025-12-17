@@ -4,9 +4,10 @@ import { User } from "lucide-react";
 import { useUsageLimit } from "@/hooks/useUsageLimit";
 import { useRevenueCat } from "@/hooks/useRevenueCat";
 import { Paywall } from "@/components/Paywall";
+import { Preferences } from '@capacitor/preferences';
 
 interface HomeViewProps {
-  onPlay: (audioUrl: string) => void;
+  onPlay: (audioUrl: string, targetView?: 'listening' | 'shadowing') => void;
   onProfile: () => void;
 }
 
@@ -57,6 +58,20 @@ export function HomeView({ onPlay, onProfile }: HomeViewProps) {
     // Let's assume usage limit is superseded by this "Free/Pro" content split.
     const access = await checkAccess(material.id); // Validates daily limit too?
     if (access.allowed) {
+      // CHECK FOR EXISTING SESSION
+      try {
+        const sessionKey = `shadowing_session_${material.audioUrl.replace(/[^a-z0-9]/gi, '_')}`;
+        const { value } = await Preferences.get({ key: sessionKey });
+        if (value) {
+          const session = JSON.parse(value);
+          if (session.status === 'review') {
+            // Jump directly to Shadowing
+            onPlay(material.audioUrl, 'shadowing');
+            return;
+          }
+        }
+      } catch (e) { console.error("Session Check Failed", e); }
+
       onPlay(material.audioUrl);
     } else {
       // If daily limit also blocks?

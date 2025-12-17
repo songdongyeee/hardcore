@@ -16,12 +16,14 @@ function App() {
   // Only enable audio when in 'listening' view
   const { isPlaying, currentTime, togglePlay, seek, audioRef, pause, play } = useAudio(currentSrc, activeView === 'listening');
 
-  const handlePlay = (audioUrl: string) => {
+  const handlePlay = (audioUrl: string, targetView?: ViewState) => {
     if (audioUrl === currentSrc) {
-      play();
+      if (!targetView || targetView === 'listening') {
+        play();
+      }
     }
     setCurrentSrc(audioUrl);
-    setActiveView('listening');
+    setActiveView(targetView || 'listening');
   };
 
   return (

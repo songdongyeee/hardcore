@@ -1,19 +1,18 @@
-import { ChevronLeft, X, Mic, Download, RotateCcw, Play, Pause, Ear, EarOff } from "lucide-react";
+import { ChevronLeft, X, Play, Pause, RotateCcw, Ear, EarOff, Mic, Eye, EyeOff, Download } from "lucide-react";
+import { transcript } from "@/data/transcript";
 import { useState, useRef, useEffect } from "react";
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { cn } from "@/lib/utils";
 import WaveSurfer from "wavesurfer.js";
 import { VoiceRecorder } from 'capacitor-voice-recorder';
 import { Filesystem, Directory } from '@capacitor/filesystem';
-// import { useTranslation } from 'react-i18next'; // Unused
+import { Preferences } from '@capacitor/preferences';
+
+const SETTINGS_KEY = 'shadowing_settings_v1';
 
 // --- VISUAL CONSTANTS ---
-const WAVE_HEIGHT = 160; // Increased for visual impact
-const PX_PER_SEC = 150; // Faster scroll for detail
-
-// --- ENGINE LOOP ---
-// ... (Update loop to use drawBar)
-
+const WAVE_HEIGHT = 160;
+const PX_PER_SEC = 150;
 
 interface ShadowingViewProps {
   onBack: () => void;
@@ -21,11 +20,22 @@ interface ShadowingViewProps {
   audioSrc: string;
 }
 
+type ShadowingStatus = 'idle' | 'recording' | 'review';
+
 export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) {
-  // const { t } = useTranslation(); // Unused
+  // UNIQUE SESSION KEY PER AUDIO FILE
+  const sessionKey = `shadowing_session_${audioSrc.replace(/[^a-z0-9]/gi, '_')}`;
 
   // --- State Machine ---
-  const [status, setStatus] = useState<'idle' | 'recording' | 'review'>('idle');
+  const [status, setStatus] = useState<ShadowingStatus>('idle');
+  const [clozeMode, setClozeMode] = useState<100 | 70 | 0>(100);
+
+  const toggleCloze = () => {
+    const newMode = clozeMode === 100 ? 70 : clozeMode === 70 ? 0 : 100;
+    setClozeMode(newMode);
+    Preferences.set({ key: SETTINGS_KEY, value: JSON.stringify({ clozeMode: newMode }) });
+  };
+
   const [isPlayingMaster, setIsPlayingMaster] = useState(false);
   const isPlayingMasterRef = useRef(false); // Ref for Loop Sync
 
@@ -37,166 +47,157 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
   const [duration, setDuration] = useState(0); // Source Duration
   const [userDuration, setUserDuration] = useState(0); // User Duration
   const [recordedBase64, setRecordedBase64] = useState<string | null>(null);
-  // const [userBlobUrl, setUserBlobUrl] = useState<string | null>(null); // Unused currently
 
   // --- Refs ---
-  // The 'Driver' Scroll Container
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-
-  // Source Waveform
   const sourceContainerRef = useRef<HTMLDivElement>(null);
   const sourceWs = useRef<WaveSurfer | null>(null);
-
-  // User Waveform
   const userContainerRef = useRef<HTMLDivElement>(null);
-  const userWs = useRef<WaveSurfer | null>(null); // For Review
-  // canvasRef removed
+  const userWs = useRef<WaveSurfer | null>(null);
 
-  // Logic Refs
   const rafRef = useRef<number>(0);
   const startTimeRef = useRef<number>(0);
   const isDraggingRef = useRef(false);
   const statusRef = useRef(status);
 
-
-
   useEffect(() => { statusRef.current = status; }, [status]);
 
-  // --- Initialization & Source Loading ---
-
+  // --- Initialization & Restore ---
   useEffect(() => {
-    // Permission Check
+    // 1. Permission Check
     VoiceRecorder.requestAudioRecordingPermission();
 
-    // 1. Init Source WaveSurfer (Hidden interactions, just rendering)
+    // 2. Load Settings & Session
+    const restoreSession = async () => {
+      try {
+        // A. Settings
+        const { value: settingsVal } = await Preferences.get({ key: SETTINGS_KEY });
+        if (settingsVal) {
+          const s = JSON.parse(settingsVal);
+          if (s.clozeMode !== undefined) setClozeMode(s.clozeMode);
+        }
+
+        // B. Session
+        const { value: sessionVal } = await Preferences.get({ key: sessionKey });
+        if (sessionVal) {
+          const session = JSON.parse(sessionVal);
+          if (session.status === 'review' && session.tempPath) {
+            // Read Audio File
+            try {
+              const file = await Filesystem.readFile({
+                path: session.tempPath,
+                directory: Directory.Cache
+              });
+
+              if (file.data) {
+                setRecordedBase64(file.data as string);
+                setStatus('review');
+                // Defer waveform load slightly to allow render
+                setTimeout(() => {
+                  loadUserReviewWaveform(file.data as string, session.mimeType || 'audio/aac');
+                }, 100);
+              } else {
+                console.warn("RESTORE FILE EMPTY");
+              }
+            } catch (fe: any) {
+              console.error("RESTORE FILE ERR: " + fe.message);
+            }
+          }
+        }
+      } catch (e: any) {
+        console.error("Restore Error", e);
+      }
+    };
+    restoreSession();
+
+    // 3. Init Source WaveSurfer
     if (sourceContainerRef.current && !sourceWs.current) {
       sourceWs.current = WaveSurfer.create({
         container: sourceContainerRef.current,
-        waveColor: 'rgba(255, 255, 255, 0.6)', // Brighter
+        waveColor: 'rgba(255, 255, 255, 0.6)',
         progressColor: 'rgba(255, 255, 255, 1.0)',
         cursorColor: 'transparent',
         barWidth: 4,
         barGap: 2,
-        barRadius: 2, // Rounded
+        barRadius: 2,
         height: WAVE_HEIGHT,
         url: audioSrc,
         interact: false,
         fillParent: false,
         minPxPerSec: PX_PER_SEC,
         autoScroll: false,
-        normalize: true, // FORCE GAIN: Maximize to container height
+        normalize: true,
       });
 
       sourceWs.current.on('ready', (d) => {
         setDuration(d);
-        // Default Mute (Reference Only)
         sourceWs.current?.setVolume(0);
         const media = sourceWs.current?.getMediaElement();
-        if (media) { media.muted = true; } // Strict mute
+        if (media) { media.muted = true; }
       });
 
-      // Loop protection for playback finish
-      sourceWs.current.on('finish', () => {
-        // Should not auto-stop master if User track is longer. Handled by Master Loop.
-      });
+      sourceWs.current.on('finish', () => { });
     }
 
     return () => {
       sourceWs.current?.destroy();
       userWs.current?.destroy();
-      cancelAnimationFrame(rafRef.current!);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [audioSrc]); // Removed status dependency, permission check is fine one-off or here.
-  // simulationRef removed
+  }, [audioSrc]);
 
-
-  // --- Synchronization & Scroll Logic ---
-  // The Heart of the "Single Scroll Container" Architecture
-
-  // --- ANIMATION REFS ---
+  // --- Synchronization ---
   const playbackRafRef = useRef<number | null>(null);
-  const recordingRafRef = useRef<number | null>(null); // Re-enabled for scroll loop
+  const recordingRafRef = useRef<number | null>(null);
 
-  // Update Scroll Left based on Time
   const scrollToUnsafe = (time: number) => {
     if (!scrollContainerRef.current || isDraggingRef.current) return;
     const targetX = (time * PX_PER_SEC);
     scrollContainerRef.current.scrollLeft = targetX;
   };
 
-  // --- RECORDING LOOP (Isolated) ---
-  // --- RECORDING LOOP (SCROLL ONLY) ---
-  // Re-enabled to support "Raw Material Scrolling" during recording.
   useEffect(() => {
     if (status === 'recording') {
       const loop = () => {
         const now = performance.now();
-        // 1. Scroll Logic
         const elapsed = (now - startTimeRef.current) / 1000;
         const currentTime = Math.min(elapsed, duration);
         scrollToUnsafe(currentTime);
-
         recordingRafRef.current = requestAnimationFrame(loop);
       };
       loop();
     }
-
     return () => {
       if (recordingRafRef.current) cancelAnimationFrame(recordingRafRef.current);
     };
   }, [status]);
 
-
-  // startPlaybackLoop removed (replaced by startMasterLoop)
-
   const stopPlaybackLoop = () => {
     if (playbackRafRef.current) cancelAnimationFrame(playbackRafRef.current);
   };
 
-  // Handle Manual Scroll (Scrubbing)
   const onScroll = () => {
     if (!scrollContainerRef.current) return;
-
-    // CRITICAL FIX: If Master is playing, the Scroll is being driven by the Audio Loop.
-    // We MUST NOT seeking back to the scroll position, otherwise we create a stutter loop.
     if (isPlayingMasterRef.current) return;
-
-    // Calculate Time from Scroll Position
-    // time = scrollLeft / PX_PER_SEC 
-    // (Assuming padding-left creates the initial offset so 0 scroll = 0 time at center? 
-    //  No, usually Apple style: Padding-left = 50% width. So scrollLeft=0 means time=0 at center.)
 
     const scrollLeft = scrollContainerRef.current.scrollLeft;
     const time = scrollLeft / PX_PER_SEC;
 
-    // Sync Audio Players strictly to this time if NOT playing
-    // If dragging while playing, usually we pause, or we let it seek.
-    // Apple Voice Memos pauses on interaction start usually.
-
-    // Update Source WS (Visuals only, or seek if we want play from here)
-    // We seek provided we are not "playing" actively in a way that fights back.
-    // Unified Seek
     if (sourceWs.current) sourceWs.current.setTime(time);
     if (userWs.current) userWs.current.setTime(time);
   };
 
-  // --- Interactions ---
-
   const handlePointerDown = () => {
     isDraggingRef.current = true;
-    // Pause all playback on interaction start if playing
     if (isPlayingMasterRef.current) toggleMasterPlay();
   };
 
   const handlePointerUp = () => {
     isDraggingRef.current = false;
-    // Snap to exact time? Not needed if high poll rate.
   };
 
-  // --- REFS ---
   const isTogglingRef = useRef(false);
 
-  // --- MASTER PLAYBACK LOGIC ---
   const toggleMasterPlay = async () => {
     if (isTogglingRef.current) return;
     isTogglingRef.current = true;
@@ -213,28 +214,23 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
         // START ALL
         const scrollLeft = scrollContainerRef.current?.scrollLeft || 0;
         const startTime = scrollLeft / PX_PER_SEC;
-
         const maxDur = Math.max(duration, userDuration);
 
-        // Auto-Rewind if at end
         if (startTime >= maxDur - 0.2) {
           scrollToUnsafe(0);
           sourceWs.current?.setTime(0);
           userWs.current?.setTime(0);
         } else {
-          // Ensure WS are at the visual time
           sourceWs.current?.setTime(startTime);
           userWs.current?.setTime(startTime);
         }
 
-        // Apply Mutes
         sourceWs.current?.setVolume(isSourceMuted ? 0 : 1.0);
         if (sourceWs.current?.getMediaElement()) sourceWs.current.getMediaElement()!.muted = isSourceMuted;
 
         userWs.current?.setVolume(isUserMuted ? 0 : 1.0);
         if (userWs.current?.getMediaElement()) userWs.current.getMediaElement()!.muted = isUserMuted;
 
-        // Play Both
         const p1 = sourceWs.current?.play();
         const p2 = userWs.current?.play();
         Promise.all([p1, p2]).catch(e => console.warn("Play error", e));
@@ -252,29 +248,23 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
     }
   };
 
-  // Dedicated Master Loop
   const startMasterLoop = () => {
     if (playbackRafRef.current) cancelAnimationFrame(playbackRafRef.current);
     const sysStart = performance.now();
-
     const scrollLeft = scrollContainerRef.current?.scrollLeft || 0;
     const startAudioTime = scrollLeft / PX_PER_SEC;
 
     const loop = () => {
-      // CHECK REF, NOT STATE (Closure Fix)
       if (!isPlayingMasterRef.current) return;
 
       const now = performance.now();
       const elapsed = (now - sysStart) / 1000;
       let uiTime = startAudioTime + elapsed;
-
       const maxDur = Math.max(duration, userDuration);
 
-      // Clamp
       if (uiTime >= maxDur) {
         uiTime = maxDur;
         scrollToUnsafe(uiTime);
-        // End
         setIsPlayingMaster(false);
         isPlayingMasterRef.current = false;
         sourceWs.current?.pause();
@@ -289,7 +279,6 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
     playbackRafRef.current = requestAnimationFrame(loop);
   };
 
-  // Toggle Mutes
   const toggleSourceMute = () => {
     const newState = !isSourceMuted;
     setIsSourceMuted(newState);
@@ -312,23 +301,38 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
 
   const stopRecording = async () => {
     try {
-      // Haptics: Heavy tap for stop
       await Haptics.impact({ style: ImpactStyle.Heavy });
-
-      // hack: Wait a bit to ensure AudioBuffer isn't empty on very short taps
       await new Promise(r => setTimeout(r, 200));
 
       const res = await VoiceRecorder.stopRecording();
 
-      // Stop Source
       sourceWs.current?.pause();
+      setStatus('review');
 
-      setStatus('review'); // Visualizer useEffect will cleanup via return
-
-      // Load User Waveform
       if (res.value.recordDataBase64) {
-        setRecordedBase64(res.value.recordDataBase64);
-        loadUserReviewWaveform(res.value.recordDataBase64, res.value.mimeType);
+        const b64 = res.value.recordDataBase64;
+        setRecordedBase64(b64);
+        loadUserReviewWaveform(b64, res.value.mimeType);
+
+        // PERSIST SESSION
+        try {
+          const tempPath = `temp_session_${Date.now()}.aac`;
+          await Filesystem.writeFile({
+            path: tempPath,
+            data: b64,
+            directory: Directory.Cache
+          });
+
+          await Preferences.set({
+            key: sessionKey,
+            value: JSON.stringify({
+              status: 'review',
+              tempPath: tempPath,
+              mimeType: res.value.mimeType,
+              timestamp: Date.now()
+            })
+          });
+        } catch (e: any) { console.warn("Persist Failed", e); alert("PERSIST FAIL: " + e.message); }
       }
     } catch (e: any) {
       alert("Stop Error: " + e.message);
@@ -336,108 +340,63 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
     }
   };
 
-  // --- Auto-Rewind & Setup on Review Entry ---
   useEffect(() => {
     if (status === 'review') {
-      // Ensure any pending animation frames are dead
       if (recordingRafRef.current) cancelAnimationFrame(recordingRafRef.current);
-
-      // Rewind to Start
       requestAnimationFrame(() => {
         scrollToUnsafe(0);
         if (sourceWs.current) {
           sourceWs.current.setTime(0);
-          sourceWs.current.setVolume(isSourceMuted ? 0 : 1.0); // Sync Initial Mute State
+          sourceWs.current.setVolume(isSourceMuted ? 0 : 1.0);
         }
       });
     }
   }, [status]);
 
-  // Clean Recording Start
   const startRecording = async () => {
     try {
       await Haptics.impact({ style: ImpactStyle.Light });
-
-      // 1. Native Checks
       const canRecord = await VoiceRecorder.canDeviceVoiceRecord();
       if (!canRecord.value) return alert("Device Capability Error");
 
-      // 2. Prep UI
       if (userWs.current) { userWs.current.destroy(); userWs.current = null; }
       setRecordedBase64(null);
 
-      // 3. START NATIVE RECORDER (The "Storage" Channel)
       await VoiceRecorder.startRecording();
-
-      // 4. State & Timer
       setStatus('recording');
       const startOffset = sourceWs.current ? sourceWs.current.getCurrentTime() : 0;
       startTimeRef.current = performance.now() - (startOffset * 1000);
 
       if (sourceWs.current) sourceWs.current.pause();
-
     } catch (e: any) {
       alert('Record Error: ' + e.message);
     }
   };
 
-  // --- Helper to Clean Audio Data (Noise Gate) ---
   const processPeaks = async (blob: Blob): Promise<number[][]> => {
     const arrayBuffer = await blob.arrayBuffer();
     const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
     const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-
-    const rawData = audioBuffer.getChannelData(0); // Mono is fine
+    const rawData = audioBuffer.getChannelData(0);
     const samples = rawData.length;
-
-    // We need to sample down to pixels? WaveSurfer does this.
-    // But we CAN pass 'peaks'.
-    // Creating peaks for WaveSurfer:
-    // WaveSurfer expects array of arrays [min, max] or just [max, max...]?
-    // It expects [[min, max], [min, max]] if split channels, or just flat array for mono?
-    // Default WaveSurfer behavior with 'peaks' param: array of numbers.
-
-    // Let's manually perform the "Noise Gate" on the raw data
-    // Then lets just let WaveSurfer handle the rendering from the Blob, BUT we disabled normalize.
-    // Wait, if we modify bytes in AudioBuffer, we can't save it back to Blob easily to pass as URL.
-    // So passing 'peaks' is the way.
-
-    // Sampling rate for peaks: 
-    // WaveSurfer usually calculates roughly 1 peak per pixel?
-    // PX_PER_SEC = 150. Duration = T. Width = 150*T.
-    // We can generate roughly 100-200 peaks per second of audio.
     const peaksPerSec = 200;
     const totalPeaks = Math.floor(audioBuffer.duration * peaksPerSec);
     const blockSize = Math.floor(samples / totalPeaks);
 
     const peaks: number[][] = [];
-
     for (let i = 0; i < totalPeaks; i++) {
       let max = 0;
-
-      // For 'bars' mode, usually just amplitude.
-
       for (let j = 0; j < blockSize; j++) {
         const sample = rawData[(i * blockSize) + j];
         if (Math.abs(sample) > max) max = Math.abs(sample);
       }
-
-      // HARD NOISE GATE
       if (max < 0.05) max = 0;
-
-      // FIXED GAIN (Not Normalize)
       if (max > 0) {
-        max = max * 4.0; // Apply User's "Visual Amplifier"
+        max = max * 4.0;
         if (max > 1.0) max = 1.0;
       }
-
-      peaks.push([0, max]); // Push [min, max]? Or just max? WaveSurfer docs vary. 
-      // Actually ws.load(url, peaks). Peaks is Array<Float32Array | number[]>.
-      // Let's try passing flat array of max values.
-      // peaks.push(max); 
+      peaks.push([0, max]);
     }
-
-    // Return flat array for compatibility
     return peaks;
   };
 
@@ -451,33 +410,7 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
       const blob = new Blob([bytes], { type: mimeType });
       const url = URL.createObjectURL(blob);
 
-      // Pre-process Data (Noise Gate + Gain)
-      // Note: This is an async operation that decodes audio. 
-      // Might delay UI slightly but ensures "Clean" waveform.
       await processPeaks(blob);
-      // Wait, processPeaks code above returns number[][]. 
-      // WaveSurfer.create({ ... }) doesn't take peaks directly in v7?
-      // It does via `url` + `peaks` option in load?
-      // Or we can just use `normalize: false` and rely on the fact that recording volume 
-      // is usually decent?
-      // User demanded "Process AudioBuffer".
-      // WaveSurfer 7 `media` option? 
-      // Actually, simplest is: normalize: false. 
-      // But the user complained about "Noise being magnified".
-      // If normalize is false, noise (0.01) stays 0.01 (tiny bar).
-      // If normalize is true, 0.01 -> 1.0 (huge bar).
-      // So `normalize: false` IS the fix for "Noise Gate" visually.
-
-      // Let's stick to `normalize: false` first, and if that fails, we do the peaks.
-      // The "Process AudioBuffer" instruction was explicit though.
-      // Okay, I will stick to the config change because rewriting the Decoder logic 
-      // introduces iOS compat risks (AudioContext again).
-
-      // DO NOT USE AUDIOCONTEXT if possible to avoid Step 1 regression.
-      // "Prohibit navigator.mediaDevices.getUserMedia" was the instruction.
-      // AudioContext.decodeAudioData is generally safe for *files*, but...
-
-      // Let's fix the CONFIG first.
 
       userWs.current = WaveSurfer.create({
         container: userContainerRef.current,
@@ -493,74 +426,47 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
         fillParent: false,
         minPxPerSec: PX_PER_SEC,
         autoScroll: false,
-        normalize: false, // CRITICAL FIX: Disable auto-gain for quiet clips
+        normalize: false,
       });
 
       userWs.current.on('ready', (d) => {
         setUserDuration(d);
-        userWs.current?.setVolume(1.0); // Ensure audible
+        userWs.current?.setVolume(1.0);
       });
-      userWs.current.on('finish', () => {
-        // handled by master loop
-        // userWs.current?.pause();
-      });
+      userWs.current.on('finish', () => { });
       userWs.current.on('error', (err) => console.error("WS Error", err));
-
     } catch (e: any) {
       alert('Waveform Load Error: ' + e.message);
     }
   };
 
-
-  // --- Render Helpers ---
-
-  // Calculated Width for the Inner Track Container
-  // Default to window width if duration 0, else duration * scale + padding
   const totalDuration = Math.max(duration, userDuration);
   const totalWidth = totalDuration > 0 ? (totalDuration * PX_PER_SEC) : '100%';
-  const paddingX = '50vw'; // To allow centering start and end
+  const paddingX = '50vw';
 
   return (
     <div className="absolute inset-0 z-50 flex flex-col bg-black text-white pt-[env(safe-area-inset-top)] pb-12 overflow-hidden">
-
-      {/* 1. Header */}
       <div className="flex items-center justify-between h-14 px-4 shrink-0 z-20 bg-black/80 backdrop-blur-md">
         <button onClick={onBack} className="p-2"><ChevronLeft className="w-6 h-6 text-zinc-400" /></button>
         <span className="text-lg font-semibold">The Mirror</span>
         <button onClick={onHome} className="p-2"><X className="w-6 h-6 text-zinc-400" /></button>
       </div>
 
-      {/* 2. The STAGE (Scroll Container) */}
       <div className="flex-1 relative min-h-0 bg-[#0c0c0c] group">
-
-        {/* Global Center Line (The Needle) */}
-        {/* Animated Pulse Grip during Recording */}
-        {/* Global Center Line (The Needle) */}
-        {/* Animated Pulse Grip during Recording */}
-        {/* REQ: Hide in User Track (Green Box) during Recording */}
-        {/* REQ: Stop above Play Button in Review Mode */}
         <div
           className={cn(
             "absolute left-1/2 top-0 z-30 -translate-x-1/2 w-[2px] pointer-events-none transition-all duration-300",
             status === 'recording'
-              ? "bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.8)] animate-pulse h-[220px]" // Limit height to Top Track
+              ? "bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.8)] animate-pulse h-[220px]"
               : status === 'review'
-                ? "bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)] bottom-[120px]" // Stop above Play Button
-                : "bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)] bottom-0" // Full height otherwise
+                ? "bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)] bottom-[120px]"
+                : "bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)] bottom-0"
           )}
         ></div>
 
-        {/* Side Play Buttons (Overlay) - Removed in favor of Unified Mixer */}
-        {/* We only show the Master Play Button on the right, but outside the scroll container to be fixed? */}
-        {/* Actually, user wants "Right Side" Play Button. If we put it here, it scrolls. */}
-        {/* We will place it in the fixed overlay area or the Footer-adjacent area. */}
-
-        {/* Scrollable Timeline */}
         <div
           ref={scrollContainerRef}
-          className="w-full h-full overflow-x-auto overflow-y-hidden no-scrollbar relative z-10" // z-10 to stay above canvas? No, tracks need to be visible.
-          // Wait, if canvas is outside, we need to structure nicely.
-          // Let's keep Canvas inside the "STAGE" div but absolute positioned to SCREEN, not content.
+          className="w-full h-full overflow-x-auto overflow-y-hidden no-scrollbar relative z-10"
           onScroll={onScroll}
           onPointerDown={handlePointerDown}
           onPointerUp={handlePointerUp}
@@ -575,13 +481,32 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
               minWidth: '50vw'
             }}
           >
-            {/* A. Source Reference Track (Top) */}
             <div className="absolute top-[40px] left-0 w-full h-[160px] opacity-80 pointer-events-none" ref={sourceContainerRef} />
 
-            {/* B. User Recording Track (Bottom) */}
-            <div className="absolute top-[220px] left-0 w-full h-[160px] pointer-events-none">
+            <div className="absolute top-[175px] left-0 w-full h-[30px] pointer-events-none z-20">
+              {transcript.map((seg, si) =>
+                seg.words?.map((word, wi) => {
+                  const left = word.start * PX_PER_SEC;
+                  const width = Math.max((word.end - word.start) * PX_PER_SEC, 20);
+                  return (
+                    <div
+                      key={`${si}-${wi}`}
+                      className={cn(
+                        "absolute top-0 flex items-center justify-center text-xs font-medium transition-all duration-300 select-none px-0.5 whitespace-nowrap overflow-hidden",
+                        clozeMode === 100 ? "bg-zinc-800 text-transparent rounded mx-0.5" :
+                          clozeMode === 70 ? "text-white/30 blur-[1px]" :
+                            "text-white/60"
+                      )}
+                      style={{ left: `${left}px`, width: `${width}px` }}
+                    >
+                      {word.text}
+                    </div>
+                  );
+                })
+              )}
+            </div>
 
-              {/* 2. WaveSurfer Layer (The Truth) - Visible in Review */}
+            <div className="absolute top-[220px] left-0 w-full h-[160px] pointer-events-none">
               <div
                 ref={userContainerRef}
                 className={cn(
@@ -593,16 +518,9 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
           </div>
         </div>
 
-        {/* C. VISUALIZER (FIXED OVERLAY) - DEMO EFFECT */}
-        {/* We place it outside the ScrollContainer so it stays fixed to the viewport */}
-        {/* It aligns exactly with the Bottom Track Area (top-220, h-160) */}
         {status === 'recording' && (
           <div className="absolute left-0 right-0 top-[220px] h-[160px] pointer-events-none z-10 flex flex-col items-center justify-center">
-
-            {/* Glow Effect */}
             <div className="absolute w-64 h-64 bg-rose-500/10 rounded-full blur-3xl pointer-events-none animate-pulse"></div>
-
-            {/* Animated Equalizer Bars (CSS Animation) */}
             <div className="flex items-center justify-center gap-1.5 h-16 relative z-10">
               <div className="w-1.5 bg-rose-500 rounded-full animate-sound-bar bar-1"></div>
               <div className="w-1.5 bg-rose-400 rounded-full animate-sound-bar bar-2"></div>
@@ -615,7 +533,6 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
               <div className="w-1.5 bg-rose-500 rounded-full animate-sound-bar bar-1"></div>
               <div className="w-1.5 bg-rose-400 rounded-full animate-sound-bar bar-3"></div>
             </div>
-
             <div className="mt-4 flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></div>
               <span className="text-sm font-medium text-rose-500 tracking-wide uppercase">Listening...</span>
@@ -623,13 +540,9 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
           </div>
         )}
 
-        {/* REVIEW CONTROLS (OVERLAY ON STAGE) */}
         {status === 'review' && (
           <>
-            {/* --- RIGHT CONTROL SIDEBAR (New Structure) --- */}
             <div className="absolute right-0 top-0 bottom-0 w-[48px] border-l border-zinc-800/50 bg-black/20 z-40 animate-in fade-in slide-in-from-right-8">
-
-              {/* 1. Source Toggle (Aligned with Top Track) */}
               <div className="absolute top-[60px] left-0 right-0 flex flex-col items-center gap-2 h-[160px] justify-center">
                 <div className="flex flex-col items-center gap-1.5">
                   <button
@@ -650,7 +563,6 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
                 </div>
               </div>
 
-              {/* 2. User Toggle (Aligned with Bottom Track) */}
               <div className="absolute top-[220px] left-0 right-0 flex flex-col items-center gap-2 h-[160px] justify-center">
                 <div className="flex flex-col items-center gap-1.5">
                   <button
@@ -670,10 +582,8 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
                   )}>RECORD</span>
                 </div>
               </div>
-
             </div>
 
-            {/* --- MASTER PLAY BUTTON (CENTERED) --- */}
             <button
               onClick={toggleMasterPlay}
               className="absolute left-1/2 -translate-x-1/2 bottom-[30px] z-50 w-20 h-20 rounded-full bg-white text-black shadow-[0_0_40px_rgba(255,255,255,0.4)] flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
@@ -684,15 +594,10 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
         )}
       </div>
 
-      {/* 3. Controls (Bottom) */}
       <div className="h-48 bg-zinc-950 flex flex-col justify-between shrink-0 z-20 border-t border-zinc-900 pb-[env(safe-area-inset-bottom)] pt-4 px-6">
-
         <div className="flex-1 flex items-center justify-center w-full">
-
-          {/* Status 1: Idle */}
           {status === 'idle' && (
             <div className="flex items-center justify-center w-full animate-in fade-in slide-in-from-bottom-4">
-              {/* Record Button (Center) */}
               <button onClick={startRecording} className="relative group">
                 <div className="absolute inset-0 bg-red-600 rounded-full blur opacity-20 group-hover:opacity-40 transition-opacity" />
                 <div className="w-20 h-20 rounded-full bg-red-600 border-[3px] border-zinc-900 shadow-2xl flex items-center justify-center group-active:scale-95 transition-transform">
@@ -703,7 +608,6 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
             </div>
           )}
 
-          {/* Status 2: Recording */}
           {status === 'recording' && (
             <div className="flex flex-col items-center gap-4 animate-in zoom-in">
               <div className="relative">
@@ -716,10 +620,8 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
             </div>
           )}
 
-          {/* Status 3: Review (Footer Controls) */}
           {status === 'review' && (
             <div className="w-full h-full flex items-center justify-between gap-4 animate-in fade-in slide-in-from-bottom-4 px-4 relative z-50">
-              {/* Left: Retry (Large Pill) */}
               <button
                 onClick={() => {
                   if (sourceWs.current) {
@@ -728,6 +630,7 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
                   }
                   scrollToUnsafe(0);
                   setStatus('idle');
+                  Preferences.remove({ key: sessionKey });
                 }}
                 className="flex-[1.2] h-14 rounded-2xl bg-zinc-900 text-zinc-400 font-semibold tracking-wide flex items-center justify-center border border-zinc-800 hover:bg-zinc-800 hover:text-white active:scale-95 transition-all"
               >
@@ -737,7 +640,6 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
                 </div>
               </button>
 
-              {/* Right: Save (Large Pill) */}
               <button
                 onClick={async () => {
                   if (!recordedBase64) return;
@@ -748,7 +650,7 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
                       data: recordedBase64,
                       directory: Directory.Documents
                     });
-                    alert("Saved!");
+                    alert("保存成功！\n\n已保存至“文件 > 我的iPhone > 语核”文件夹");
                   } catch (e: any) { alert("Save Failed:" + e.message); }
                 }}
                 className="flex-[2] h-14 rounded-2xl bg-[#00D68F] text-black font-bold tracking-wide flex items-center justify-center hover:brightness-110 active:scale-95 transition-all shadow-lg shadow-[#00D68F]/20"
@@ -762,6 +664,18 @@ export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) 
           )}
         </div>
       </div>
+      <div className="absolute bottom-8 right-8 z-50">
+        <button
+          onClick={toggleCloze}
+          className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900/80 backdrop-blur border border-zinc-700 rounded-full text-xs font-medium text-zinc-300 shadow-lg active:scale-95 transition-all"
+        >
+          {clozeMode === 100 && <EyeOff className="w-3.5 h-3.5" />}
+          {clozeMode === 70 && <Eye className="w-3.5 h-3.5 opacity-50" />}
+          {clozeMode === 0 && <Eye className="w-3.5 h-3.5" />}
+          <span>{clozeMode === 0 ? "Show" : `${clozeMode}%`}</span>
+        </button>
+      </div>
+
     </div>
   );
 }
