@@ -1,5 +1,6 @@
 import { ChevronLeft, X, Play, Pause, RotateCcw, Ear, EarOff, Mic, Eye, EyeOff, Download } from "lucide-react";
-import { transcript } from "@/data/transcript";
+// import { transcript } from "@/data/transcript"; // REMOVED STATIC IMPORT
+import type { TranscriptSegment } from "@/data/transcript";
 import { useState, useRef, useEffect } from "react";
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { cn } from "@/lib/utils";
@@ -18,11 +19,12 @@ interface ShadowingViewProps {
   onBack: () => void;
   onHome: () => void;
   audioSrc: string;
+  transcript: TranscriptSegment[]; // Added Prop
 }
 
 type ShadowingStatus = 'idle' | 'recording' | 'review';
 
-export function ShadowingView({ onBack, onHome, audioSrc }: ShadowingViewProps) {
+export function ShadowingView({ onBack, onHome, audioSrc, transcript }: ShadowingViewProps) {
   // UNIQUE SESSION KEY PER AUDIO FILE
   const sessionKey = `shadowing_session_${audioSrc.replace(/[^a-z0-9]/gi, '_')}`;
 

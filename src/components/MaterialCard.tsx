@@ -10,6 +10,7 @@ export interface Material {
     label?: { text: string; type: 'hard' | 'new' | 'mastered' };
     progress?: number;
     audioUrl: string;
+    isStarred?: boolean;
 }
 
 interface MaterialCardProps {

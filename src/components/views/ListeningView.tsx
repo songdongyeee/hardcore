@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Eye, RotateCcw, RotateCw, Pause, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { transcript } from "@/data/transcript";
+// import { transcript } from "@/data/transcript";
+import type { TranscriptSegment } from "@/data/transcript";
 
 interface ListeningViewProps {
   onBack: () => void;
@@ -11,6 +12,7 @@ interface ListeningViewProps {
   isPlaying: boolean;
   togglePlay: () => void;
   seek: (time: number) => void;
+  transcript: TranscriptSegment[];
 }
 
 export function ListeningView({
@@ -20,7 +22,8 @@ export function ListeningView({
   currentTime,
   isPlaying,
   togglePlay,
-  seek
+  seek,
+  transcript
 }: ListeningViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollBoxRef = useRef<HTMLDivElement>(null);
@@ -73,7 +76,7 @@ export function ListeningView({
   return (
     <div className="absolute inset-0 bg-black z-40 flex flex-col h-full w-full">
       {/* Nav */}
-      <div className="px-6 pt-[calc(1.5rem+env(safe-area-inset-top))] pb-6 flex justify-between items-center border-b border-zinc-900 bg-black shrink-0">
+      <div className="px-6 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-6 flex justify-between items-center border-b border-zinc-900 bg-black shrink-0">
         <button onClick={onBack} className="p-2 -ml-2 text-zinc-400 hover:text-white">
           <ArrowLeft className="w-6 h-6" />
         </button>

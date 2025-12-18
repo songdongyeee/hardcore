@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { cn } from "@/lib/utils";
 import { useAudio } from "@/hooks/useAudio";
+import { transcript as defaultTranscript } from "@/data/transcript";
+import type { TranscriptSegment } from "@/data/transcript";
 import { Header } from "@/components/Header";
 import { HomeView } from "@/components/views/HomeView";
 import { ListeningView } from "@/components/views/ListeningView";
@@ -13,16 +15,23 @@ type ViewState = 'home' | 'listening' | 'analysis' | 'shadowing' | 'profile';
 function App() {
   const [activeView, setActiveView] = useState<ViewState>('home');
   const [currentSrc, setCurrentSrc] = useState<string>('/演讲音频.m4a');
+  const [currentTranscript, setCurrentTranscript] = useState<TranscriptSegment[]>(defaultTranscript);
   // Only enable audio when in 'listening' view
   const { isPlaying, currentTime, togglePlay, seek, audioRef, pause, play } = useAudio(currentSrc, activeView === 'listening');
 
-  const handlePlay = (audioUrl: string, targetView?: ViewState) => {
+  const handlePlay = (audioUrl: string, targetView?: ViewState, newTranscript?: TranscriptSegment[]) => {
     if (audioUrl === currentSrc) {
       if (!targetView || targetView === 'listening') {
         play();
       }
     }
     setCurrentSrc(audioUrl);
+    if (newTranscript) {
+      setCurrentTranscript(newTranscript);
+    } else {
+      // Reset to default if switching back to normal content (optional validation here)
+      if (audioUrl === '/演讲音频.m4a') setCurrentTranscript(defaultTranscript);
+    }
     setActiveView(targetView || 'listening');
   };
 
@@ -64,6 +73,7 @@ function App() {
               isPlaying={isPlaying}
               togglePlay={togglePlay}
               seek={seek}
+              transcript={currentTranscript}
             />
           )}
 
@@ -86,6 +96,7 @@ function App() {
               onBack={() => setActiveView('analysis')} // Back to Analysis (Top Left)
               onHome={() => setActiveView('home')}     // Close to Home (Top Right)
               audioSrc={currentSrc}
+              transcript={currentTranscript}
             />
           )}
 

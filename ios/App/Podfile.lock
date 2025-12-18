@@ -1,6 +1,9 @@
 PODS:
   - Capacitor (8.0.0):
     - CapacitorCordova
+  - CapacitorBlobWriter (0.0.1):
+    - Capacitor
+    - GCDWebServer (~> 3.0)
   - CapacitorCommunityAppleSignIn (7.1.0):
     - Capacitor
   - CapacitorCordova (8.0.0)
@@ -11,8 +14,15 @@ PODS:
     - Capacitor
   - CapacitorPreferences (8.0.0):
     - Capacitor
+  - CapacitorStatusBar (8.0.0):
+    - Capacitor
   - CapacitorVoiceRecorder (7.0.6):
     - Capacitor
+  - CapawesomeCapacitorFilePicker (7.2.0):
+    - Capacitor
+  - GCDWebServer (3.5.4):
+    - GCDWebServer/Core (= 3.5.4)
+  - GCDWebServer/Core (3.5.4)
   - IONFilesystemLib (1.0.1)
   - PurchasesHybridCommon (17.23.0):
     - RevenueCat (= 5.50.0)
@@ -23,16 +33,20 @@ PODS:
 
 DEPENDENCIES:
   - "Capacitor (from `../../node_modules/@capacitor/ios`)"
+  - CapacitorBlobWriter (from `../../node_modules/capacitor-blob-writer`)
   - "CapacitorCommunityAppleSignIn (from `../../node_modules/@capacitor-community/apple-sign-in`)"
   - "CapacitorCordova (from `../../node_modules/@capacitor/ios`)"
   - "CapacitorFilesystem (from `../../node_modules/@capacitor/filesystem`)"
   - "CapacitorHaptics (from `../../node_modules/@capacitor/haptics`)"
   - "CapacitorPreferences (from `../../node_modules/@capacitor/preferences`)"
+  - "CapacitorStatusBar (from `../../node_modules/@capacitor/status-bar`)"
   - CapacitorVoiceRecorder (from `../../node_modules/capacitor-voice-recorder`)
+  - "CapawesomeCapacitorFilePicker (from `../../node_modules/@capawesome/capacitor-file-picker`)"
   - "RevenuecatPurchasesCapacitor (from `../../node_modules/@revenuecat/purchases-capacitor`)"
 
 SPEC REPOS:
   https://mirrors.tuna.tsinghua.edu.cn/git/CocoaPods/Specs.git:
+    - GCDWebServer
     - IONFilesystemLib
     - PurchasesHybridCommon
     - RevenueCat
@@ -40,6 +54,8 @@ SPEC REPOS:
 EXTERNAL SOURCES:
   Capacitor:
     :path: "../../node_modules/@capacitor/ios"
+  CapacitorBlobWriter:
+    :path: "../../node_modules/capacitor-blob-writer"
   CapacitorCommunityAppleSignIn:
     :path: "../../node_modules/@capacitor-community/apple-sign-in"
   CapacitorCordova:
@@ -50,24 +66,32 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/@capacitor/haptics"
   CapacitorPreferences:
     :path: "../../node_modules/@capacitor/preferences"
+  CapacitorStatusBar:
+    :path: "../../node_modules/@capacitor/status-bar"
   CapacitorVoiceRecorder:
     :path: "../../node_modules/capacitor-voice-recorder"
+  CapawesomeCapacitorFilePicker:
+    :path: "../../node_modules/@capawesome/capacitor-file-picker"
   RevenuecatPurchasesCapacitor:
     :path: "../../node_modules/@revenuecat/purchases-capacitor"
 
 SPEC CHECKSUMS:
   Capacitor: 341ff7cf652ec695d1a8ebf604db448ac7b6d635
+  CapacitorBlobWriter: d709e5d22ab9989afd730eb4773873d1ded5fd08
   CapacitorCommunityAppleSignIn: 271cb2860576fd2961508bbfa7a82117d93eadca
   CapacitorCordova: 5dc3912d25ef770a3fe0f431bb65c9fbfa2e92f9
   CapacitorFilesystem: 2cb7c29536024668f333266a2177f8c10bbd9c98
   CapacitorHaptics: 2079d9fa04c5a71e18663b4722323c304c58245c
   CapacitorPreferences: 443fabe9670226200e595658a87ef0b1566716d4
+  CapacitorStatusBar: 312e2e67928dfe9514c4a8916a1fd610552f5f35
   CapacitorVoiceRecorder: 9158861be982f32d411769723a4d813d6ce46135
+  CapawesomeCapacitorFilePicker: 0f4a913a00e39dd77213449f0d917e92f35a5ca9
+  GCDWebServer: 2c156a56c8226e2d5c0c3f208a3621ccffbe3ce4
   IONFilesystemLib: 89258b8e3e85465da93127d25d7ce37f977e8a6f
   PurchasesHybridCommon: e95a0b9bb01f6e9101d44f411343fb91030e26ae
   RevenueCat: a5fcd0a12b5ec9bbddc0cf0dd20c14b7e6213df6
   RevenuecatPurchasesCapacitor: 4fa710eec90225a84056f13b734093ccf35cd18c
 
-PODFILE CHECKSUM: 58d8d80e821d430027bfb2715685a818f6c7a5a8
+PODFILE CHECKSUM: c239b198c10efe78978b90c0023c7cb4f1a4947d
 
 COCOAPODS: 1.16.2
