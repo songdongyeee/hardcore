@@ -93,8 +93,12 @@ onRecordAfterCreateRequest((e) => {
                     const proto = protoMatch ? protoMatch[0] : "";
                     const path = base.substring(proto.length);
 
-                    // Encode colons ONLY in the path
-                    const encodedPath = path.replace(/:/g, "%3A");
+                    // Double-encode colons in path to %253A
+                    // This ensures Go sends %3A (it decodes %253A -> %3A)
+                    // and Aliyun OSS receives the correct signature-matched path.
+                    const encodedPath = path
+                        .replace(/%3A/gi, "%253A") // Existing encoded -> double
+                        .replace(/:/g, "%253A");   // Literal -> double
 
                     safeUrl = proto + encodedPath + query;
                 } catch (e) {
