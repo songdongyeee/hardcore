@@ -77,7 +77,17 @@ onRecordAfterCreateRequest((e) => {
             if (status === "SUCCEEDED") {
                 const resUrl = pollData.output.results[0].transcription_url;
                 $app.logger().info(`📥 Downloading Result from: ${resUrl}`);
-                finalResult = $http.send({ url: resUrl, method: "GET" }).json;
+                const downloadRes = $http.send({ url: resUrl, method: "GET" });
+                if (downloadRes.statusCode !== 200) {
+                    $app.logger().error(`❌ Download Failed [${downloadRes.statusCode}]: ${downloadRes.raw}`);
+                    throw new Error(`Failed to download transcript: ${downloadRes.statusCode}`);
+                }
+                finalResult = downloadRes.json;
+                // Double check if finalResult is valid
+                if (!finalResult) {
+                    $app.logger().error(`❌ Invalid JSON Body: ${downloadRes.raw}`);
+                    throw new Error("Downloaded result is empty or invalid JSON");
+                }
                 break;
             } else if (status === "FAILED") {
                 throw new Error(`Aliyun Task FAILED: ${pollData.output.message}`);
