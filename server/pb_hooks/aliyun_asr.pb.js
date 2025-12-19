@@ -76,8 +76,12 @@ onRecordAfterCreateRequest((e) => {
 
             if (status === "SUCCEEDED") {
                 const resUrl = pollData.output.results[0].transcription_url;
-                $app.logger().info(`📥 Downloading Result from: ${resUrl}`);
-                const downloadRes = $http.send({ url: resUrl, method: "GET" });
+                // ⚠️ FIX: Go http client auto-decodes '%3A' to ':', breaking the OSS signature.
+                // We double-encode it to '%253A' so Go sends '%3A'.
+                const safeUrl = resUrl.replace(/%3A/g, "%253A");
+
+                $app.logger().info(`📥 Downloading Result from: ${safeUrl}`);
+                const downloadRes = $http.send({ url: safeUrl, method: "GET" });
                 if (downloadRes.statusCode !== 200) {
                     $app.logger().error(`❌ Download Failed [${downloadRes.statusCode}]: ${downloadRes.raw}`);
                     throw new Error(`Failed to download transcript: ${downloadRes.statusCode}`);
