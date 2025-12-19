@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { type Material } from "@/components/MaterialCard";
-import { Menu, Sparkles, Upload, Library, BookOpen, Star, Filter } from "lucide-react";
+import { MaterialCard, type Material } from "@/components/MaterialCard";
+import { Menu, Sparkles, Upload, Library, BookOpen, Star, Filter, X } from "lucide-react";
 import { useUsageLimit } from "@/hooks/useUsageLimit";
 import { useRevenueCat } from "@/hooks/useRevenueCat";
 import { Paywall } from "@/components/Paywall";
@@ -105,14 +105,18 @@ export function HomeView({ onPlay, onProfile }: HomeViewProps) {
   // Refactored Filter State
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [activeFilter, setActiveFilter] = useState<'all' | 'starred' | 'reading'>('all');
+  const [userMaterials, setUserMaterials] = useState<Material[]>([]);
 
   const { isVip } = useRevenueCat();
   const { checkAccess } = useUsageLimit(isVip);
 
   // Filter Logic
-  const displayMaterials = activeFilter === 'starred'
-    ? MATERIALS.filter(m => m.isStarred)
-    : MATERIALS.slice(1); // Show all except first (Hero) in grid
+  const displayMaterials = [
+    ...userMaterials,
+    ...(activeFilter === 'starred'
+      ? MATERIALS.filter(m => m.isStarred)
+      : MATERIALS.slice(1))
+  ];
 
   // Scroll Animation Logic
   useEffect(() => {
@@ -146,20 +150,28 @@ export function HomeView({ onPlay, onProfile }: HomeViewProps) {
     cards.forEach((card) => observer.observe(card));
 
     return () => observer.disconnect();
-  }, [activeFilter]);
+  }, [activeFilter, userMaterials]); // added userMaterials
 
   const handleCardClick = async (material: Material) => {
-    // Logic: Free User can only access the first article (id '1')
-    if (!isVip && material.id !== '1') {
+    const isUserUpload = material.id.startsWith('user-');
+
+    // Logic: Free User can only access the first article (id '1') and their own uploads
+    if (!isVip && material.id !== '1' && !isUserUpload) {
       setShowPaywall(true);
       return;
     }
 
-    const access = await checkAccess(material.id);
-    if (access.allowed) {
-      onPlay(material.audioUrl);
+    if (!isUserUpload) {
+      const access = await checkAccess(material.id);
+      if (access.allowed) {
+        onPlay(material.audioUrl);
+      } else {
+        setShowPaywall(true);
+      }
     } else {
-      setShowPaywall(true);
+      // For user uploads, pass the transcript if we have it
+      // Start from Phase 1 (Listening), not Shadowing
+      onPlay(material.audioUrl, 'listening', material.transcript);
     }
   };
 
@@ -192,13 +204,31 @@ export function HomeView({ onPlay, onProfile }: HomeViewProps) {
       }
 
       // 2. Transcribe
-      const transcript = await whisperService.transcribe(finalUri, (progress) => {
+      // We pass finalWebPath because fetch() (used in whisperService) needs a http/capacitor URL, not file://
+      const response = await fetch(finalWebPath);
+      const blob = await response.blob();
+      const fileName = `upload_${Date.now()}.mp3`; // Generate a filename
+
+      const transcript = await whisperService.transcribe(blob, fileName, (progress) => {
         const base = isVideo ? 50 : 0;
         const scale = isVideo ? 0.5 : 1;
         setImportProgress(base + Math.round(progress * scale));
       });
 
-      onPlay(finalWebPath, 'shadowing', transcript);
+      // 3. Add to Core Library (Home View)
+      const newMaterial: Material = {
+        id: `user-${Date.now()}`,
+        title: file.name,
+        subtitle: 'Just uploaded',
+        imageUrl: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&auto=format&fit=crop',
+        duration: '00:00', // placeholder
+        label: { text: 'My Upload', type: 'new' },
+        audioUrl: finalWebPath,
+        transcript: transcript
+      };
+
+      setUserMaterials(prev => [newMaterial, ...prev]);
+      alert("【版本 2.0】上传成功！已添加到列表顶部");
 
     } catch (e: any) {
       console.error("Import/Convert failed", e);
@@ -211,6 +241,12 @@ export function HomeView({ onPlay, onProfile }: HomeViewProps) {
 
   // Hero Material is always the first one
   const heroMaterial = MATERIALS[0];
+
+  const handleDelete = async (id: string) => {
+    if (confirm("Delete this material?")) {
+      setUserMaterials(prev => prev.filter(m => m.id !== id));
+    }
+  };
 
   return (
     <main className="flex-1 overflow-y-auto no-scrollbar scroll-smooth bg-black min-h-screen pt-[calc(env(safe-area-inset-top)+1rem)]">
@@ -240,7 +276,7 @@ export function HomeView({ onPlay, onProfile }: HomeViewProps) {
           {/* Hero Card */}
           <div
             onClick={() => handleCardClick(heroMaterial)}
-            className="relative w-full aspect-[1.9/1] rounded-2xl overflow-hidden group border border-zinc-800 shadow-2xl shadow-black cursor-pointer animate-in zoom-in-95 duration-700 delay-100 fill-mode-both"
+            className="relative w-full aspect-[11/9] rounded-2xl overflow-hidden group border border-zinc-800 shadow-2xl shadow-black cursor-pointer animate-in zoom-in-95 duration-700 delay-100 fill-mode-both"
           >
             {/* ... image ... */}
             <img
@@ -263,19 +299,19 @@ export function HomeView({ onPlay, onProfile }: HomeViewProps) {
 
             {/* Content */}
             <div className="absolute bottom-0 left-0 w-full p-6">
-              <div className="flex gap-2 mb-3">
+              <div className="flex gap-2 mb-2 gap-x-2 gap-y-2">
                 <span className={cn(
-                  "px-2 py-0.5 rounded-full text-xs font-medium tracking-wide border",
-                  "bg-indigo-500/20 text-indigo-300 border-indigo-500/30"
+                  "text-xs font-medium border rounded pt-0.5 pr-2 pb-0.5 pl-2",
+                  "text-indigo-300 bg-indigo-500/20 border-indigo-500/20"
                 )}>
                   {heroMaterial.label?.text || 'Daily'}
                 </span>
-                <span className="px-2 py-0.5 rounded-full bg-zinc-800/80 text-zinc-400 border border-zinc-700 text-xs font-medium tracking-wide">
-                  Dec 18
+                <span className="text-xs font-medium text-zinc-300 bg-zinc-500/20 border-zinc-500/20 border rounded pt-0.5 pr-2 pb-0.5 pl-2">
+                  12月17日
                 </span>
               </div>
-              <h4 className="text-xl font-medium text-white tracking-tight leading-tight">{heroMaterial.title}</h4>
-              <div className="flex items-center gap-4 text-sm text-zinc-400 mt-2">
+              <h4 className="text-2xl font-medium text-white tracking-tight leading-tight">{heroMaterial.title}</h4>
+              <div className="flex items-center gap-4 text-base text-zinc-400 mt-2">
                 <span>{heroMaterial.duration}</span>
                 {/* Progress Bar Visual */}
                 <div className="flex items-center gap-1.5">
@@ -290,10 +326,15 @@ export function HomeView({ onPlay, onProfile }: HomeViewProps) {
 
         {/* Section 2: Core Library */}
         <section>
-          <div className="flex sticky z-30 top-24 pt-2 pb-2 items-center justify-between mb-6 bg-black/95 backdrop-blur-sm animate-in slide-in-from-bottom-8 duration-700 delay-200 fill-mode-both">
-            <div className="flex items-center gap-3">
-              <Library className="w-7 h-7 text-emerald-400" />
-              <h2 className="text-3xl font-medium text-white tracking-tight">Core Library</h2>
+          <div className="flex sticky z-30 top-0 pt-[env(safe-area-inset-top)] pb-2 items-center justify-between mb-2 bg-black/80 backdrop-blur-xl animate-in slide-in-from-bottom-8 duration-700 delay-200 fill-mode-both">
+            <div className="flex items-center gap-3 overflow-hidden">
+              <Library className={cn("shrink-0 text-emerald-400", isMenuOpen ? "w-6 h-6" : "w-7 h-7")} />
+              <h2 className={cn(
+                "font-medium text-white tracking-tight whitespace-nowrap",
+                isMenuOpen ? "text-xl" : "text-3xl"
+              )}>
+                Core Library
+              </h2>
             </div>
 
             <div className="flex gap-3 items-center">
@@ -301,7 +342,7 @@ export function HomeView({ onPlay, onProfile }: HomeViewProps) {
               <button
                 onClick={handleImport}
                 disabled={isImporting}
-                className="w-12 h-12 bg-zinc-900 border border-zinc-800 rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:border-zinc-700 transition-all shadow-sm shrink-0 active:scale-95"
+                className="w-11 h-11 bg-zinc-900 border border-zinc-800 rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:border-zinc-700 shadow-sm shrink-0 active:scale-95"
               >
                 {isImporting ? (
                   <CircularProgress progress={importProgress} />
@@ -313,33 +354,37 @@ export function HomeView({ onPlay, onProfile }: HomeViewProps) {
               {/* Filter Group */}
               <div
                 className={cn(
-                  "group flex flex-row-reverse items-center p-1.5 gap-2 h-12 bg-zinc-900 border border-zinc-800 rounded-full overflow-hidden transition-all duration-500 shadow-sm",
-                  isMenuOpen ? "w-[150px] border-zinc-600" : "w-12 hover:border-zinc-700 hover:w-[150px]"
+                  "group flex flex-row-reverse items-center p-1 gap-1 h-11 bg-zinc-900 border border-zinc-800 rounded-full overflow-hidden shadow-sm",
+                  isMenuOpen ? "w-[140px] border-zinc-600" : "w-11 hover:border-zinc-700"
                 )}
               >
                 <button
                   onClick={() => setIsMenuOpen(!isMenuOpen)}
                   className="flex shrink-0 w-9 h-9 items-center justify-center rounded-full text-zinc-400 hover:text-white"
                 >
-                  <Filter className={cn("w-5 h-5 transition-colors", isMenuOpen ? "text-white" : "")} />
+                  {isMenuOpen ? (
+                    <X className="w-5 h-5 text-zinc-500 hover:text-zinc-300 transition-colors" />
+                  ) : (
+                    <Filter className="w-5 h-5 transition-colors" />
+                  )}
                 </button>
 
-                {/* Separator & Other Buttons (Only visible when expanded effectively by width) */}
-                <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ opacity: isMenuOpen ? 1 : undefined }}>
-                  <div className="w-[1px] h-4 bg-zinc-800 shrink-0 mx-1" />
+                {/* Separator & Other Buttons */}
+                <div className="flex items-center gap-1" style={{ display: isMenuOpen ? 'flex' : 'none' }}>
+                  <div className="w-[1px] h-5 bg-zinc-800 shrink-0 mx-0.5" />
 
                   <button
                     onClick={() => setActiveFilter(activeFilter === 'reading' ? 'all' : 'reading')}
                     className={cn("w-9 h-9 rounded-full flex items-center justify-center transition-colors shrink-0", activeFilter === 'reading' ? "bg-zinc-800 text-indigo-400" : "text-zinc-400 hover:bg-zinc-800 hover:text-indigo-400")}
                   >
-                    <BookOpen className="w-4 h-4" />
+                    <BookOpen className="w-5 h-5" />
                   </button>
 
                   <button
                     onClick={() => setActiveFilter(activeFilter === 'starred' ? 'all' : 'starred')}
                     className={cn("w-9 h-9 rounded-full flex items-center justify-center transition-colors shrink-0", activeFilter === 'starred' ? "bg-zinc-800 text-yellow-400" : "text-zinc-400 hover:bg-zinc-800 hover:text-yellow-400")}
                   >
-                    <Star className={cn("w-4 h-4", activeFilter === 'starred' ? "fill-current" : "")} />
+                    <Star className={cn("w-5 h-5", activeFilter === 'starred' ? "fill-current" : "")} />
                   </button>
                 </div>
               </div>
@@ -352,34 +397,15 @@ export function HomeView({ onPlay, onProfile }: HomeViewProps) {
               <div
                 key={material.id}
                 id={`card-${material.id}`}
-                onClick={() => handleCardClick(material)}
-                className="animate-card relative w-full h-80 rounded-2xl overflow-hidden group border border-zinc-800 hover:border-zinc-700 transition-all duration-500 fill-mode-both ease-out"
-                style={{ transform: 'scale(0.95)', opacity: 0.8, filter: 'brightness(0.7)' }}
+                className="animate-card"
               >
-                <img
-                  src={material.imageUrl}
-                  alt={material.title}
-                  className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:opacity-50 transition-opacity"
+                <MaterialCard
+                  material={material}
+                  isActive={false} // ignored by grid variant
+                  variant="grid"
+                  onClick={() => handleCardClick(material)}
+                  onLongPress={material.id.startsWith('user-') ? () => handleDelete(material.id) : undefined}
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent" />
-
-                {/* Star Button */}
-                <div className="absolute top-3 right-3 z-10">
-                  <button className="text-zinc-600 hover:text-yellow-400 transition-colors active:scale-90" onClick={(e) => { e.stopPropagation(); }}>
-                    <Star className={cn("w-5 h-5", material.isStarred ? "fill-yellow-400 text-yellow-400" : "")} />
-                  </button>
-                </div>
-
-                {/* Content */}
-                <div className="absolute bottom-0 left-0 w-full p-5">
-                  <div className="flex gap-2 mb-2">
-                    {/* Mock Tags based on index/type */}
-                    <span className="text-[10px] font-medium text-emerald-300 bg-emerald-500/20 border border-emerald-500/20 rounded px-2 py-0.5">精品长文</span>
-                    <span className="text-[10px] font-medium text-blue-300 bg-blue-500/20 border border-blue-500/20 rounded px-2 py-0.5">科技新闻</span>
-                  </div>
-                  <h4 className="text-lg font-medium text-white tracking-tight leading-tight">{material.title}</h4>
-                  <p className="line-clamp-1 text-sm text-zinc-400 mt-1">{material.duration}</p>
-                </div>
               </div>
             ))}
           </div>

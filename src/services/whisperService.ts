@@ -1,41 +1,95 @@
+import PocketBase from 'pocketbase';
 import type { TranscriptSegment } from "@/data/transcript";
 
-// Mock Service for now
-// In the future, replace this with actual Whisper Plugin call
+// ⚠️ Ensure this matches your server IP
+const PB_URL = "http://8.138.201.147:8090";
+
 export const whisperService = {
-    transcribe: async (nativeFilePath: string, onProgress?: (progress: number) => void): Promise<TranscriptSegment[]> => {
-        console.log("Transcribing file at:", nativeFilePath);
+    transcribe: async (fileBlob: Blob, fileName: string, onProgress?: (progress: number) => void): Promise<TranscriptSegment[]> => {
+        console.log("🚀 Starting upload to PocketBase:", fileName);
+        if (onProgress) onProgress(10);
 
-        // Simulate processing delay with progress
-        const totalSteps = 20;
-        for (let i = 0; i <= totalSteps; i++) {
-            await new Promise(resolve => setTimeout(resolve, 100)); // 100ms * 20 = 2s total
-            if (onProgress) onProgress(Math.round((i / totalSteps) * 100));
+        try {
+            const pb = new PocketBase(PB_URL);
+
+            // 1. Create FormData
+            const formData = new FormData();
+            formData.append("audio", fileBlob, fileName);
+            formData.append("status", "pending");
+
+            if (onProgress) onProgress(30);
+
+            // 2. Upload to 'transcripts' collection
+            console.log("📤 Uploading...");
+            const record = await pb.collection('transcripts').create(formData);
+            console.log("✅ Upload success, Record ID:", record.id);
+
+            if (onProgress) onProgress(50);
+
+            // 3. Subscribe to changes (Realtime)
+            return new Promise(async (resolve, reject) => {
+                let isFinished = false;
+
+                const checkStatus = (r: any) => {
+                    if (isFinished) return;
+                    console.log("🔄 Status Update:", r.status);
+
+                    if (r.status === 'processing') {
+                        if (onProgress) onProgress(70);
+                    }
+                    if (r.status === 'done') {
+                        isFinished = true;
+                        console.log("✅ Transcription Done!");
+                        if (onProgress) onProgress(100);
+                        cleanup();
+
+                        try {
+                            const segments = JSON.parse(r.text) as TranscriptSegment[];
+                            resolve(segments);
+                        } catch (parseErr) {
+                            resolve([{ start: 0, end: 0, text: r.text, words: [] }]);
+                        }
+                    }
+                    if (r.status === 'error') {
+                        isFinished = true;
+                        console.error("❌ Transcription Failed on Server:", r.text);
+                        cleanup();
+                        reject(new Error("Server Error: " + r.text));
+                    }
+                };
+
+                const unsubscribeFunc = await pb.collection('transcripts').subscribe(record.id, (e) => {
+                    checkStatus(e.record);
+                });
+
+                const cleanup = () => {
+                    unsubscribeFunc();
+                };
+
+                // CRITICAL: Check status immediately in case we missed the event
+                try {
+                    const currentRecord = await pb.collection('transcripts').getOne(record.id);
+                    checkStatus(currentRecord);
+                } catch (e) {
+                    console.warn("Initial status check failed", e);
+                }
+
+                // timeout safety (60s)
+                setTimeout(() => {
+                    if (!isFinished) {
+                        isFinished = true;
+                        cleanup();
+                        reject(new Error("Timeout waiting for server transcription"));
+                    }
+                }, 60000);
+            });
+
+        } catch (err: any) {
+            console.error("❌ Upload/Network Error:", err);
+            // Better debugging: show full error object
+            const errMsg = err?.data ? JSON.stringify(err.data) : (err.message || JSON.stringify(err));
+            alert("Upload Error: " + errMsg);
+            throw err;
         }
-
-        // Return a generic mock transcript
-        // Ideally, we would parse the audio or use a real service
-        // For now, we return a fun "Analysis" transcript
-        return [
-            { start: 0.0, end: 2.0, text: "Wait..." },
-            { start: 2.0, end: 5.0, text: "I am analyzing this custom audio file you uploaded." },
-            { start: 5.0, end: 10.0, text: "The content seems to be incredibly dense and rich with information." },
-            { start: 10.0, end: 15.0, text: "Here is where the speaker makes a profound point about life and technology." },
-            { start: 15.0, end: 20.0, text: "You should definitely practice shadowing this section repeatedly." },
-            { start: 20.0, end: 25.0, text: "End of analysis. Great job importing this!" }
-        ].map(seg => {
-            // Generate word-level timestamps (mock)
-            const words = seg.text.split(' ');
-            const duration = seg.end - seg.start;
-            const wordDuration = duration / words.length;
-            return {
-                ...seg,
-                words: words.map((word, i) => ({
-                    text: word,
-                    start: seg.start + (i * wordDuration),
-                    end: seg.start + ((i + 1) * wordDuration)
-                }))
-            };
-        });
     }
 };

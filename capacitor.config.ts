@@ -1,20 +1,24 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.hardcore.language',
-  appName: '语核',
+  appId: 'com.hardcore.english',
+  appName: 'Hardcore English',
   webDir: 'dist',
-  /* 
-  server: {
-    // Local Dev Server (Live Reload)
-    url: 'http://192.168.105.61:5173',
-    cleartext: true
-  } 
-  */
   plugins: {
-    StatusBar: {
-      style: 'DARK',
-      overlaysWebView: true,
+    SplashScreen: {
+      launchShowDuration: 0,
+      launchAutoHide: true,
+      backgroundColor: "#000000",
+      androidSplashResourceName: "splash",
+      androidScaleType: "CENTER_CROP",
+      showSpinner: false,
+      androidSpinnerStyle: "large",
+      iosSpinnerStyle: "small",
+      spinnerColor: "#999999",
+      splashFullScreen: true,
+      splashImmersive: true,
+      layoutName: "launch_screen",
+      useDialog: true,
     },
   },
 };

@@ -6,20 +6,26 @@ import App from './App.tsx'
 
 import { Capacitor } from '@capacitor/core';
 import { StatusBar, Style } from '@capacitor/status-bar';
+import { SplashScreen } from '@capacitor/splash-screen';
 
-// Initialize Status Bar
-const initStatusBar = async () => {
+// Initialize Native Features
+const initNativeBridge = async () => {
   if (Capacitor.isNativePlatform()) {
     try {
+      // 1. Status Bar
       await StatusBar.setOverlaysWebView({ overlay: true });
       await StatusBar.setStyle({ style: Style.Dark });
+
+      // 2. Hide Splash Screen (Wait a bit or hide immediately)
+      await SplashScreen.hide();
+      console.log('Splash screen hidden');
     } catch (e) {
-      console.warn('StatusBar init failed', e);
+      console.warn('Native bridge init failed', e);
     }
   }
 };
 
-initStatusBar();
+initNativeBridge();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

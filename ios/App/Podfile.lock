@@ -14,6 +14,8 @@ PODS:
     - Capacitor
   - CapacitorPreferences (8.0.0):
     - Capacitor
+  - CapacitorSplashScreen (8.0.0):
+    - Capacitor
   - CapacitorStatusBar (8.0.0):
     - Capacitor
   - CapacitorVoiceRecorder (7.0.6):
@@ -39,6 +41,7 @@ DEPENDENCIES:
   - "CapacitorFilesystem (from `../../node_modules/@capacitor/filesystem`)"
   - "CapacitorHaptics (from `../../node_modules/@capacitor/haptics`)"
   - "CapacitorPreferences (from `../../node_modules/@capacitor/preferences`)"
+  - "CapacitorSplashScreen (from `../../node_modules/@capacitor/splash-screen`)"
   - "CapacitorStatusBar (from `../../node_modules/@capacitor/status-bar`)"
   - CapacitorVoiceRecorder (from `../../node_modules/capacitor-voice-recorder`)
   - "CapawesomeCapacitorFilePicker (from `../../node_modules/@capawesome/capacitor-file-picker`)"
@@ -66,6 +69,8 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/@capacitor/haptics"
   CapacitorPreferences:
     :path: "../../node_modules/@capacitor/preferences"
+  CapacitorSplashScreen:
+    :path: "../../node_modules/@capacitor/splash-screen"
   CapacitorStatusBar:
     :path: "../../node_modules/@capacitor/status-bar"
   CapacitorVoiceRecorder:
@@ -83,6 +88,7 @@ SPEC CHECKSUMS:
   CapacitorFilesystem: 2cb7c29536024668f333266a2177f8c10bbd9c98
   CapacitorHaptics: 2079d9fa04c5a71e18663b4722323c304c58245c
   CapacitorPreferences: 443fabe9670226200e595658a87ef0b1566716d4
+  CapacitorSplashScreen: 422880d7117605c30699eb4b21644b62db42e86c
   CapacitorStatusBar: 312e2e67928dfe9514c4a8916a1fd610552f5f35
   CapacitorVoiceRecorder: 9158861be982f32d411769723a4d813d6ce46135
   CapawesomeCapacitorFilePicker: 0f4a913a00e39dd77213449f0d917e92f35a5ca9
@@ -92,6 +98,6 @@ SPEC CHECKSUMS:
   RevenueCat: a5fcd0a12b5ec9bbddc0cf0dd20c14b7e6213df6
   RevenuecatPurchasesCapacitor: 4fa710eec90225a84056f13b734093ccf35cd18c
 
-PODFILE CHECKSUM: c239b198c10efe78978b90c0023c7cb4f1a4947d
+PODFILE CHECKSUM: 7ca497575bf0600457c94a2a617f0439f771fcf0
 
 COCOAPODS: 1.16.2

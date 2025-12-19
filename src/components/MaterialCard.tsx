@@ -1,5 +1,8 @@
+import React, { useRef } from "react";
 import { Award } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ImpactStyle, Haptics } from "@capacitor/haptics";
+import type { TranscriptSegment } from "@/data/transcript";
 
 export interface Material {
     id: string;
@@ -11,33 +14,82 @@ export interface Material {
     progress?: number;
     audioUrl: string;
     isStarred?: boolean;
+    transcript?: TranscriptSegment[];
 }
 
-interface MaterialCardProps {
+export interface MaterialCardProps {
     material: Material;
     isActive: boolean;
     onClick: () => void;
+    onLongPress?: () => void;
+    variant?: 'hero' | 'grid';
 }
 
-export function MaterialCard({ material, isActive, onClick }: MaterialCardProps) {
+export const MaterialCard = React.memo(function MaterialCard({ material, isActive, onClick, onLongPress, variant = 'hero' }: MaterialCardProps) {
+    const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const isLongPressRef = useRef(false);
+
+    const startPress = () => {
+        isLongPressRef.current = false;
+        timerRef.current = setTimeout(async () => {
+            isLongPressRef.current = true;
+            if (onLongPress) {
+                await Haptics.impact({ style: ImpactStyle.Heavy });
+                onLongPress();
+            }
+        }, 500); // 500ms for long press
+    };
+
+    const cancelPress = () => {
+        if (timerRef.current) {
+            clearTimeout(timerRef.current);
+            timerRef.current = null;
+        }
+    };
+
+    const handleClick = (e: React.MouseEvent | React.TouchEvent) => {
+        if (isLongPressRef.current) {
+            // It was a long press, consume the event
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+        }
+        onClick();
+    };
+
+    const isGrid = variant === 'grid';
+
     return (
         <div
-            onClick={onClick}
+            onTouchStart={startPress}
+            onTouchEnd={cancelPress}
+            onTouchCancel={cancelPress}
+            onMouseDown={startPress}
+            onMouseUp={cancelPress}
+            onMouseLeave={cancelPress}
+            onClick={handleClick}
             className={cn(
-                "group relative aspect-[4/5] w-full rounded-2xl overflow-hidden cursor-pointer border border-zinc-900 transition-all duration-500 ease-out",
-                isActive ? "scale-105 border-zinc-600 shadow-2xl z-10" : "scale-95 opacity-80 z-0"
+                "group relative aspect-[4/5] w-full rounded-2xl overflow-hidden cursor-pointer border border-zinc-900 transition-all duration-500 ease-out select-none",
+                // If Grid: Always standard scale/opacity (managed by parent observer potentially), or just normal.
+                // If Hero: use isActive logic.
+                isGrid
+                    ? "scale-100 opacity-100 hover:border-zinc-700 hover:shadow-xl z-0"
+                    : (isActive ? "scale-105 border-zinc-600 shadow-2xl z-10" : "scale-95 opacity-80 z-0")
             )}
         >
             <img
                 src={material.imageUrl}
                 className={cn(
                     "absolute inset-0 w-full h-full object-cover transition-all duration-700",
-                    isActive ? "opacity-100 grayscale-0" : "opacity-60 grayscale"
+                    isGrid
+                        ? "opacity-100 grayscale-0 group-hover:scale-105"
+                        : (isActive ? "opacity-100 grayscale-0" : "opacity-60 grayscale")
                 )}
                 alt={material.title}
+                draggable={false}
             />
 
-            {/* Gradient Overlay - Always visible/strong, no transition to opacity-80 */}
+            {/* Gradient Overlay */}
             <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 via-50% to-transparent z-10"></div>
 
             <div className="absolute bottom-0 left-0 right-0 p-6 z-20">
@@ -68,7 +120,6 @@ export function MaterialCard({ material, isActive, onClick }: MaterialCardProps)
                     <p className="text-sm text-zinc-400 line-clamp-2">{material.subtitle}</p>
                 )}
 
-                {/* Progress Bar (Only show if there is progress) */}
                 {material.progress !== undefined && (
                     <div className="flex items-center gap-3 mt-3">
                         <div className="flex-1 h-1 bg-zinc-700/50 rounded-full overflow-hidden backdrop-blur-sm">
@@ -83,4 +134,4 @@ export function MaterialCard({ material, isActive, onClick }: MaterialCardProps)
             </div>
         </div>
     );
-}
+});
