@@ -6,7 +6,7 @@
 
 onRecordAfterCreateRequest((e) => {
     // ⬇️ CONFIG ⬇️
-    const ALIYUN_API_KEY = "sk-xxxxxxxxxxxxxxxxxxxxxxxx"; // 🔴 REPLACE THIS
+    const ALIYUN_API_KEY = "sk-1ef9603d81b74abda456a60d987e1833"; // 🟢 Real Key Injected
     const APP_URL = "http://8.138.201.147:8090";        // 🔴 YOUR SERVER IP
 
     const record = e.record;
@@ -54,7 +54,7 @@ onRecordAfterCreateRequest((e) => {
             sleep(2000); // Wait 2s
 
             const pollRes = $http.send({
-                url: `https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription/${taskId}`,
+                url: `https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`, // 🟢 Correct Endpoint
                 method: "GET",
                 headers: { "Authorization": `Bearer ${ALIYUN_API_KEY}` }
             });
