@@ -50,7 +50,7 @@ onRecordAfterCreateRequest((e) => {
         // --- STEP 2: POLL RESULTS ---
         let finalResult = null;
 
-        for (let i = 0; i < 60; i++) {
+        for (let i = 0; i < 300; i++) { // Increase timeout to ~10 mins
             sleep(2000); // Wait 2s
 
             const pollRes = $http.send({
