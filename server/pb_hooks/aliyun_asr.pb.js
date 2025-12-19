@@ -76,9 +76,30 @@ onRecordAfterCreateRequest((e) => {
 
             if (status === "SUCCEEDED") {
                 const resUrl = pollData.output.results[0].transcription_url;
-                // ⚠️ FIX: Go http client auto-decodes '%3A' to ':', breaking the OSS signature.
-                // We double-encode it to '%253A' so Go sends '%3A'.
-                const safeUrl = resUrl.replace(/%3A/g, "%253A");
+                // ⚠️ FIX: Aliyun OSS 403 SignatureMismatch.
+                // The URL path contains time (e.g. 21:00). Aliyun signs it as '21%3A00'.
+                // If we send '21:00' (or if Go decodes it to '21:00'), signature fails.
+                // We must ensure the path component has ':', replaced by '%3A'.
+                // Since Go client preserves encoded path if we provide it, we manually encode the path.
+
+                let safeUrl = resUrl;
+                try {
+                    const parts = resUrl.split("?");
+                    let base = parts[0];
+                    const query = parts.length > 1 ? "?" + parts.slice(1).join("?") : "";
+
+                    // Separate protocol (http:// or https://)
+                    const protoMatch = base.match(/^https?:\/\//);
+                    const proto = protoMatch ? protoMatch[0] : "";
+                    const path = base.substring(proto.length);
+
+                    // Encode colons ONLY in the path
+                    const encodedPath = path.replace(/:/g, "%3A");
+
+                    safeUrl = proto + encodedPath + query;
+                } catch (e) {
+                    $app.logger().error(`URL Escape Error: ${e}`);
+                }
 
                 $app.logger().info(`📥 Downloading Result from: ${safeUrl}`);
                 const downloadRes = $http.send({ url: safeUrl, method: "GET" });
