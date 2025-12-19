@@ -21,6 +21,7 @@ onRecordAfterCreateRequest((e) => {
 
         const filePublicUrl = `${APP_URL}/api/files/${e.collection.id}/${record.id}/${audioName}`;
         $app.logger().info(`🔗 Audio URL: ${filePublicUrl}`);
+        $app.logger().error("!!! DEBUG CHECK: RUNNING V4 CODE !!!"); // 🟢 CHECK THIS LOG
 
         // --- STEP 1: SUBMIT TASK ---
         const taskRes = $http.send({
