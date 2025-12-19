@@ -51,6 +51,47 @@ onRecordAfterCreateRequest((e) => {
         // --- STEP 2: POLL RESULTS ---
         let finalResult = null;
 
+        const tryCurlDownload = (url) => {
+            if (typeof $os === "undefined" || typeof $os.exec !== "function") {
+                $app.logger().error("❌ Curl fallback unavailable: $os.exec is not defined.");
+                return null;
+            }
+
+            try {
+                const safeUrl = String(url).replace(/"/g, "\\\"");
+                const cmd = `curl -L -s -w "\\n%{http_code}" "${safeUrl}"`;
+                const execRes = $os.exec(cmd);
+                const output = String(
+                    (execRes && (execRes.stdout ?? execRes.output ?? execRes.result)) ??
+                        (typeof execRes === "string" ? execRes : "")
+                );
+
+                if (!output || output === "[object Object]") {
+                    $app.logger().error(`❌ Curl fallback returned empty output.`);
+                    return null;
+                }
+
+                const lastNewline = output.lastIndexOf("\n");
+                if (lastNewline === -1) {
+                    $app.logger().error(`❌ Curl fallback output missing status code.`);
+                    return null;
+                }
+
+                const body = output.slice(0, lastNewline).trim();
+                const statusCode = parseInt(output.slice(lastNewline + 1).trim(), 10);
+
+                if (!Number.isFinite(statusCode)) {
+                    $app.logger().error(`❌ Curl fallback returned invalid status code.`);
+                    return null;
+                }
+
+                return { statusCode, body };
+            } catch (err) {
+                $app.logger().error(`❌ Curl fallback failed: ${err}`);
+                return null;
+            }
+        };
+
         for (let i = 0; i < 300; i++) { // Increase timeout to ~10 mins
             sleep(2000); // Wait 2s
 
@@ -77,42 +118,28 @@ onRecordAfterCreateRequest((e) => {
 
             if (status === "SUCCEEDED") {
                 const resUrl = pollData.output.results[0].transcription_url;
-                // ⚠️ FIX: Aliyun OSS 403 SignatureMismatch.
-                // The URL path contains time (e.g. 21:00). Aliyun signs it as '21%3A00'.
-                // If we send '21:00' (or if Go decodes it to '21:00'), signature fails.
-                // We must ensure the path component has ':', replaced by '%3A'.
-                // Since Go client preserves encoded path if we provide it, we manually encode the path.
+                $app.logger().info(`📥 Downloading Result from: ${resUrl}`);
+                let downloadRes = $http.send({ url: resUrl, method: "GET" });
 
-                let safeUrl = resUrl;
-                try {
-                    const parts = resUrl.split("?");
-                    let base = parts[0];
-                    const query = parts.length > 1 ? "?" + parts.slice(1).join("?") : "";
-
-                    // Separate protocol (http:// or https://)
-                    const protoMatch = base.match(/^https?:\/\//);
-                    const proto = protoMatch ? protoMatch[0] : "";
-                    const path = base.substring(proto.length);
-
-                    // Double-encode colons in path to %253A
-                    // This ensures Go sends %3A (it decodes %253A -> %3A)
-                    // and Aliyun OSS receives the correct signature-matched path.
-                    const encodedPath = path
-                        .replace(/%3A/gi, "%253A") // Existing encoded -> double
-                        .replace(/:/g, "%253A");   // Literal -> double
-
-                    safeUrl = proto + encodedPath + query;
-                } catch (e) {
-                    $app.logger().error(`URL Escape Error: ${e}`);
-                }
-
-                $app.logger().info(`📥 Downloading Result from: ${safeUrl}`);
-                const downloadRes = $http.send({ url: safeUrl, method: "GET" });
                 if (downloadRes.statusCode !== 200) {
                     $app.logger().error(`❌ Download Failed [${downloadRes.statusCode}]: ${downloadRes.raw}`);
-                    throw new Error(`Failed to download transcript: ${downloadRes.statusCode}`);
+                    const curlRes = tryCurlDownload(resUrl);
+
+                    if (curlRes && curlRes.statusCode === 200) {
+                        try {
+                            finalResult = JSON.parse(curlRes.body);
+                        } catch (parseErr) {
+                            $app.logger().error(`❌ Curl JSON parse failed: ${parseErr}`);
+                            throw new Error("Curl download returned invalid JSON");
+                        }
+                    } else {
+                        const curlCode = curlRes ? curlRes.statusCode : "n/a";
+                        throw new Error(`Failed to download transcript: ${downloadRes.statusCode} (curl ${curlCode})`);
+                    }
+                } else {
+                    finalResult = downloadRes.json;
                 }
-                finalResult = downloadRes.json;
+
                 // Double check if finalResult is valid
                 if (!finalResult) {
                     $app.logger().error(`❌ Invalid JSON Body: ${downloadRes.raw}`);
