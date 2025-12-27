@@ -1,0 +1,174 @@
+<html lang="zh-CN"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analysis Interface</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* Custom smooth transition for the translation reveal */
+        .translation-wrapper {
+            display: grid;
+            grid-template-rows: 0fr;
+            transition: grid-template-rows 0.3s ease-out, opacity 0.3s ease-out, margin-top 0.3s ease;
+            opacity: 0;
+            margin-top: 0;
+        }
+        .translation-wrapper.active {
+            grid-template-rows: 1fr;
+            opacity: 1;
+            margin-top: 0.75rem; /* mt-3 */
+        }
+        .translation-inner {
+            overflow: hidden;
+        }
+        
+        /* Custom scrollbar hiding */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="bg-black text-gray-100 h-screen w-full flex flex-col font-sans antialiased overflow-hidden selection:bg-indigo-500/30">
+
+    <!-- Header -->
+    <header class="flex items-center justify-between px-5 py-4 shrink-0 relative z-20">
+        <!-- Back Button -->
+        <button class="text-gray-400 hover:text-white transition-colors p-1 -ml-1">
+            <i data-lucide="chevron-left" class="w-7 h-7"></i>
+        </button>
+
+        <!-- Title -->
+        <div class="flex flex-col items-center">
+            <span class="text-[10px] font-medium tracking-[0.2em] text-gray-500 uppercase mb-0.5">Phase 2</span>
+            <h1 class="text-lg font-medium tracking-tight text-gray-100">Analysis</h1>
+        </div>
+
+        <!-- Translation Toggle -->
+        <div class="flex items-center gap-2">
+            <label for="trans-toggle" class="text-xs font-medium text-gray-500 cursor-pointer select-none">译</label>
+            <button id="toggle-btn" class="w-11 h-6 rounded-full bg-gray-800 border border-gray-700 relative transition-colors duration-300 focus:outline-none ring-offset-2 ring-offset-black focus:ring-2 focus:ring-indigo-600/50" onclick="toggleTranslation()">
+                <span id="toggle-thumb" class="absolute left-0.5 top-0.5 w-4.5 h-4.5 bg-gray-400 rounded-full shadow-sm transition-all duration-300 transform translate-x-0"></span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 overflow-y-auto px-6 py-8 no-scrollbar">
+        <div class="max-w-md mx-auto space-y-2">
+            
+            <!-- Sentence Group 1 -->
+            <div class="group relative">
+                <!-- Original Text -->
+                <p class="text-3xl font-light leading-snug tracking-wide text-gray-200">
+                    <span class="inline-block p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer">六</span>
+                    <span class="inline-block p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer">番</span>
+                    <span class="inline-block p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer">船</span>
+                    <span class="inline-block p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer">二</span>
+                    <span class="inline-block p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer">新宿</span>
+                    <span class="inline-block p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer">滋谷</span>
+                    <span class="inline-block p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer">方面</span>
+                    <span class="inline-block p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer">行</span>
+                    <span class="inline-block p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer">別</span>
+                    <span class="inline-block p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer">参</span>
+                    <span class="inline-block p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer">加</span>
+                    <span class="inline-block p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer">回</span>
+                    <span class="inline-block p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer">S</span>
+                    <span class="inline-block p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer">危</span>
+                    <span class="inline-block p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer">那</span>
+                    <span class="inline-block p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer">言</span>
+                    <span class="inline-block p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer">列子</span><span class="text-gray-500">，</span>
+                </p>
+                <!-- Translation -->
+                <div class="translation-wrapper">
+                    <div class="translation-inner text-sm text-gray-500 font-medium leading-relaxed pl-1 border-l-2 border-indigo-500/30">
+                        六号船前往新宿涩谷方向特别参加回S危那言列子
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sentence Group 2 (Highlighted) -->
+            <div class="group relative pt-2">
+                 <!-- Original Text -->
+                 <div class="text-3xl font-light leading-snug tracking-wide text-gray-200 flex flex-wrap items-baseline gap-x-0.5">
+                    <span class="p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer">彼</span>
+                    <span class="p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer">候</span>
+                    <span class="p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer">黄色</span>
+                    <span class="p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer">一</span>
+                    <span class="p-1 rounded-md hover:bg-white/5 transition-colors cursor-pointer">船</span>
+                    <!-- Highlighted Token -->
+                    <span class="relative inline-flex items-center justify-center px-1.5 py-0.5 mx-1 rounded-lg bg-indigo-600 shadow-[0_0_15px_-3px_rgba(79,70,229,0.6)] text-white font-normal ring-1 ring-white/10">
+                        丸。
+                    </span>
+                </div>
+                <!-- Translation -->
+                <div class="translation-wrapper">
+                    <div class="translation-inner text-sm text-gray-500 font-medium leading-relaxed pl-1 border-l-2 border-indigo-500/30">
+                        那时是一艘黄色的船丸。
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="px-5 pb-10 pt-6 bg-black border-t border-white/5">
+        <div class="flex gap-4 max-w-md mx-auto">
+            <!-- Secondary Action -->
+            <button class="flex-1 h-14 bg-[#1A1A1A] hover:bg-[#222] text-gray-300 font-medium rounded-2xl flex items-center justify-center gap-2.5 transition-all active:scale-[0.98]">
+                <i data-lucide="book-open" class="w-5 h-5 text-gray-400"></i>
+                <span class="text-[15px]">背诵模式</span>
+            </button>
+            
+            <!-- Primary Action -->
+            <button class="flex-1 h-14 bg-gray-100 hover:bg-white text-black font-semibold rounded-2xl flex items-center justify-center gap-2.5 shadow-[0_0_20px_-5px_rgba(255,255,255,0.3)] transition-all active:scale-[0.98]">
+                <span class="text-[15px]">开始录</span>
+                <i data-lucide="arrow-right" class="w-5 h-5"></i>
+            </button>
+        </div>
+        <!-- Home Indicator Area -->
+        <div class="w-full flex justify-center mt-7">
+            <div class="w-32 h-1.5 bg-gray-800 rounded-full"></div>
+        </div>
+    </footer>
+
+    <script>
+        // Initialize Icons
+        lucide.createIcons();
+
+        // Translation Toggle Logic
+        let isTranslated = false;
+        
+        function toggleTranslation() {
+            isTranslated = !isTranslated;
+            const btn = document.getElementById('toggle-btn');
+            const thumb = document.getElementById('toggle-thumb');
+            const translations = document.querySelectorAll('.translation-wrapper');
+            
+            if (isTranslated) {
+                // Button On State
+                btn.classList.replace('bg-gray-800', 'bg-indigo-600');
+                btn.classList.replace('border-gray-700', 'border-indigo-500');
+                thumb.classList.add('translate-x-5', 'bg-white');
+                thumb.classList.remove('bg-gray-400');
+                
+                // Show Translations
+                translations.forEach(el => el.classList.add('active'));
+            } else {
+                // Button Off State
+                btn.classList.replace('bg-indigo-600', 'bg-gray-800');
+                btn.classList.replace('border-indigo-500', 'border-gray-700');
+                thumb.classList.remove('translate-x-5', 'bg-white');
+                thumb.classList.add('bg-gray-400');
+                
+                // Hide Translations
+                translations.forEach(el => el.classList.remove('active'));
+            }
+        }
+    </script>
+
+</body></html>

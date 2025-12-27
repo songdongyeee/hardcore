@@ -1,0 +1,125 @@
+// Segmented waveform rendering implementation
+// Add this code to ShadowingView.tsx
+
+// 1. Add these useEffect hooks after the existing initialization useEffect
+
+// Load complete waveform data
+useEffect(() => {
+  const loadWaveformData = async () => {
+    try {
+      const urlMatch = audioSrc.match(/\/([^\/]+)\/([^\/]+)\.m4a/);
+      const recordId = urlMatch ? urlMatch[1] : null;
+      
+      if (!recordId) return;
+      
+      let peaks = await getCachedWaveform(recordId);
+      
+      if (!peaks) {
+        const record = await pb.collection('transcripts').getOne(recordId);
+        const waveformData = record.waveform_data;
+        
+        if (waveformData && Array.isArray(waveformData)) {
+          peaks = waveformData.map(([, max]: [number, number]) => [0, max / 255]);
+          await cacheWaveform(recordId, waveformData, record.duration || 0);
+          console.log('[Waveform] Loaded from PocketBase and cached');
+        }
+      } else {
+        console.log('[Waveform] Loaded from cache');
+      }
+      
+      if (peaks) {
+        setFullPeaks(peaks);
+        console.log(`[Waveform] Full peaks loaded: ${peaks.length} points`);
+      }
+    } catch (err) {
+      console.error('[Waveform] Failed to load waveform data:', err);
+    }
+  };
+  
+  loadWaveformData();
+}, [audioSrc]);
+
+// Initialize WaveSurfer with segmented peaks
+useEffect(() => {
+  if (!fullPeaks || !sourceContainerRef.current || sourceWs.current) return;
+
+  const initWaveform = () => {
+    try {
+      const PEAKS_PER_SEC = 10;
+      const startIndex = Math.floor(visibleRange.start * PEAKS_PER_SEC);
+      const endIndex = Math.ceil(visibleRange.end * PEAKS_PER_SEC);
+      const visiblePeaks = fullPeaks.slice(startIndex, endIndex);
+      
+      console.log(`[Waveform] Rendering segment ${visibleRange.start.toFixed(1)}-${visibleRange.end.toFixed(1)}s (${visiblePeaks.length} peaks)`);
+      
+      sourceWs.current = WaveSurfer.create({
+        container: sourceContainerRef.current!,
+        waveColor: 'rgba(255, 255, 255, 0.6)',
+        progressColor: 'rgba(255, 255, 255, 1.0)',
+        cursorColor: 'transparent',
+        barWidth: 4,
+        barGap: 2,
+        barRadius: 2,
+        height: WAVE_HEIGHT,
+        url: audioSrc,
+        interact: false,
+        fillParent: false,
+        minPxPerSec: PX_PER_SEC,
+        autoScroll: false,
+        normalize: false,
+        peaks: [visiblePeaks],
+      });
+
+      sourceWs.current.on('ready', (d) => {
+        setDuration(d);
+        sourceWs.current?.setVolume(0);
+        const media = sourceWs.current?.getMediaElement();
+        if (media) { media.muted = true; }
+        
+        if (visibleRange.start > 0) {
+          sourceWs.current?.seekTo(visibleRange.start / d);
+        }
+      });
+
+      sourceWs.current.on('finish', () => { });
+    } catch (error) {
+      console.error('[Waveform] Error creating WaveSurfer:', error);
+    }
+  };
+
+  initWaveform();
+}, [fullPeaks, audioSrc, visibleRange]);
+
+// Update visible range based on playback
+useEffect(() => {
+  if (!duration || !fullPeaks) return;
+
+  const updateInterval = setInterval(() => {
+    const media = sourceWs.current?.getMediaElement();
+    if (!media) return;
+    
+    const currentTime = media.currentTime;
+    setCurrentPlayTime(currentTime);
+    
+    const bufferZone = 10;
+    const needsUpdate = currentTime < visibleRange.start + bufferZone || 
+                       currentTime > visibleRange.end - bufferZone;
+    
+    if (needsUpdate && status === 'idle') {
+      const newStart = Math.max(0, currentTime - 30);
+      const newEnd = Math.min(duration, currentTime + 30);
+      
+      if (newStart !== visibleRange.start || newEnd !== visibleRange.end) {
+        console.log(`[Waveform] Updating visible range: ${newStart.toFixed(1)}-${newEnd.toFixed(1)}s`);
+        setVisibleRange({ start: newStart, end: newEnd });
+        
+        if (sourceWs.current) {
+          sourceWs.current.destroy();
+          sourceWs.current = null;
+        }
+      }
+    }
+  }, 1000);
+
+  return () => clearInterval(updateInterval);
+}, [duration, fullPeaks, visibleRange, status]);

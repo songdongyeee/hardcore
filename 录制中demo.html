@@ -1,0 +1,155 @@
+<html lang="en"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shadowing Recorder</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #09090b; /* Zinc 950 */
+            color: #ffffff;
+        }
+
+        /* Custom Audio Wave Animation */
+        @keyframes sound-bar {
+            0% { height: 4px; opacity: 0.5; }
+            50% { height: 24px; opacity: 1; }
+            100% { height: 4px; opacity: 0.5; }
+        }
+
+        @keyframes pulse-ring {
+            0% { transform: scale(1); opacity: 0.4; }
+            100% { transform: scale(1.5); opacity: 0; }
+        }
+
+        .animate-sound-bar {
+            animation: sound-bar 1s ease-in-out infinite;
+        }
+        
+        .animate-pulse-ring {
+            animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        /* Stagger animations for random effect */
+        .bar-1 { animation-duration: 0.8s; animation-delay: 0.1s; }
+        .bar-2 { animation-duration: 1.1s; animation-delay: 0.2s; }
+        .bar-3 { animation-duration: 0.9s; animation-delay: 0.3s; }
+        .bar-4 { animation-duration: 1.2s; animation-delay: 0.1s; }
+        .bar-5 { animation-duration: 0.7s; animation-delay: 0.4s; }
+        .bar-6 { animation-duration: 1.0s; animation-delay: 0.2s; }
+    </style>
+</head>
+<body class="h-screen w-full flex flex-col items-center justify-between overflow-hidden relative selection:bg-rose-500/30">
+
+    <!-- Top Navigation -->
+    <header class="w-full flex items-center justify-between px-6 py-6 z-20">
+        <button class="text-zinc-400 hover:text-white transition-colors">
+            <i data-lucide="chevron-left" class="w-6 h-6"></i>
+        </button>
+        <h1 class="text-sm font-medium tracking-wide text-zinc-100 uppercase opacity-90">The Mirror</h1>
+        <button class="text-zinc-400 hover:text-white transition-colors">
+            <i data-lucide="x" class="w-6 h-6"></i>
+        </button>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 w-full max-w-md flex flex-col items-center justify-center px-6 relative z-10">
+        
+        <!-- Script / Text Context -->
+        <div class="mb-12 text-center space-y-4">
+            <h2 class="text-2xl font-medium tracking-tight leading-snug text-white">
+                "Whatever you do,<br> <span class="text-zinc-500">do it well."</span>
+            </h2>
+            <p class="text-sm text-zinc-500 font-medium tracking-wide">Walt Disney</p>
+        </div>
+
+        <!-- Reference Audio Track (Static Representation) -->
+        <div class="w-full mb-16 relative group">
+            <div class="flex justify-between items-center mb-2">
+                <span class="text-xs font-medium text-zinc-500">Reference Audio</span>
+                <span class="text-xs font-medium text-zinc-500">00:14</span>
+            </div>
+            <!-- Progress Bar Background -->
+            <div class="h-12 w-full bg-zinc-900/50 rounded-lg flex items-center justify-center gap-[3px] overflow-hidden border border-zinc-800/50">
+                <!-- Creating a static waveform pattern -->
+                <div class="w-1 h-3 bg-zinc-700 rounded-full"></div>
+                <div class="w-1 h-5 bg-zinc-700 rounded-full"></div>
+                <div class="w-1 h-8 bg-zinc-600 rounded-full"></div>
+                <div class="w-1 h-4 bg-zinc-700 rounded-full"></div>
+                <div class="w-1 h-6 bg-zinc-600 rounded-full"></div>
+                <div class="w-1 h-10 bg-zinc-500 rounded-full"></div>
+                <div class="w-1 h-5 bg-zinc-600 rounded-full"></div>
+                <div class="w-1 h-3 bg-zinc-700 rounded-full"></div>
+                <div class="w-1 h-6 bg-zinc-600 rounded-full"></div>
+                <div class="w-1 h-8 bg-zinc-500 rounded-full"></div>
+                <div class="w-1 h-4 bg-zinc-600 rounded-full"></div>
+                <div class="w-1 h-2 bg-zinc-700 rounded-full"></div>
+                
+                <!-- Active Playhead Indicator -->
+                <div class="w-[2px] h-full bg-rose-500 absolute left-1/3 top-0 shadow-[0_0_10px_rgba(244,63,94,0.5)]"></div>
+            </div>
+        </div>
+
+        <!-- NEW DESIGN: Active Recording Visualizer -->
+        <!-- This replaces the broken waveform with a clear "Listening" state -->
+        <div class="flex flex-col items-center justify-center w-full py-8 relative">
+            
+            <!-- Glow Effect -->
+            <div class="absolute w-64 h-64 bg-rose-500/10 rounded-full blur-3xl pointer-events-none animate-pulse"></div>
+
+            <!-- Animated Equalizer Bars -->
+            <div class="flex items-center justify-center gap-1.5 h-16 relative z-10">
+                <div class="w-1.5 bg-rose-500 rounded-full animate-sound-bar bar-1"></div>
+                <div class="w-1.5 bg-rose-400 rounded-full animate-sound-bar bar-2"></div>
+                <div class="w-1.5 bg-rose-500 rounded-full animate-sound-bar bar-3"></div>
+                <div class="w-1.5 bg-rose-300 rounded-full animate-sound-bar bar-4"></div>
+                <div class="w-1.5 bg-rose-500 rounded-full animate-sound-bar bar-5"></div>
+                <div class="w-1.5 bg-rose-400 rounded-full animate-sound-bar bar-6"></div>
+                <div class="w-1.5 bg-rose-500 rounded-full animate-sound-bar bar-2"></div>
+                <div class="w-1.5 bg-rose-300 rounded-full animate-sound-bar bar-4"></div>
+                <div class="w-1.5 bg-rose-500 rounded-full animate-sound-bar bar-1"></div>
+                <div class="w-1.5 bg-rose-400 rounded-full animate-sound-bar bar-3"></div>
+            </div>
+
+            <div class="mt-4 flex items-center gap-2">
+                <div class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></div>
+                <span class="text-sm font-medium text-rose-500 tracking-wide uppercase">Listening...</span>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Bottom Controls -->
+    <footer class="w-full flex flex-col items-center justify-end pb-12 z-20">
+        
+        <!-- Timer -->
+        <div class="mb-8 font-mono text-xl text-zinc-300 tracking-widest font-light">
+            00:04<span class="text-zinc-600">.82</span>
+        </div>
+
+        <!-- Main Action Button -->
+        <div class="relative group cursor-pointer">
+            <!-- Pulsing Ring 1 -->
+            <div class="absolute inset-0 rounded-full border border-rose-500/30 animate-pulse-ring"></div>
+            <!-- Pulsing Ring 2 (Delayed) -->
+            <div class="absolute inset-0 rounded-full border border-rose-500/20 animate-pulse-ring" style="animation-delay: 1s;"></div>
+            
+            <!-- Button Container -->
+            <button class="relative w-20 h-20 bg-zinc-900 border border-zinc-800 rounded-full flex items-center justify-center transition-transform active:scale-95 shadow-2xl shadow-rose-900/20">
+                <!-- Inner Stop Square -->
+                <div class="w-8 h-8 bg-rose-500 rounded-[6px] shadow-[0_0_15px_rgba(244,63,94,0.6)]"></div>
+            </button>
+        </div>
+
+        <p class="mt-6 text-xs text-zinc-600 font-medium tracking-wider">TAP TO STOP</p>
+    </footer>
+
+    <!-- Initializing Icons -->
+    <script>
+        lucide.createIcons();
+    </script>
+
+</body></html>

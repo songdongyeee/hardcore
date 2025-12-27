@@ -1,0 +1,352 @@
+<html lang="en" class="dark"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Daily Spark</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #050505; /* Deep dark bg */
+            color: #e4e4e7;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* Custom Scrollbar for hidden overflow aesthetics */
+        ::-webkit-scrollbar {
+            width: 0px;
+            background: transparent;
+        }
+
+        /* Smooth fade transition */
+        .fade-enter {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+        .fade-enter-active {
+            opacity: 1;
+            transform: translateY(0);
+            transition: opacity 300ms, transform 300ms;
+        }
+        
+        /* Modal Animation */
+        .modal-enter {
+            transform: translateY(100%);
+        }
+        .modal-enter-active {
+            transform: translateY(0);
+            transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .modal-exit {
+            transform: translateY(100%);
+            transition: transform 200ms ease-in;
+        }
+
+        .loader-bar {
+            transition: width 0.2s ease-out;
+        }
+    </style>
+    
+</head>
+<body class="min-h-screen flex justify-center bg-black overflow-hidden relative">
+
+    <!-- Mobile Container Simulation -->
+    <div class="w-full max-w-md h-full min-h-screen bg-black relative flex flex-col pb-20 overflow-y-auto">
+        
+        <!-- Header -->
+        <header class="flex items-center justify-between px-6 py-6 sticky top-0 z-30 bg-gradient-to-b from-black via-black/90 to-transparent backdrop-blur-sm">
+            <div class="flex items-center gap-2">
+                <i data-lucide="sparkles" class="text-indigo-400 w-6 h-6" stroke-width="1.5"></i>
+                <h1 class="text-xl font-medium tracking-tight text-white">Daily Spark</h1>
+            </div>
+            <button class="p-1 rounded-full hover:bg-zinc-800 transition-colors">
+                <i data-lucide="menu" class="text-zinc-400 w-6 h-6" stroke-width="1.5"></i>
+            </button>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="flex-1 px-4 space-y-8">
+            
+            <!-- Featured Card -->
+            <div class="relative w-full aspect-[4/5] rounded-3xl overflow-hidden group cursor-pointer border border-zinc-800/50 shadow-2xl shadow-zinc-900">
+                <!-- Background Image -->
+                <img src="https://images.unsplash.com/photo-1497366216548-37526070297c?q=80&amp;w=800&amp;auto=format&amp;fit=crop" class="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 opacity-80" alt="Office">
+                
+                <!-- Gradient Overlay -->
+                <div class="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent"></div>
+
+                <!-- Top Right Icon -->
+                <div class="absolute top-4 right-4">
+                    <button class="p-2 rounded-full bg-black/20 backdrop-blur-md text-white/70 hover:text-white transition-colors">
+                        <i data-lucide="star" class="w-5 h-5" stroke-width="1.5"></i>
+                    </button>
+                </div>
+
+                <!-- Bottom Content -->
+                <div class="absolute bottom-0 left-0 right-0 p-6 flex flex-col gap-3">
+                    <!-- Tags -->
+                    <div class="flex items-center gap-2">
+                        <span class="px-3 py-1 bg-indigo-500/20 backdrop-blur-md border border-indigo-500/30 rounded-full text-xs font-medium text-indigo-200">
+                            Daily Phrase
+                        </span>
+                        <span class="px-3 py-1 bg-zinc-800/40 backdrop-blur-md border border-zinc-700/30 rounded-full text-xs font-medium text-zinc-300">
+                            Dec 22
+                        </span>
+                    </div>
+
+                    <!-- Title -->
+                    <h2 class="text-2xl font-medium leading-snug tracking-tight text-white drop-shadow-md">
+                        Steve Jobs: Stanford Commencement Speech
+                    </h2>
+
+                    <!-- Meta -->
+                    <div class="flex items-center gap-3 mt-1">
+                        <span class="text-sm font-light text-zinc-400">14:02</span>
+                        <!-- Progress dashes -->
+                        <div class="flex gap-1 flex-1">
+                            <div class="h-1 bg-zinc-600 rounded-full w-8"></div>
+                            <div class="h-1 bg-zinc-800 rounded-full w-8"></div>
+                            <div class="h-1 bg-zinc-800 rounded-full w-8"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Library Section -->
+            <div class="space-y-4">
+                <div class="flex items-center justify-between px-1">
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="library" class="text-emerald-500 w-5 h-5" stroke-width="1.5"></i>
+                        <h3 class="text-xl font-medium tracking-tight text-zinc-100">Core Library</h3>
+                    </div>
+                    
+                    <div class="flex items-center gap-3">
+                        <!-- Upload Button (Trigger) -->
+                        <button onclick="openModal()" class="w-10 h-10 rounded-full bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center transition-all border border-zinc-700/50 group">
+                            <i data-lucide="upload" class="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" stroke-width="1.5"></i>
+                        </button>
+                        
+                        <button class="w-10 h-10 rounded-full bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center transition-all border border-zinc-700/50">
+                            <i data-lucide="filter" class="w-4 h-4 text-zinc-400" stroke-width="1.5"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Bottom List Card Placeholder -->
+                <div class="w-full bg-zinc-900 rounded-2xl p-4 flex gap-4 border border-zinc-800/50 opacity-60">
+                    <div class="w-20 h-24 bg-gradient-to-br from-indigo-900 to-zinc-800 rounded-lg"></div>
+                    <div class="flex-1 space-y-2 py-1">
+                        <div class="h-4 w-3/4 bg-zinc-800 rounded"></div>
+                        <div class="h-4 w-1/2 bg-zinc-800 rounded"></div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- MODAL OVERLAY -->
+    <div id="modalOverlay" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 hidden transition-opacity duration-300 opacity-0" onclick="closeModal()"></div>
+
+    <!-- UPLOAD MODAL -->
+    <div id="uploadModal" class="fixed bottom-0 left-0 right-0 md:left-1/2 md:-translate-x-1/2 md:max-w-md w-full bg-[#121212] z-50 rounded-t-[2rem] border-t border-zinc-800 shadow-2xl transform translate-y-full transition-transform duration-300 ease-out flex flex-col max-h-[90vh]">
+        
+        <!-- Handle for dragging aesthetic -->
+        <div class="w-full flex justify-center pt-3 pb-1">
+            <div class="w-12 h-1.5 bg-zinc-800 rounded-full"></div>
+        </div>
+
+        <div class="p-6 space-y-6 flex-1 overflow-y-auto">
+            
+            <!-- Header -->
+            <div class="flex justify-between items-center">
+                <h3 class="text-xl font-medium tracking-tight text-white">Import Audio</h3>
+                <button onclick="closeModal()" class="p-1 rounded-full hover:bg-zinc-800 text-zinc-500 hover:text-white transition-colors">
+                    <i data-lucide="x" class="w-5 h-5" stroke-width="1.5"></i>
+                </button>
+            </div>
+
+            <!-- Free User Warning -->
+            <div class="bg-amber-500/5 border border-amber-500/20 rounded-xl p-4 flex gap-3 items-start">
+                <i data-lucide="zap" class="w-5 h-5 text-amber-500 shrink-0 mt-0.5" stroke-width="1.5"></i>
+                <div class="space-y-1">
+                    <p class="text-sm font-medium text-amber-200">Free Plan Limit</p>
+                    <p class="text-sm font-light text-amber-500/80 leading-relaxed">
+                        Free accounts are limited to <span class="font-medium text-amber-400">30 seconds</span> of transcription per file.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Language Selector -->
+            <div class="space-y-3">
+                <label class="text-sm font-medium text-zinc-400 ml-1">Source Language</label>
+                <div class="grid grid-cols-3 gap-2" id="langGrid">
+                    <!-- JS will populate selection logic -->
+                    <button class="lang-btn active ring-1 ring-white/20 bg-zinc-800 text-white text-sm py-2.5 rounded-lg transition-all hover:bg-zinc-700 font-medium" data-lang="en">English</button>
+                    <button class="lang-btn bg-zinc-900/50 text-zinc-500 text-sm py-2.5 rounded-lg transition-all hover:bg-zinc-800 hover:text-zinc-300 border border-transparent hover:border-zinc-700" data-lang="jp">Japanese</button>
+                    <button class="lang-btn bg-zinc-900/50 text-zinc-500 text-sm py-2.5 rounded-lg transition-all hover:bg-zinc-800 hover:text-zinc-300 border border-transparent hover:border-zinc-700" data-lang="kr">Korean</button>
+                    <button class="lang-btn bg-zinc-900/50 text-zinc-500 text-sm py-2.5 rounded-lg transition-all hover:bg-zinc-800 hover:text-zinc-300 border border-transparent hover:border-zinc-700" data-lang="zh">Cantonese</button>
+                    <button class="lang-btn bg-zinc-900/50 text-zinc-500 text-sm py-2.5 rounded-lg transition-all hover:bg-zinc-800 hover:text-zinc-300 border border-transparent hover:border-zinc-700" data-lang="fr">French</button>
+                    <button class="lang-btn bg-zinc-900/50 text-zinc-500 text-sm py-2.5 rounded-lg transition-all hover:bg-zinc-800 hover:text-zinc-300 border border-transparent hover:border-zinc-700" data-lang="es">Spanish</button>
+                    <!-- More options hidden in dropdown or scroll for simplicity in modal -->
+                    <button id="moreLangsBtn" class="bg-zinc-900/50 text-zinc-500 text-sm py-2.5 rounded-lg transition-all hover:bg-zinc-800 hover:text-zinc-300 border border-transparent hover:border-zinc-700 flex items-center justify-center gap-1">
+                        <span>More</span>
+                        <i data-lucide="chevron-down" class="w-3 h-3"></i>
+                    </button>
+                </div>
+                
+                <!-- Expanded languages (Hidden by default) -->
+                <div id="extraLangs" class="hidden grid-cols-3 gap-2 mt-2">
+                    <button class="lang-btn bg-zinc-900/50 text-zinc-500 text-sm py-2.5 rounded-lg transition-all hover:bg-zinc-800 hover:text-zinc-300 border border-transparent hover:border-zinc-700" data-lang="de">German</button>
+                    <button class="lang-btn bg-zinc-900/50 text-zinc-500 text-sm py-2.5 rounded-lg transition-all hover:bg-zinc-800 hover:text-zinc-300 border border-transparent hover:border-zinc-700" data-lang="ru">Russian</button>
+                    <button class="lang-btn bg-zinc-900/50 text-zinc-500 text-sm py-2.5 rounded-lg transition-all hover:bg-zinc-800 hover:text-zinc-300 border border-transparent hover:border-zinc-700" data-lang="pt">Portuguese</button>
+                </div>
+            </div>
+
+            <!-- Upload Area & Progress -->
+            <div class="pt-2">
+                <!-- Initial State -->
+                <div id="uploadInitial" class="block">
+                    <input type="file" id="fileInput" class="hidden" accept="audio/*,video/*">
+                    <button onclick="document.getElementById('fileInput').click()" class="w-full bg-white text-black font-medium py-3.5 rounded-xl hover:bg-zinc-200 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-white/5 active:scale-[0.98] transform duration-100">
+                        <i data-lucide="folder-open" class="w-5 h-5" stroke-width="1.5"></i>
+                        Select File from Device
+                    </button>
+                    <p class="text-center text-xs text-zinc-500 mt-3 font-light">Supports MP3, WAV, M4A, MP4</p>
+                </div>
+
+                <!-- Progress State -->
+                <div id="uploadProgress" class="hidden space-y-3">
+                    <div class="flex justify-between text-sm">
+                        <span class="text-zinc-300 font-medium" id="fileName">recording.mp3</span>
+                        <span class="text-zinc-400" id="percentText">0%</span>
+                    </div>
+                    <div class="h-2 bg-zinc-800 rounded-full overflow-hidden">
+                        <div id="progressBar" class="h-full bg-indigo-500 w-0 loader-bar rounded-full"></div>
+                    </div>
+                    <p class="text-xs text-zinc-500 text-center pt-1">Uploading and analyzing waveform...</p>
+                </div>
+
+                <!-- Success State -->
+                <div id="uploadSuccess" class="hidden flex-col items-center justify-center py-2 space-y-3">
+                    <div class="w-12 h-12 bg-green-500/20 rounded-full flex items-center justify-center text-green-500 mb-1">
+                        <i data-lucide="check" class="w-6 h-6" stroke-width="2"></i>
+                    </div>
+                    <h4 class="text-lg font-medium text-white">Upload Complete</h4>
+                    <p class="text-sm text-zinc-400">Redirecting to your library...</p>
+                </div>
+            </div>
+        </div>
+        <div class="pb-8"></div> <!-- Safe area spacing -->
+    </div>
+
+    <script>
+        // Icon initialization
+        lucide.createIcons();
+
+        // Elements
+        const modalOverlay = document.getElementById('modalOverlay');
+        const uploadModal = document.getElementById('uploadModal');
+        const langBtns = document.querySelectorAll('.lang-btn');
+        const moreLangsBtn = document.getElementById('moreLangsBtn');
+        const extraLangs = document.getElementById('extraLangs');
+        const fileInput = document.getElementById('fileInput');
+        
+        const viewInitial = document.getElementById('uploadInitial');
+        const viewProgress = document.getElementById('uploadProgress');
+        const viewSuccess = document.getElementById('uploadSuccess');
+        const progressBar = document.getElementById('progressBar');
+        const percentText = document.getElementById('percentText');
+        const fileNameDisplay = document.getElementById('fileName');
+
+        // Functions
+        function openModal() {
+            modalOverlay.classList.remove('hidden');
+            // Allow display:block to apply before changing opacity for transition
+            setTimeout(() => {
+                modalOverlay.classList.remove('opacity-0');
+                uploadModal.classList.remove('translate-y-full');
+            }, 10);
+            resetUploadState();
+        }
+
+        function closeModal() {
+            modalOverlay.classList.add('opacity-0');
+            uploadModal.classList.add('translate-y-full');
+            setTimeout(() => {
+                modalOverlay.classList.add('hidden');
+            }, 300);
+        }
+
+        function resetUploadState() {
+            viewInitial.classList.remove('hidden');
+            viewProgress.classList.add('hidden');
+            viewSuccess.classList.add('hidden');
+            progressBar.style.width = '0%';
+            fileInput.value = '';
+        }
+
+        // Language Selection Logic
+        langBtns.forEach(btn => {
+            btn.addEventListener('click', function() {
+                // Remove active class from all
+                langBtns.forEach(b => {
+                    b.classList.remove('bg-zinc-800', 'text-white', 'ring-1', 'ring-white/20');
+                    b.classList.add('bg-zinc-900/50', 'text-zinc-500', 'border-transparent');
+                });
+                
+                // Add active class to clicked
+                this.classList.remove('bg-zinc-900/50', 'text-zinc-500', 'border-transparent');
+                this.classList.add('bg-zinc-800', 'text-white', 'ring-1', 'ring-white/20');
+            });
+        });
+
+        // Expand languages
+        moreLangsBtn.addEventListener('click', () => {
+            extraLangs.classList.remove('hidden');
+            extraLangs.classList.add('grid');
+            moreLangsBtn.classList.add('hidden');
+        });
+
+        // File Upload Simulation
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                const file = e.target.files[0];
+                fileNameDisplay.textContent = file.name.length > 20 ? file.name.substring(0, 20) + '...' : file.name;
+                
+                // Switch View
+                viewInitial.classList.add('hidden');
+                viewProgress.classList.remove('hidden');
+
+                // Simulate Progress
+                let width = 0;
+                const interval = setInterval(() => {
+                    if (width >= 100) {
+                        clearInterval(interval);
+                        setTimeout(() => {
+                            // Show Success
+                            viewProgress.classList.add('hidden');
+                            viewSuccess.classList.remove('hidden');
+                            viewSuccess.classList.add('flex');
+                            
+                            // Close modal after delay
+                            setTimeout(() => {
+                                closeModal();
+                            }, 1500);
+                        }, 500);
+                    } else {
+                        // Random increment for realism
+                        width += Math.random() * 10;
+                        if (width > 100) width = 100;
+                        progressBar.style.width = width + '%';
+                        percentText.textContent = Math.round(width) + '%';
+                    }
+                }, 200);
+            }
+        });
+
+    </script>
+
+</body></html>

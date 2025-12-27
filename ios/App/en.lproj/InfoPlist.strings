@@ -1,0 +1,10 @@
+/* 
+  InfoPlist.strings
+  App
+
+  Created by geo on 2025/12/12.
+  
+*/
+"CFBundleDisplayName" = "Hardcore";
+"NSMicrophoneUsageDescription" = "Hardcore needs microphone access to analyze your pronunciation.";
+
