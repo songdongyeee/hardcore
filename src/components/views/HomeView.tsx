@@ -49,7 +49,7 @@ interface HomeViewProps {
 }
 
 
-export function HomeView({ onPlay, onProfile, isActive }: HomeViewProps) {
+export function HomeView({ onPlay, onProfile, isActive: _ }: HomeViewProps) {
   // Removed unused activeId state
   const [showPaywall, setShowPaywall] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<'initial' | 'progress' | 'success' | 'error'>('initial');
@@ -69,6 +69,11 @@ export function HomeView({ onPlay, onProfile, isActive }: HomeViewProps) {
   const [usedSeconds, setUsedSeconds] = useState(0);
   const [pbSubscriptionTier, setPbSubscriptionTier] = useState<'free' | 'monthly' | 'quarterly' | 'yearly'>('free');
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [hasMorePages, setHasMorePages] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
   const { isVip } = useRevenueCat();
   const { } = useUsageLimit(isVip);
 
@@ -82,27 +87,48 @@ export function HomeView({ onPlay, onProfile, isActive }: HomeViewProps) {
 
   useEffect(() => {
     const initData = async () => {
-      // 1. Instant Restore from Snapshot
+      // 1. 立即显示 bundled 材料
+      const bundled = materialService.getBundledOnly();
+      setAllMaterials(bundled);
+
+      // 2. 尝试显示缓存
       const snapshot = await materialService.getCachedSnapshot();
       if (snapshot && snapshot.length > 0) {
-        setAllMaterials(snapshot);
+        setAllMaterials(prev => materialService.mergeMaterials(prev, snapshot));
         setIsInitialLoading(false);
       }
 
-      // 2. Fetch from PocketBase (with network)
-      await loadData();
-      setIsInitialLoading(false);
+      // 3. 🎯 优先加载Daily Spark材料（确保每日更新不受分页影响）
+      try {
+        const dailySparkItems = await materialService.loadDailySparkMaterials();
+        if (dailySparkItems.length > 0) {
+          setAllMaterials(prev => materialService.mergeMaterials(prev, dailySparkItems));
+        }
+      } catch (error) {
+        console.error('Failed to load Daily Spark materials:', error);
+      }
+
+      // 4. 分页加载第一页Core Library（不清空状态）
+      try {
+        const { items, hasMore } = await materialService.loadMaterialsPage(1, 20);
+        setAllMaterials(prev => materialService.mergeMaterials(prev, items));
+        setHasMorePages(hasMore);
+        setCurrentPage(1);
+        setIsInitialLoading(false);
+
+        // 5. 后台预缓存前20张封面图
+        setTimeout(() => {
+          prefetchCovers(items, 20);
+        }, 2000);
+      } catch (error) {
+        console.error('Failed to load first page:', error);
+        setIsInitialLoading(false);
+      }
     };
     initData();
   }, [pb.authStore.isValid]);
 
-  // Refresh data when returning to HomeView
-  useEffect(() => {
-    if (isActive) {
-      console.log('[HomeView] View became active, refreshing materials...');
-      loadData();
-    }
-  }, [isActive]);
+  // Removed: isActive refresh - causes unnecessary reloads
 
   // Separate effect for fetching user profile allows it to run whenever subscription status changes
   useEffect(() => {
@@ -161,33 +187,9 @@ export function HomeView({ onPlay, onProfile, isActive }: HomeViewProps) {
 
   const coreLibraryMaterials = allMaterials.filter((m: Material) => m.location === 'core_library');
 
-  // Daily Spark Selection Logic (Rotation vs Pinned)
-  const [activeDailyId, setActiveDailyId] = useState<string | null>(null);
+  // Daily Spark Display: Use the first one (already selected by loadDailySparkMaterials)
+  const activeDailyMaterial = dailySparkMaterials[0] || null;
 
-  useEffect(() => {
-    const fetchDailyId = async () => {
-      // Logic A: If there is a Pinned item, it ALWAYS wins (Priority 1)
-      const pinnedItem = dailySparkMaterials.find(m => m.userMeta?.isPinned);
-      if (pinnedItem) {
-        setActiveDailyId(pinnedItem.id);
-        return;
-      }
-
-      // Logic B: Rotation (Priority 2)
-      // Only run rotation if we have materials
-      if (dailySparkMaterials.length > 0) {
-        const rotationId = await materialService.getDailySparkRotationId(dailySparkMaterials);
-        setActiveDailyId(rotationId);
-      }
-    };
-
-    fetchDailyId();
-  }, [allMaterials]); // Re-run when materials change (e.g. after upload)
-
-  // Determine which material to actually show in Hero Card
-  const activeDailyMaterial = activeDailyId
-    ? dailySparkMaterials.find(m => m.id === activeDailyId)
-    : dailySparkMaterials[0]; // Fallback to first one
 
 
   // Filter Logic for Core Library
@@ -219,7 +221,66 @@ export function HomeView({ onPlay, onProfile, isActive }: HomeViewProps) {
     }
   };
 
+  // 加载更多（分页）
+  const loadMore = async () => {
+    if (!hasMorePages || isLoadingMore) return;
+
+    setIsLoadingMore(true);
+    const nextPage = currentPage + 1;
+
+    try {
+      const { items, hasMore } = await materialService.loadMaterialsPage(nextPage, 20);
+      setAllMaterials(prev => materialService.mergeMaterials(prev, items));
+      setHasMorePages(hasMore);
+      setCurrentPage(nextPage);
+
+      // 后台缓存新加载的封面
+      setTimeout(() => prefetchCovers(items, 20), 1000);
+    } catch (error) {
+      console.error('Failed to load more:', error);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
+
+  // 封面图预缓存
+  const prefetchCovers = async (materials: Material[], count: number = 20) => {
+    try {
+      await materialService.prefetchCovers(materials, count);
+
+      // 更新状态，标记为已缓存
+      setAllMaterials(prev => prev.map(m => {
+        const cached = materials.find(mat => mat.id === m.id);
+        if (cached) {
+          return {
+            ...m,
+            userMeta: { ...m.userMeta!, isOffline: true }
+          };
+        }
+        return m;
+      }));
+    } catch (error) {
+      console.warn('Prefetch failed:', error);
+    }
+  };
+
+  // 滚动监听
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+
+    // 距离底部 300px 时触发加载
+    if (scrollHeight - scrollTop - clientHeight < 300) {
+      loadMore();
+    }
+  };
+
+
   const handleTogglePin = async (materialId: string, currentState: boolean) => {
+    // 1. Check if user is authenticated
+    if (!pb.authStore.isValid || !pb.authStore.model?.id) {
+      setShowPaywall(true);
+      return;
+    }
     try {
       await updateUserProgress(materialId, { is_pinned: !currentState });
       // Update local state for immediate feedback
@@ -830,7 +891,10 @@ export function HomeView({ onPlay, onProfile, isActive }: HomeViewProps) {
   };
 
   return (
-    <main className="flex-1 overflow-y-auto no-scrollbar scroll-smooth bg-black h-full">
+    <main
+      className="flex-1 overflow-y-auto no-scrollbar scroll-smooth bg-black h-full"
+      onScroll={handleScroll}
+    >
       <style>{`
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
@@ -970,7 +1034,24 @@ export function HomeView({ onPlay, onProfile, isActive }: HomeViewProps) {
               // Empty State
               <div className="col-span-1 py-12 flex flex-col items-center justify-center text-zinc-500 gap-2">
                 <Library className="w-12 h-12 opacity-20 mb-2" />
-                <p className="text-sm">No materials in library</p>
+                <div className="text-center">
+                  <p className="text-sm font-medium">No materials in library</p>
+                  <p className="text-xs opacity-60">材料每日更新中</p>
+                </div>
+              </div>
+            )}
+
+            {/* Loading More Indicator */}
+            {isLoadingMore && (
+              <div className="col-span-1 flex justify-center py-8">
+                <div className="animate-spin h-8 w-8 border-3 border-blue-500 rounded-full border-t-transparent" />
+              </div>
+            )}
+
+            {/* All Loaded Indicator */}
+            {!hasMorePages && displayMaterials.length > 0 && !isInitialLoading && (
+              <div className="col-span-1 text-center py-6 text-zinc-500 text-sm">
+                已加载全部 {displayMaterials.length} 条材料
               </div>
             )}
           </div>
@@ -985,7 +1066,7 @@ export function HomeView({ onPlay, onProfile, isActive }: HomeViewProps) {
           </div>
         </section>
 
-      </div>
+      </div >
 
       <Paywall
         isOpen={showPaywall}
@@ -1020,6 +1101,6 @@ export function HomeView({ onPlay, onProfile, isActive }: HomeViewProps) {
           setTimeout(() => setUploadStatus('initial'), 300);
         }}
       />
-    </main>
+    </main >
   );
 }

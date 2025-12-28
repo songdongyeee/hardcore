@@ -10,7 +10,7 @@ import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Preferences } from '@capacitor/preferences';
 import { pb, updateUserProgress } from '@/lib/api';
 import { getCachedWaveform, cacheWaveform } from '@/lib/waveformCache';
-import { useRevenueCat } from "@/hooks/useRevenueCat";
+
 import { Paywall } from "@/components/Paywall";
 
 const SETTINGS_KEY = 'shadowing_settings_v1';
@@ -40,7 +40,6 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
   const [status, setStatus] = useState<ShadowingStatus>('idle');
 
   // Paywall Logic
-  const { isVip } = useRevenueCat();
   const [showPaywall, setShowPaywall] = useState(false);
 
   // --- Cloze State ---
@@ -1064,10 +1063,26 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
                   if (!recordedBase64) return;
 
                   // 🔒 PAYWALL CHECK
-                  if (!isVip) {
+                  // Use PocketBase auth store for stable VIP check (avoids async/cache issues)
+
+                  // Force refresh auth store model if possible
+                  if (pb.authStore.isValid && !pb.authStore.model) {
+                    try { await pb.collection('users').authRefresh(); } catch (e) { }
+                  }
+
+                  const user = pb.authStore.model;
+                  const tier = user?.subscription_tier || 'free';
+                  console.log('[ShadowingView] Clicked Save. User:', user?.id, 'Tier:', tier);
+
+                  const isPaidUser = tier === 'monthly' || tier === 'quarterly' || tier === 'yearly';
+
+                  if (!isPaidUser) {
+                    console.log('[ShadowingView] Access Denied. Showing Paywall.');
                     setShowPaywall(true);
                     return;
                   }
+
+                  console.log('[ShadowingView] Access Granted. Saving...');
 
                   try {
                     const fileName = "shadowing_" + Date.now() + ".aac";

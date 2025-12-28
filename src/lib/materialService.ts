@@ -493,6 +493,370 @@ export const materialService = {
             console.error("❌ Transcript parse error", e);
             return [];
         }
+    },
+
+    /**
+     * 轻量级加载今日Daily Spark材料（只加载ID列表 + 1条完整数据）
+     */
+    async loadDailySparkMaterials(): Promise<Material[]> {
+        try {
+            // 1. 检查今天是否已经选择过
+            const STORAGE_KEY_DATE = 'daily_spark_date';
+            const STORAGE_KEY_ID = 'daily_spark_id';
+
+            const { value: lastDateStr } = await Preferences.get({ key: STORAGE_KEY_DATE });
+            const { value: cachedId } = await Preferences.get({ key: STORAGE_KEY_ID });
+
+            const today5AM = this.getToday5AM();
+            const lastDate = lastDateStr ? new Date(lastDateStr) : new Date(0);
+
+            let selectedId = cachedId;
+
+            // 2. 如果今天还没选择，或者缓存过期，重新选择
+            if (!selectedId || lastDate <= today5AM) {
+                console.log('🔄 Selecting new Daily Spark for today');
+
+                // 🎯 只获取ID列表（超轻量级 ~5KB）
+                const idList = await this.getDailySparkIdList();
+
+
+                if (idList.length === 0) {
+                    // 如果没有远程Daily Spark，返回bundled的
+                    return BUNDLED_MATERIALS
+                        .filter(m => m.location === 'daily_spark')
+                        .map(m => ({
+                            ...m,
+                            createdAt: (m as any).createdAt || '2020-01-01T00:00:00Z',
+                            userMeta: { isStarred: false, isPinned: false, currentStep: 0, isOffline: false, updatedAt: '2020-01-01T00:00:00Z' }
+                        }));
+                }
+
+                // 使用rotation逻辑选择一个ID
+                selectedId = await this.selectDailySparkFromIds(idList);
+
+                // 保存选择
+                await Promise.all([
+                    Preferences.set({ key: STORAGE_KEY_DATE, value: new Date().toISOString() }),
+                    Preferences.set({ key: STORAGE_KEY_ID, value: selectedId })
+                ]);
+            } else {
+                console.log('✅ Using cached Daily Spark selection:', selectedId);
+            }
+
+            // 3. 🎯 只加载那一条完整材料（~20KB）
+            const material = await this.loadSingleMaterial(selectedId);
+
+            if (!material) {
+                // 降级：返回bundled Daily Spark
+                return BUNDLED_MATERIALS
+                    .filter(m => m.location === 'daily_spark')
+                    .map(m => ({
+                        ...m,
+                        createdAt: (m as any).createdAt || '2020-01-01T00:00:00Z',
+                        userMeta: { isStarred: false, isPinned: false, currentStep: 0, isOffline: false, updatedAt: '2020-01-01T00:00:00Z' }
+                    }));
+            }
+
+            // 合并bundled Daily Spark材料
+            const bundledDailySpark = BUNDLED_MATERIALS
+                .filter(m => m.location === 'daily_spark')
+                .map(m => ({
+                    ...m,
+                    createdAt: (m as any).createdAt || '2020-01-01T00:00:00Z',
+                    userMeta: { isStarred: false, isPinned: false, currentStep: 0, isOffline: false, updatedAt: '2020-01-01T00:00:00Z' }
+                }));
+
+            return [...bundledDailySpark, material];
+        } catch (error) {
+            console.error('Failed to load Daily Spark materials:', error);
+            // 降级：返回bundled Daily Spark
+            return BUNDLED_MATERIALS
+                .filter(m => m.location === 'daily_spark')
+                .map(m => ({
+                    ...m,
+                    createdAt: (m as any).createdAt || '2020-01-01T00:00:00Z',
+                    userMeta: { isStarred: false, isPinned: false, currentStep: 0, isOffline: false, updatedAt: '2020-01-01T00:00:00Z' }
+                }));
+        }
+    },
+
+    /**
+     * 分页加载材料（核心性能优化）
+     */
+    async loadMaterialsPage(
+        page: number,
+        perPage: number = 20
+    ): Promise<{
+        items: Material[];
+        totalPages: number;
+        hasMore: boolean;
+    }> {
+        try {
+            if (!pb.authStore.isValid) {
+                return { items: [], totalPages: 0, hasMore: false };
+            }
+
+            const userId = pb.authStore.model?.id;
+
+            // 🎯 使用 getList 代替 getFullList
+            const result = await pb.collection('transcripts').getList(page, perPage, {
+                filter: `(visibility = "public" || owner = "${userId}") && (status = "done" || status = "completed")`,
+                sort: '-created',
+            });
+
+            // 获取用户进度
+            const progressList = await fetchUserProgress();
+            const progressMap = new Map(
+                progressList.map((item: any) => [item.material_id, {
+                    isStarred: item.is_starred,
+                    isPinned: item.is_pinned || false,
+                    currentStep: item.current_step,
+                    isOffline: false,
+                    updatedAt: item.updated
+                }])
+            );
+
+            // 转换记录
+            const items = await Promise.all(
+                result.items.map(async record => {
+                    const progress = progressMap.get(record.id);
+                    const normalizedDate = record.created.replace(' ', 'T');
+
+                    // 检查本地缓存
+                    const localAudio = await this.checkLocalFile(record.id, 'audio');
+                    const localCover = await this.checkLocalFile(record.id, 'image');
+
+                    // 解析文本
+                    let transcript = null;
+                    if (record.text) {
+                        transcript = this.parseTranscript(record.text);
+                        if (transcript?.length > 0) {
+                            this.saveTranscriptCache(record.id, transcript);
+                        }
+                    }
+
+                    return {
+                        id: record.id,
+                        source: 'remote' as const,
+                        location: record.location || 'core_library',
+                        title: record.title || record.audio,
+                        subtitle: record.subtitle || new Date(normalizedDate).toLocaleDateString(),
+                        audioUrl: localAudio || pb.files.getUrl(record, record.audio),
+                        coverUrl: localCover || (record.cover ? pb.files.getUrl(record, record.cover) : '/images/default_cover.png'),
+                        transcript: transcript || [],
+                        waveform_data: typeof record.waveform_data === 'string'
+                            ? JSON.parse(record.waveform_data)
+                            : record.waveform_data,
+                        visibility: record.visibility,
+                        createdAt: normalizedDate,
+                        tags: {
+                            topic: record.topic || 'General',
+                            difficulty: record.difficulty || 'L1',
+                            duration: record.duration || '00:00'
+                        },
+                        userMeta: progress || {
+                            isStarred: false,
+                            isPinned: false,
+                            currentStep: 0,
+                            isOffline: !!localAudio,
+                            updatedAt: normalizedDate
+                        }
+                    };
+                })
+            );
+
+            return {
+                items,
+                totalPages: result.totalPages,
+                hasMore: page < result.totalPages
+            };
+        } catch (error) {
+            console.error('Failed to load materials page:', error);
+            return { items: [], totalPages: 0, hasMore: false };
+        }
+    },
+
+    /**
+     * 智能合并材料列表（去重 + 保留顺序）
+     */
+    mergeMaterials(existing: Material[], newItems: Material[]): Material[] {
+        const map = new Map<string, Material>();
+
+        // 保留旧数据
+        existing.forEach(m => map.set(m.id, m));
+
+        // 合并新数据（覆盖更新）
+        newItems.forEach(m => map.set(m.id, m));
+
+        return Array.from(map.values());
+    },
+
+    /**
+     * 批量预缓存封面图（后台静默下载）
+     */
+    async prefetchCovers(materials: Material[], maxCount: number = 20): Promise<void> {
+        const targets = materials
+            .filter(m => {
+                // 只缓存远程图片
+                if (!m.coverUrl || m.coverUrl.includes('default_cover')) return false;
+                if (m.coverUrl.startsWith('capacitor://')) return false; // 已缓存
+                return true;
+            })
+            .slice(0, maxCount);
+
+        console.log(`[Prefetch] Starting to cache ${targets.length} covers...`);
+
+        for (const material of targets) {
+            try {
+                const ext = material.coverUrl.split('.').pop()?.split('?')[0] || 'jpg';
+                await this.downloadFile(
+                    material.coverUrl,
+                    `${IMAGES_DIR}/${material.id}.${ext}`
+                );
+                console.log(`[Prefetch] Cached cover: ${material.id}`);
+            } catch (error) {
+                // 静默失败，不影响用户
+                console.warn(`[Prefetch] Failed to cache ${material.id}:`, error);
+            }
+        }
+
+        console.log('[Prefetch] Cover caching complete');
+    },
+
+    /**
+     * 只获取Daily Spark的ID列表（超轻量级请求 ~5KB）
+     */
+    async getDailySparkIdList(): Promise<string[]> {
+        if (!pb.authStore.isValid) return [];
+
+        try {
+            const userId = pb.authStore.model?.id;
+
+            const records = await pb.collection('transcripts').getList(1, 100, {
+                filter: `location = "daily_spark" && (visibility = "public" || owner = "${userId}") && (status = "done" || status = "completed")`,
+                sort: '-created',
+                fields: 'id',
+            });
+
+            return records.items.map((r: any) => r.id);
+        } catch (error) {
+            console.error('Failed to get Daily Spark ID list:', error);
+            return [];
+        }
+    },
+
+    /**
+     * 从ID列表中选择今日Daily Spark
+     */
+    async selectDailySparkFromIds(idList: string[]): Promise<string> {
+        if (idList.length === 0) return '';
+
+        const STORAGE_KEY_HISTORY = 'daily_spark_history';
+
+        try {
+            const { value: historyStr } = await Preferences.get({ key: STORAGE_KEY_HISTORY });
+            const history: string[] = historyStr ? JSON.parse(historyStr) : [];
+
+            let available = idList.filter(id => !history.includes(id));
+
+            if (available.length === 0) {
+                console.log('⚠️ Daily Spark pool exhausted. Resetting history.');
+                available = [...idList];
+            }
+
+            const randomIndex = Math.floor(Math.random() * available.length);
+            const pickedId = available[randomIndex];
+
+            const newHistory = available.length === idList.length
+                ? [pickedId]
+                : [...history, pickedId];
+
+            await Preferences.set({
+                key: STORAGE_KEY_HISTORY,
+                value: JSON.stringify(newHistory)
+            });
+
+            return pickedId;
+        } catch (error) {
+            console.error('Failed to select Daily Spark:', error);
+            return idList[0];
+        }
+    },
+
+    /**
+     * 加载单条材料的完整数据（~20KB）
+     */
+    async loadSingleMaterial(materialId: string): Promise<Material | null> {
+        if (!pb.authStore.isValid || !materialId) return null;
+
+        try {
+            const record = await pb.collection('transcripts').getOne(materialId);
+
+            const progressList = await fetchUserProgress();
+            const progress = progressList.find((p: any) => p.material_id === materialId);
+
+            const normalizedDate = record.created.replace(' ', 'T');
+            const localAudio = await this.checkLocalFile(record.id, 'audio');
+            const localCover = await this.checkLocalFile(record.id, 'image');
+
+            let transcript = null;
+            if (record.text) {
+                transcript = this.parseTranscript(record.text);
+                if (transcript?.length > 0) {
+                    this.saveTranscriptCache(record.id, transcript);
+                }
+            }
+
+            return {
+                id: record.id,
+                source: 'remote' as const,
+                location: record.location || 'daily_spark',
+                title: record.title || record.audio,
+                subtitle: record.subtitle || new Date(normalizedDate).toLocaleDateString(),
+                audioUrl: localAudio || pb.files.getUrl(record, record.audio),
+                coverUrl: localCover || (record.cover ? pb.files.getUrl(record, record.cover) : '/images/default_cover.png'),
+                transcript: transcript || [],
+                waveform_data: typeof record.waveform_data === 'string'
+                    ? JSON.parse(record.waveform_data)
+                    : record.waveform_data,
+                visibility: record.visibility,
+                createdAt: normalizedDate,
+                tags: {
+                    topic: record.topic || 'General',
+                    difficulty: record.difficulty || 'L1',
+                    duration: record.duration || '00:00'
+                },
+                userMeta: progress ? {
+                    isStarred: progress.is_starred,
+                    isPinned: progress.is_pinned || false,
+                    currentStep: progress.current_step,
+                    isOffline: !!localAudio,
+                    updatedAt: progress.updated
+                } : {
+                    isStarred: false,
+                    isPinned: false,
+                    currentStep: 0,
+                    isOffline: !!localAudio,
+                    updatedAt: normalizedDate
+                }
+            };
+        } catch (error) {
+            console.error('Failed to load single material:', error);
+            return null;
+        }
+    },
+
+    /**
+     * 获取今天5AM的时间戳
+     */
+    getToday5AM(): Date {
+        const now = new Date();
+        const today5AM = new Date(now);
+        today5AM.setHours(5, 0, 0, 0);
+        if (now < today5AM) {
+            today5AM.setDate(today5AM.getDate() - 1);
+        }
+        return today5AM;
     }
 
 };

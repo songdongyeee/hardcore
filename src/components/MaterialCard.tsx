@@ -27,6 +27,7 @@ export const MaterialCard = React.memo(function MaterialCard({
 }: MaterialCardProps) {
     const [swipeOffset, setSwipeOffset] = useState(0);
     const [isSwiping, setIsSwiping] = useState(false);
+    const [imageLoaded, setImageLoaded] = useState(false);
 
     const startXRef = useRef(0);
     const startYRef = useRef(0);
@@ -35,7 +36,7 @@ export const MaterialCard = React.memo(function MaterialCard({
 
     const isGrid = variant === 'grid';
     // Only show rename/delete for materials owned by the user
-    const isPrivate = material.userMeta !== undefined && material.source === 'remote';
+    const isPrivate = material.visibility === 'private';
     const isPinned = material.userMeta?.isPinned || false;
 
     // Actions Configuration
@@ -239,20 +240,30 @@ export const MaterialCard = React.memo(function MaterialCard({
                     transition: isSwiping ? 'none' : 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)'
                 }}
                 className={cn(
-                    "relative aspect-[4/5] w-full overflow-hidden cursor-pointer transition-all bg-black z-10"
+                    "relative aspect-[4/5] w-full overflow-hidden cursor-pointer transition-all bg-gradient-to-br from-gray-700 to-gray-800 z-10"
                 )}
             >
+                {/* Loading Indicator */}
+                {!imageLoaded && (
+                    <div className="absolute inset-0 flex items-center justify-center z-5">
+                        <div className="w-8 h-8 border-2 border-gray-600 border-t-transparent rounded-full animate-spin" />
+                    </div>
+                )}
+
                 <img
                     src={material.coverUrl}
                     className={cn(
-                        "absolute inset-0 w-full h-full object-cover",
+                        "absolute inset-0 w-full h-full object-cover transition-opacity duration-500",
+                        imageLoaded ? "opacity-100" : "opacity-0",
                         isGrid
-                            ? "opacity-100 grayscale-0 group-hover:scale-105 transition-all duration-700"
-                            : (isActive ? "opacity-100 grayscale-0" : "opacity-60 grayscale")
+                            ? "grayscale-0 group-hover:scale-105 transition-all duration-700"
+                            : (isActive ? "grayscale-0" : "opacity-60 grayscale")
                     )}
                     alt={material.title}
                     draggable={false}
+                    onLoad={() => setImageLoaded(true)}
                     onError={(e) => {
+                        setImageLoaded(true); // 即使失败也显示，避免永久loading
                         // Fallback: hide broken image and show gradient background
                         (e.target as HTMLImageElement).style.display = 'none';
                     }}

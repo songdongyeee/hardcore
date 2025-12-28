@@ -4,7 +4,6 @@ import { useRevenueCat, ENTITLEMENT_ID } from "@/hooks/useRevenueCat";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import type { PurchasesPackage } from "@revenuecat/purchases-capacitor";
-import { Purchases } from "@revenuecat/purchases-capacitor";
 import { pb } from "@/lib/api";
 
 
@@ -15,7 +14,7 @@ interface PaywallProps {
 }
 
 export function Paywall({ isOpen, onClose, onSuccess }: PaywallProps) {
-    const { currentOffering, purchasePackage, isReady } = useRevenueCat();
+    const { currentOffering, purchasePackage, restorePurchases, isReady } = useRevenueCat();
     const [loading, setLoading] = useState(false);
     const [selectedPackage, setSelectedPackage] = useState<PurchasesPackage | null>(null);
     const [isVisible, setIsVisible] = useState(false);
@@ -118,47 +117,18 @@ export function Paywall({ isOpen, onClose, onSuccess }: PaywallProps) {
 
     const handleRestore = async () => {
         setLoading(true);
-
-        try {
-            // Get fresh customer info from restore
-            const { customerInfo: freshInfo } = await Purchases.restorePurchases();
-
-            if (freshInfo?.entitlements?.active[ENTITLEMENT_ID]) {
-                // Calculate tier directly from fresh customer info
-                const entitlement = freshInfo.entitlements.active[ENTITLEMENT_ID];
-                const productId = entitlement.productIdentifier?.toLowerCase() || '';
-
-                let tier: 'free' | 'monthly' | 'quarterly' | 'yearly' = 'free';
-                if (productId.includes('monthly')) tier = 'monthly';
-                else if (productId.includes('quarterly') || productId.includes('quarter')) tier = 'quarterly';
-                else if (productId.includes('yearly') || productId.includes('annual')) tier = 'yearly';
-
-                // Sync to PocketBase with fresh tier
-                if (pb.authStore.isValid && pb.authStore.model?.id) {
-                    await pb.collection('users').update(pb.authStore.model.id, {
-                        subscription_tier: tier,
-                        quota_reset_date: entitlement.expirationDate,
-                        used_seconds: 0
-                    });
-                    console.log(`✅ Subscription restored and synced: ${tier} `);
-                }
-
-                alert("Restore Successful! VIP Unlocked.");
-                // Reload page to refresh all states
+        const success = await restorePurchases(); // Use the hook's protected method
+        if (success) {
+            // Refresh UI state
+            setTimeout(() => {
                 window.location.reload();
-            } else {
-                alert("No active subscription found to restore.");
-            }
-        } catch (e: any) {
-            console.error('Failed to restore or sync subscription:', e);
-            alert("Restore Failed: " + e.message);
+            }, 500);
         }
-
         setLoading(false);
     }
 
     return (
-        <div className="fixed inset-0 z-[9999] flex flex-col justify-end">
+        <div className="fixed inset-0 z-[20000] flex flex-col justify-end">
             {/* Backdrop */}
             <div
                 className={cn(

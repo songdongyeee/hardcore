@@ -3,6 +3,7 @@ import { useRevenueCat } from "@/hooks/useRevenueCat";
 import { deleteUserData, pb } from "@/lib/api";
 import { useEffect, useState } from "react";
 import { Paywall } from "@/components/Paywall";
+import { App } from "@capacitor/app";
 
 interface ProfileViewProps {
     onBack: () => void;
@@ -20,6 +21,7 @@ export function ProfileView({ onBack }: ProfileViewProps) {
         return 'free';
     });
     const [showPaywall, setShowPaywall] = useState(false);
+    const [appVersion, setAppVersion] = useState<string>('...');
 
     // Debug: Log subscription status
     useEffect(() => {
@@ -65,6 +67,16 @@ export function ProfileView({ onBack }: ProfileViewProps) {
             return () => clearTimeout(timer);
         }
     }, [isReady]); // Only depend on isReady, not subscriptionTier
+
+    // Fetch native app version
+    useEffect(() => {
+        App.getInfo().then(info => {
+            setAppVersion(info.version);
+        }).catch(err => {
+            console.error('Failed to get app version:', err);
+            setAppVersion('N/A');
+        });
+    }, []);
 
 
     return (
@@ -123,8 +135,13 @@ export function ProfileView({ onBack }: ProfileViewProps) {
                         恢复购买
                     </button>
 
-                    <div className="text-center text-xs text-zinc-600 pt-4 space-y-2">
+                    <div className="text-center text-xs text-zinc-600 pt-4 space-y-1">
                         <p>User ID: {pbUserId}</p>
+                        <p>App Version: {appVersion}</p>
+                    </div>
+
+                    {/* Delete Account Button - positioned further down with darker color */}
+                    <div className="pt-8">
                         <button
                             onClick={async () => {
                                 if (confirm("危险操作：这将永久删除您的所有学习数据、关注的材料以及用户账号。此操作不可撤销。\n\n确定要继续吗？")) {
@@ -133,7 +150,7 @@ export function ProfileView({ onBack }: ProfileViewProps) {
                                     window.location.reload();
                                 }
                             }}
-                            className="text-red-900 hover:text-red-700 flex items-center justify-center gap-1 mx-auto"
+                            className="text-zinc-700 hover:text-red-700 flex items-center justify-center gap-1 mx-auto text-xs"
                         >
                             <Trash2 className="w-3 h-3" />
                             Delete Account & Data

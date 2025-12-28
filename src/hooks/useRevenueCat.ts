@@ -120,7 +120,14 @@ export function useRevenueCat() {
                 // Also sync if user is already paid but changed plans (e.g., monthly -> yearly)
                 const planChanged = user.subscription_tier !== 'free' && subInfo.tier !== 'free' && user.subscription_tier !== subInfo.tier;
 
-                if (upgradedToPaid || planChanged) {
+                // ✅ Detect renewal: tier stays the same but expiration date is extended
+                const renewed = user.subscription_tier === subInfo.tier &&
+                    subInfo.tier !== 'free' &&
+                    subInfo.expirationDate &&
+                    user.quota_reset_date &&
+                    new Date(subInfo.expirationDate) > new Date(user.quota_reset_date);
+
+                if (upgradedToPaid || planChanged || renewed) {
                     const updateData: any = {
                         subscription_tier: subInfo.tier,
                         quota_reset_date: subInfo.expirationDate,
@@ -130,20 +137,45 @@ export function useRevenueCat() {
                         updateData.used_seconds = 0; // Reset quota on first upgrade
                     }
 
+                    // ✅ Also reset quota on renewal
+                    if (renewed) {
+                        updateData.used_seconds = 0; // Reset quota on renewal
+                    }
+
                     await pb.collection('users').update(pb.authStore.model.id, updateData);
-                    console.log(`✨ Auto-synced update: ${user.subscription_tier} -> ${subInfo.tier}`);
+
+                    if (renewed) {
+                        console.log(`🔄 Subscription renewed: ${subInfo.tier}, new expiration: ${subInfo.expirationDate}`);
+                    } else {
+                        console.log(`✨ Auto-synced update: ${user.subscription_tier} -> ${subInfo.tier}`);
+                    }
                     return;
                 }
 
-                // [IMPORTANT] REMOVED AUTOMATIC DOWNGRADE HERE
-                // To prevent sandbox environment issues from incorrectly downgrading users.
-                // Downgrades should only happen via:
+                // [IMPORTANT] REMOVED AUTOMATIC EXPIRATION HERE
+                // To prevent sandbox environment issues from incorrectly expiring subscriptions.
+                // Subscription expiration should only happen via:
                 // 1. Explicit restorePurchases (user triggered)
                 // 2. Server-side cron job (secure way)
                 // 3. App boot check with high confidence (not implemented here yet)
 
+                // When RC shows free but PB shows paid
                 if (user.subscription_tier !== 'free' && subInfo.tier === 'free') {
-                    console.log(`⚠️ RC shows free but user is ${user.subscription_tier} in PB. Skipping auto-downgrade to avoid sandbox errors.`);
+                    // Check if truly expired before skipping
+                    const quotaResetDate = user.quota_reset_date;
+                    const isExpired = quotaResetDate && new Date(quotaResetDate) < new Date();
+
+                    if (isExpired) {
+                        // Truly expired, reset to free
+                        console.log(`⏰ Subscription expired. Resetting ${user.subscription_tier} -> free`);
+                        await pb.collection('users').update(pb.authStore.model.id, {
+                            subscription_tier: 'free',
+                            quota_reset_date: null
+                        });
+                    } else {
+                        // Not expired, sandbox issue - protect subscription
+                        console.log(`⚠️ RC shows free but user is ${user.subscription_tier} in PB (not expired). Skipping auto-expiration to avoid sandbox errors.`);
+                    }
                 }
             } catch (e) {
                 console.warn('Failed to auto-sync subscription:', e);
@@ -171,27 +203,62 @@ export function useRevenueCat() {
             const { customerInfo } = await Purchases.restorePurchases();
             checkEntitlement(customerInfo);
 
-            // Force sync to PocketBase on manual restore
-            if (pb.authStore.isValid && pb.authStore.model?.id) {
+            // ✅ PROTECTION: Only sync if there's an active subscription
+            if (customerInfo?.entitlements?.active[ENTITLEMENT_ID]) {
                 const tier = getSubscriptionTier(customerInfo);
                 const entitlement = customerInfo.entitlements.active[ENTITLEMENT_ID];
 
-                await pb.collection('users').update(pb.authStore.model.id, {
-                    subscription_tier: tier,
-                    quota_reset_date: entitlement?.expirationDate || null
-                });
-                console.log(`🔄 Manual restore sync: PocketBase updated to ${tier}`);
-            }
+                if (pb.authStore.isValid && pb.authStore.model?.id) {
+                    await pb.collection('users').update(pb.authStore.model.id, {
+                        subscription_tier: tier,
+                        quota_reset_date: entitlement.expirationDate || null
+                    });
+                    console.log(`🔄 Restore successful: ${tier}`);
+                }
 
-            if (customerInfo.entitlements.active[ENTITLEMENT_ID]) {
-                alert("Restore Successful! VIP Unlocked.");
+                alert("恢复购买成功！VIP 已解锁。");
                 return true;
             } else {
-                alert("No active subscription found to restore. If you already purchased, please wait a moment and try again.");
+                // ⚠️ No active subscription found
+                // CRITICAL: Check current PB status before showing error
+                console.warn("⚠️ RestorePurchases returned no active subscriptions");
+
+                if (pb.authStore.isValid && pb.authStore.model?.id) {
+                    const user = await pb.collection('users').getOne(pb.authStore.model.id);
+
+                    if (user.subscription_tier !== 'free') {
+                        // User has a subscription in PB but not in RC
+                        // This could be:
+                        // 1. Sandbox environment issue (most likely)
+                        // 2. Subscription expired but not yet synced
+
+                        // Check if subscription is truly expired
+                        const quotaResetDate = user.quota_reset_date;
+                        const isExpired = quotaResetDate && new Date(quotaResetDate) < new Date();
+
+                        if (isExpired) {
+                            // Truly expired, reset to free
+                            await pb.collection('users').update(pb.authStore.model.id, {
+                                subscription_tier: 'free',
+                                quota_reset_date: null
+                            });
+                            console.log(`⏰ Subscription expired, reset to free`);
+                            alert("您的订阅已过期。如需继续使用高级功能，请重新订阅。");
+                        } else {
+                            // Not expired, sandbox issue
+                            alert(`检测到您已有 ${user.subscription_tier} 订阅。如遇到问题，请稍后重试或联系支持。`);
+                        }
+                    } else {
+                        alert("未找到可恢复的订阅。请确保使用购买时的 Apple ID 登录。");
+                    }
+                } else {
+                    alert("未找到可恢复的订阅。请确保使用购买时的 Apple ID 登录。");
+                }
                 return false;
             }
         } catch (e: any) {
-            alert("Restore Failed: " + e.message);
+            console.error("恢复购买失败:", e);
+            alert("恢复购买失败: " + (e.message || "未知错误"));
             return false;
         }
     };
