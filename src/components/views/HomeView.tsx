@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Library, Sparkles, Menu, Upload, Filter, BookOpen, X, Star } from 'lucide-react';
 import { Dialog } from '@capacitor/dialog';
 import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Preferences } from '@capacitor/preferences';
 import { MaterialCard } from "@/components/MaterialCard";
 import { useUsageLimit } from "@/hooks/useUsageLimit";
 import { useRevenueCat } from "@/hooks/useRevenueCat";
@@ -11,31 +12,30 @@ import { audioConverter } from "@/services/audioConverter";
 import { cn } from "@/lib/utils";
 import { materialService } from "@/lib/materialService";
 import { UploadModal } from "@/components/UploadModal";
-import { pb, updateUserProgress } from "@/lib/api";
+import { pb, updateUserProgress, fetchUserProgress } from "@/lib/api";
 import type { Material } from "@/data/types";
 import type { TranscriptSegment } from "@/data/transcript";
 
 
 
 // Helper function to calculate next quota reset date based on subscription tier
-const calculateNextResetDate = (tier: 'monthly' | 'quarterly' | 'yearly'): string => {
-  const now = new Date();
-  let nextReset = new Date(now);
+// Calculate next reset date based on user's subscription cycle, not natural month/year
+const calculateNextResetDate = (
+  tier: 'monthly' | 'quarterly' | 'yearly',
+  currentResetDate: string  // User's current quota_reset_date
+): string => {
+  const baseDate = new Date(currentResetDate);
+  let nextReset = new Date(baseDate);
 
   switch (tier) {
     case 'monthly':
-      nextReset.setMonth(nextReset.getMonth() + 1);
-      nextReset.setDate(1); // Reset on 1st of next month
+      nextReset.setMonth(nextReset.getMonth() + 1);  // Add 1 month from current reset date
       break;
     case 'quarterly':
-      const currentQuarter = Math.floor(now.getMonth() / 3);
-      nextReset.setMonth((currentQuarter + 1) * 3);
-      nextReset.setDate(1);
+      nextReset.setMonth(nextReset.getMonth() + 3);  // Add 3 months from current reset date
       break;
     case 'yearly':
-      nextReset.setFullYear(nextReset.getFullYear() + 1);
-      nextReset.setMonth(0);
-      nextReset.setDate(1);
+      nextReset.setFullYear(nextReset.getFullYear() + 1);  // Add 1 year from current reset date
       break;
   }
 
@@ -43,13 +43,13 @@ const calculateNextResetDate = (tier: 'monthly' | 'quarterly' | 'yearly'): strin
 };
 
 interface HomeViewProps {
-  onPlay: (audioUrl: string, targetView?: 'listening' | 'shadowing', transcript?: TranscriptSegment[], materialId?: string, waveformData?: number[][]) => void;
+  onPlay: (audioUrl: string, targetView?: 'listening' | 'shadowing', transcript?: TranscriptSegment[], materialId?: string, waveformData?: number[][], title?: string) => void;
   onProfile: () => void;
   isActive?: boolean;
 }
 
 
-export function HomeView({ onPlay, onProfile, isActive: _ }: HomeViewProps) {
+export function HomeView({ onPlay, onProfile, isActive }: HomeViewProps) {
   // Removed unused activeId state
   const [showPaywall, setShowPaywall] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<'initial' | 'progress' | 'success' | 'error'>('initial');
@@ -68,6 +68,9 @@ export function HomeView({ onPlay, onProfile, isActive: _ }: HomeViewProps) {
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [usedSeconds, setUsedSeconds] = useState(0);
   const [pbSubscriptionTier, setPbSubscriptionTier] = useState<'free' | 'monthly' | 'quarterly' | 'yearly'>('free');
+
+  // 🎯 存储今天选中的Daily Spark ID（用于精确匹配）
+  const [selectedDailySparkId, setSelectedDailySparkId] = useState<string | null>(null);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -95,36 +98,62 @@ export function HomeView({ onPlay, onProfile, isActive: _ }: HomeViewProps) {
       const snapshot = await materialService.getCachedSnapshot();
       if (snapshot && snapshot.length > 0) {
         setAllMaterials(prev => materialService.mergeMaterials(prev, snapshot));
-        setIsInitialLoading(false);
       }
 
-      // 3. 🎯 优先加载Daily Spark材料（确保每日更新不受分页影响）
+      // ✅ 根据是否有内容决定何时结束loading
+      const hasContent = bundled.length > 0 || (snapshot && snapshot.length > 0);
+      if (hasContent) {
+        // 有内容：短暂延迟后立即显示（给用户"正在加载"的感知）
+        setTimeout(() => {
+          setIsInitialLoading(false);
+        }, 300);
+      }
+      // 如果没有内容，保持loading直到远程数据到达
+
+      // 🔄 后台快速加载远程数据
+      loadRemoteDataInBackground();
+    };
+
+    // 新函数：后台快速加载（并行 + 共享缓存）
+    const loadRemoteDataInBackground = async () => {
       try {
-        const dailySparkItems = await materialService.loadDailySparkMaterials();
+        // ⚡ 优化1：只获取1次用户进度（避免重复请求）
+        const progressList = await fetchUserProgress();
+
+        // ⚡ 优化2：并行加载Daily Spark和Core Library（节省500ms）
+        const [dailySparkItems, coreLibResult] = await Promise.all([
+          materialService.loadDailySparkMaterials(progressList),
+          materialService.loadMaterialsPage(1, 20, progressList)
+        ]);
+
+        // 更新Daily Spark
+        setAllMaterials(prev => prev.filter(m => m.location !== 'daily_spark'));
         if (dailySparkItems.length > 0) {
           setAllMaterials(prev => materialService.mergeMaterials(prev, dailySparkItems));
-        }
-      } catch (error) {
-        console.error('Failed to load Daily Spark materials:', error);
-      }
 
-      // 4. 分页加载第一页Core Library（不清空状态）
-      try {
-        const { items, hasMore } = await materialService.loadMaterialsPage(1, 20);
-        setAllMaterials(prev => materialService.mergeMaterials(prev, items));
-        setHasMorePages(hasMore);
+          // 🎯 保存今天选中的Daily Spark ID
+          const { value: cachedId } = await Preferences.get({ key: 'daily_spark_id' });
+          setSelectedDailySparkId(cachedId);
+        }
+
+        // 更新Core Library
+        setAllMaterials(prev => materialService.mergeMaterials(prev, coreLibResult.items));
+        setHasMorePages(coreLibResult.hasMore);
         setCurrentPage(1);
+
+        // ✅ 如果之前没有内容，现在结束loading
         setIsInitialLoading(false);
 
-        // 5. 后台预缓存前20张封面图
-        setTimeout(() => {
-          prefetchCovers(items, 20);
-        }, 2000);
+        // 后台预缓存封面
+        setTimeout(() => prefetchCovers(coreLibResult.items, 20), 2000);
+
       } catch (error) {
-        console.error('Failed to load first page:', error);
+        console.error('Failed to load remote data:', error);
+        // ⚠️ 即使失败也要结束loading，避免一直卡住
         setIsInitialLoading(false);
       }
     };
+
     initData();
   }, [pb.authStore.isValid]);
 
@@ -155,7 +184,44 @@ export function HomeView({ onPlay, onProfile, isActive: _ }: HomeViewProps) {
     };
 
     fetchUserProfile();
+
+    // ✅ Also listen for visibility changes to refresh when user returns from other views
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        console.log('[HomeView] Page became visible, refreshing subscription status...');
+        fetchUserProfile();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [pb.authStore.isValid, isVip]); // Re-run when VIP status changes (e.g. after purchase)
+
+  // ✅ Refresh subscription status when HomeView becomes active again (e.g., returning from ProfileView)
+  useEffect(() => {
+    if (!isActive || !pb.authStore.isValid || !pb.authStore.model?.id) return;
+
+    const refreshOnActivation = async () => {
+      try {
+        console.log('[HomeView] View activated, refreshing subscription status...');
+        const user = await pb.collection('users').getOne(pb.authStore.model!.id);
+        const tier = user.subscription_tier || 'free';
+        const used = user.used_seconds || 0;
+
+        pb.authStore.save(pb.authStore.token, user);
+        setPbSubscriptionTier(tier);
+        setUsedSeconds(used);
+        console.log('[HomeView] Subscription refreshed on activation. Tier:', tier);
+      } catch (e) {
+        console.warn('Failed to refresh on activation:', e);
+      }
+    };
+
+    refreshOnActivation();
+  }, [isActive]); // Refresh when HomeView becomes active
 
   // Common Sort Function
   const sortMaterials = (a: Material, b: Material) => {
@@ -181,14 +247,17 @@ export function HomeView({ onPlay, onProfile, isActive: _ }: HomeViewProps) {
   };
 
   // Derived Categorized Lists (Now Sorted!)
+  // 🎯 Daily Spark: loadDailySparkMaterials已经返回了今天选中的材料
+  // 重要：不使用筛选逻辑，不受activeFilter影响
   const dailySparkMaterials = allMaterials
-    .filter((m: Material) => m.location === 'daily_spark')
-    .sort(sortMaterials);
+    .filter((m: Material) => m.location === 'daily_spark');
+
+  // 🎯 精确匹配今天缓存的selectedId，避免显示错误的Daily Spark
+  const activeDailyMaterial = selectedDailySparkId
+    ? dailySparkMaterials.find(m => m.id === selectedDailySparkId) || dailySparkMaterials[0] || null
+    : dailySparkMaterials[0] || null;
 
   const coreLibraryMaterials = allMaterials.filter((m: Material) => m.location === 'core_library');
-
-  // Daily Spark Display: Use the first one (already selected by loadDailySparkMaterials)
-  const activeDailyMaterial = dailySparkMaterials[0] || null;
 
 
 
@@ -381,7 +450,7 @@ export function HomeView({ onPlay, onProfile, isActive: _ }: HomeViewProps) {
     // 3. Play with LOCAL URL
     console.log('[HomeView] Playing material:', material.id);
     console.log('[HomeView] Waveform data:', material.waveform_data);
-    onPlay(finalAudioUrl, 'listening', material.transcript, material.id, material.waveform_data); // Pass material.id and waveform_data
+    onPlay(finalAudioUrl, 'listening', material.transcript, material.id, material.waveform_data, material.title); // Pass material.title
   };
 
   const handleImportClick = () => {
@@ -468,8 +537,8 @@ export function HomeView({ onPlay, onProfile, isActive: _ }: HomeViewProps) {
 
           // Check if quota needs reset (for paid tiers only)
           if (subscriptionTier !== 'free' && quotaResetDate && new Date(quotaResetDate) < new Date()) {
-            // Reset quota
-            const nextResetDate = calculateNextResetDate(subscriptionTier);
+            // Reset quota - calculate next reset based on user's subscription cycle
+            const nextResetDate = calculateNextResetDate(subscriptionTier, quotaResetDate);
             await pb.collection('users').update(pb.authStore.model.id, {
               used_seconds: 0,
               quota_reset_date: nextResetDate
@@ -769,6 +838,7 @@ export function HomeView({ onPlay, onProfile, isActive: _ }: HomeViewProps) {
                   source: 'remote',
                   location: 'core_library',
                   title: finalTopic || updated.title || 'Untitled',
+                  title_translate: updated.title_translate,
                   subtitle: new Date().toLocaleDateString(),
                   audioUrl: localAudioPath,
                   coverUrl: '/images/default_cover.png',
@@ -870,6 +940,37 @@ export function HomeView({ onPlay, onProfile, isActive: _ }: HomeViewProps) {
   };
 
 
+  const handleRename = async (materialId: string, currentTitle: string) => {
+    const { value, cancelled } = await Dialog.prompt({
+      title: '重命名材料',
+      message: '请输入新的名称：',
+      inputText: currentTitle,
+      okButtonTitle: '确认',
+      cancelButtonTitle: '取消',
+    });
+
+    if (!cancelled && value && value.trim()) {
+      try {
+        // 1. 更新服务器数据
+        await pb.collection('transcripts').update(materialId, {
+          title: value.trim()
+        });
+
+        // 2. 立即更新本地状态
+        setAllMaterials(prev => {
+          const updated = prev.map(m =>
+            m.id === materialId ? { ...m, title: value.trim() } : m
+          );
+          // 3. 同步更新缓存快照
+          materialService.updateCachedSnapshot(updated);
+          return updated;
+        });
+      } catch (e: any) {
+        alert("重命名失败: " + (e.message || '未知错误'));
+      }
+    }
+  };
+
   const handleDelete = async (materialId: string) => {
     const { value } = await Dialog.confirm({
       title: '确认',
@@ -880,12 +981,21 @@ export function HomeView({ onPlay, onProfile, isActive: _ }: HomeViewProps) {
 
     if (value) {
       try {
+        // 1. 调用 API 删除
         await pb.collection('transcripts').delete(materialId);
-        // 🧹 Also clean up local files
+
+        // 2. 清理本地文件
         await materialService.deleteLocalFiles(materialId);
-        loadData();
+
+        // 3. ✅ 立即从本地状态移除（不再使用 loadData()）
+        setAllMaterials(prev => {
+          const updated = prev.filter(m => m.id !== materialId);
+          // 4. 同步更新缓存快照
+          materialService.updateCachedSnapshot(updated);
+          return updated;
+        });
       } catch (e: any) {
-        alert("Delete failed");
+        alert("删除失败: " + (e.message || '未知错误'));
       }
     }
   };
@@ -1017,7 +1127,8 @@ export function HomeView({ onPlay, onProfile, isActive: _ }: HomeViewProps) {
                     onClick={() => handleCardClick(material)}
                     onTogglePin={() => handleTogglePin(material.id, material.userMeta?.isPinned || false)}
                     onToggleStar={() => handleToggleStar(material.id, material.userMeta?.isStarred || false)}
-                    onDelete={material.source === 'remote' ? () => handleDelete(material.id) : undefined}
+                    onRename={material.visibility === 'private' ? () => handleRename(material.id, material.title) : undefined}
+                    onDelete={material.visibility === 'private' ? () => handleDelete(material.id) : undefined}
                   />
                 </div>
               ))
@@ -1075,6 +1186,7 @@ export function HomeView({ onPlay, onProfile, isActive: _ }: HomeViewProps) {
           // Reload page to refresh all subscription states
           window.location.reload();
         }}
+        source="clicked_locked_card"
       />
 
       <UploadModal

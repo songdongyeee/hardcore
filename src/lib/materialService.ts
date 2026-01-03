@@ -13,12 +13,15 @@ const SNAPSHOT_KEY = 'materials_snapshot_v1';
 export const materialService = {
     /**
      * Loads the last known good state from local storage for instant render
+     * 🎯 只返回Core Library材料，Daily Spark每天都会变不应缓存
      */
     async getCachedSnapshot(): Promise<Material[] | null> {
         try {
             const { value } = await Preferences.get({ key: SNAPSHOT_KEY });
             if (!value) return null;
-            return JSON.parse(value);
+            const materials = JSON.parse(value);
+            // 过滤掉Daily Spark，因为它每天都会变
+            return materials.filter((m: Material) => m.location === 'core_library');
         } catch (e) {
             return null;
         }
@@ -27,11 +30,14 @@ export const materialService = {
     /**
      * Saves current materials to local storage. 
      * This ALWAYS overwrites the previous snapshot, so it never grows in size.
+     * 🎯 只保存Core Library材料，Daily Spark每天都会变不需要缓存
      */
     async saveSnapshot(materials: Material[]): Promise<void> {
         try {
+            // 只保存Core Library（Daily Spark每天都会变）
+            const coreLibOnly = materials.filter(m => m.location === 'core_library');
             // Limits the snapshot to avoid extreme string lengths
-            const limitedMaterials = materials.slice(0, 100);
+            const limitedMaterials = coreLibOnly.slice(0, 100);
             await Preferences.set({
                 key: SNAPSHOT_KEY,
                 value: JSON.stringify(limitedMaterials)
@@ -271,6 +277,7 @@ export const materialService = {
                         source: 'remote',
                         location: record.location || 'core_library',
                         title: record.title || record.audio,
+                        title_translate: record.title_translate,
                         subtitle: record.subtitle || new Date(normalizedDate).toLocaleDateString(),
                         // Use local path if exists, otherwise server URL
                         audioUrl: localAudio || pb.files.getUrl(record, record.audio),
@@ -498,7 +505,7 @@ export const materialService = {
     /**
      * 轻量级加载今日Daily Spark材料（只加载ID列表 + 1条完整数据）
      */
-    async loadDailySparkMaterials(): Promise<Material[]> {
+    async loadDailySparkMaterials(progressList?: any[]): Promise<Material[]> {
         try {
             // 1. 检查今天是否已经选择过
             const STORAGE_KEY_DATE = 'daily_spark_date';
@@ -507,13 +514,22 @@ export const materialService = {
             const { value: lastDateStr } = await Preferences.get({ key: STORAGE_KEY_DATE });
             const { value: cachedId } = await Preferences.get({ key: STORAGE_KEY_ID });
 
-            const today5AM = this.getToday5AM();
-            const lastDate = lastDateStr ? new Date(lastDateStr) : new Date(0);
+            // 🎯 改用日期字符串比较（更可靠）
+            const now = new Date();
+            const todayDateStr = now.toISOString().split('T')[0];  // "2024-12-30"
+            const lastSelectedDateStr = lastDateStr ? new Date(lastDateStr).toISOString().split('T')[0] : '';
+
+            console.log('📅 [Daily Spark] Date check:', {
+                today: todayDateStr,
+                lastSelected: lastSelectedDateStr,
+                cachedId: cachedId,
+                needsRefresh: todayDateStr !== lastSelectedDateStr
+            });
 
             let selectedId = cachedId;
 
-            // 2. 如果今天还没选择，或者缓存过期，重新选择
-            if (!selectedId || lastDate <= today5AM) {
+            // 2. 如果今天还没选择，或者日期不同，重新选择
+            if (!selectedId || todayDateStr !== lastSelectedDateStr) {
                 console.log('🔄 Selecting new Daily Spark for today');
 
                 // 🎯 只获取ID列表（超轻量级 ~5KB）
@@ -539,14 +555,17 @@ export const materialService = {
                     Preferences.set({ key: STORAGE_KEY_DATE, value: new Date().toISOString() }),
                     Preferences.set({ key: STORAGE_KEY_ID, value: selectedId })
                 ]);
+
+                console.log('✅ [Daily Spark] Selected new material:', selectedId);
             } else {
                 console.log('✅ Using cached Daily Spark selection:', selectedId);
             }
 
-            // 3. 🎯 只加载那一条完整材料（~20KB）
-            const material = await this.loadSingleMaterial(selectedId);
+            // 3. 🎯 只加载那一条完整材料（~20KB）- 传递progressList
+            const material = await this.loadSingleMaterial(selectedId, progressList);
 
             if (!material) {
+                console.warn('⚠️ [Daily Spark] Failed to load material:', selectedId);
                 // 降级：返回bundled Daily Spark
                 return BUNDLED_MATERIALS
                     .filter(m => m.location === 'daily_spark')
@@ -585,7 +604,8 @@ export const materialService = {
      */
     async loadMaterialsPage(
         page: number,
-        perPage: number = 20
+        perPage: number = 20,
+        progressList?: any[]
     ): Promise<{
         items: Material[];
         totalPages: number;
@@ -604,10 +624,10 @@ export const materialService = {
                 sort: '-created',
             });
 
-            // 获取用户进度
-            const progressList = await fetchUserProgress();
+            // 获取用户进度 - 使用传入的或重新获取
+            const userProgress = progressList || await fetchUserProgress();
             const progressMap = new Map(
-                progressList.map((item: any) => [item.material_id, {
+                userProgress.map((item: any) => [item.material_id, {
                     isStarred: item.is_starred,
                     isPinned: item.is_pinned || false,
                     currentStep: item.current_step,
@@ -640,6 +660,7 @@ export const materialService = {
                         source: 'remote' as const,
                         location: record.location || 'core_library',
                         title: record.title || record.audio,
+                        title_translate: record.title_translate,
                         subtitle: record.subtitle || new Date(normalizedDate).toLocaleDateString(),
                         audioUrl: localAudio || pb.files.getUrl(record, record.audio),
                         coverUrl: localCover || (record.cover ? pb.files.getUrl(record, record.cover) : '/images/default_cover.png'),
@@ -786,14 +807,15 @@ export const materialService = {
     /**
      * 加载单条材料的完整数据（~20KB）
      */
-    async loadSingleMaterial(materialId: string): Promise<Material | null> {
+    async loadSingleMaterial(materialId: string, progressList?: any[]): Promise<Material | null> {
         if (!pb.authStore.isValid || !materialId) return null;
 
         try {
             const record = await pb.collection('transcripts').getOne(materialId);
 
-            const progressList = await fetchUserProgress();
-            const progress = progressList.find((p: any) => p.material_id === materialId);
+            // 使用传入的progressList或重新获取
+            const userProgress = progressList || await fetchUserProgress();
+            const progress = userProgress.find((p: any) => p.material_id === materialId);
 
             const normalizedDate = record.created.replace(' ', 'T');
             const localAudio = await this.checkLocalFile(record.id, 'audio');
@@ -812,6 +834,7 @@ export const materialService = {
                 source: 'remote' as const,
                 location: record.location || 'daily_spark',
                 title: record.title || record.audio,
+                title_translate: record.title_translate,
                 subtitle: record.subtitle || new Date(normalizedDate).toLocaleDateString(),
                 audioUrl: localAudio || pb.files.getUrl(record, record.audio),
                 coverUrl: localCover || (record.cover ? pb.files.getUrl(record, record.cover) : '/images/default_cover.png'),
