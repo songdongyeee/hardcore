@@ -61,26 +61,9 @@ onRecordAfterCreateRequest((e) => {
             record.set("text", JSON.stringify(transcriptData));
             record.set("status", "done");
 
-            // 🌊 生成波形数据（优化：降低密度）
-            const durationStr = record.get("duration");
-            let duration = 0;
-            if (typeof durationStr === 'string' && durationStr.includes(':')) {
-                const parts = durationStr.split(':');
-                duration = parseInt(parts[0]) * 60 + parseInt(parts[1]);
-            } else {
-                duration = parseFloat(durationStr) || 0;
-            }
-
-            if (duration > 0) {
-                const peaksPerSec = 10;  // 降低从30到10，减少67%数据量
-                const totalPeaks = Math.floor(duration * peaksPerSec);
-                const peaks = [];
-                for (let i = 0; i < totalPeaks; i++) {
-                    peaks.push([0, Math.floor(Math.random() * 200) + 50]);
-                }
-                record.set("waveform_data", peaks);
-                $app.logger().info(`🌊 Waveform generated: ${peaks.length} peaks (10/sec)`);
-            }
+            // 🚀 异步波形生成：发送任务到 Redis 队列
+            const { sendWaveformTask } = require(`${__hooks}/queue-helper.pb.js`);
+            sendWaveformTask(record.id);
 
             $app.dao().saveRecord(record);
             $app.logger().info(`✅ Done!`);

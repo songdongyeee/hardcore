@@ -249,7 +249,7 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
             barGap: 2,
             barRadius: 2,
             height: WAVE_HEIGHT,
-            normalize: true,
+            normalize: false, // 🔥 FIX: 禁用，数据已在后端归一化
             minPxPerSec: PX_PER_SEC,
             peaks: [segmentPeaks], // Wrapped in array -> 1 channel
             duration: segmentDuration,
@@ -589,8 +589,9 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
         // Update WaveSurfer Visuals (Cursor)
         if (sourceWs.current) {
           const relTime = uiTime - segmentStart;
-          if (relTime >= 0 && relTime <= SEGMENT_DURATION) {
-            sourceWs.current.setTime(relTime);
+          // 🔥 FIX: 即使超出范围也要更新，避免波形消失
+          if (relTime >= 0 && relTime <= SEGMENT_DURATION + 5) {
+            sourceWs.current.setTime(Math.min(relTime, SEGMENT_DURATION));
           }
         }
         if (userWs.current) userWs.current.setTime(uiTime);
