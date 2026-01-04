@@ -381,6 +381,15 @@ export const MaterialCard = React.memo(function MaterialCard({
                         {material.title}
                     </h2>
 
+                    {/* Ported Translation UI from AnalysisView */}
+                    {material.title_translate && (
+                        <div className="mb-3 animate-in fade-in slide-in-from-left-2 duration-700 delay-300 fill-mode-both">
+                            <div className="text-sm text-zinc-500 font-medium leading-relaxed pl-2 border-l-2 border-indigo-500/30 line-clamp-2">
+                                {material.title_translate}
+                            </div>
+                        </div>
+                    )}
+
                     {/* Metadata Row: Duration & Progress */}
                     <div className="flex items-center gap-4 text-zinc-400">
                         <span className="text-sm font-medium">{material.tags.duration}</span>

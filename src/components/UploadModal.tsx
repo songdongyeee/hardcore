@@ -152,7 +152,8 @@ export function UploadModal({
                                                 '转写服务由通义付费提供，升级会员可获更高额度'
                                                 : (
                                                     <>
-                                                        您目前拥有 {Math.floor(remainingSeconds / 60)} 分钟转写额度，<br />
+                                                        您目前拥有 {remainingSeconds < 60 ? `${remainingSeconds} 秒` : `${Math.floor(remainingSeconds / 60)} 分钟`}转写额度，<br />
+
                                                         {subscriptionTier === 'free' && '单次上传文件大小50M以内。'}
                                                         {subscriptionTier === 'monthly' && '单次上传文件大小500M以内。'}
                                                         {subscriptionTier === 'quarterly' && '单次上传文件大小1GB以内。'}
