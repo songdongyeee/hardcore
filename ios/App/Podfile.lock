@@ -20,6 +20,8 @@ PODS:
     - IONFilesystemLib (~> 1.0.1)
   - CapacitorHaptics (8.0.0):
     - Capacitor
+  - CapacitorNetwork (8.0.0):
+    - Capacitor
   - CapacitorPreferences (8.0.0):
     - Capacitor
   - CapacitorSplashScreen (8.0.0):
@@ -52,6 +54,7 @@ DEPENDENCIES:
   - "CapacitorDialog (from `../../node_modules/@capacitor/dialog`)"
   - "CapacitorFilesystem (from `../../node_modules/@capacitor/filesystem`)"
   - "CapacitorHaptics (from `../../node_modules/@capacitor/haptics`)"
+  - "CapacitorNetwork (from `../../node_modules/@capacitor/network`)"
   - "CapacitorPreferences (from `../../node_modules/@capacitor/preferences`)"
   - "CapacitorSplashScreen (from `../../node_modules/@capacitor/splash-screen`)"
   - "CapacitorStatusBar (from `../../node_modules/@capacitor/status-bar`)"
@@ -87,6 +90,8 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/@capacitor/filesystem"
   CapacitorHaptics:
     :path: "../../node_modules/@capacitor/haptics"
+  CapacitorNetwork:
+    :path: "../../node_modules/@capacitor/network"
   CapacitorPreferences:
     :path: "../../node_modules/@capacitor/preferences"
   CapacitorSplashScreen:
@@ -111,6 +116,7 @@ SPEC CHECKSUMS:
   CapacitorDialog: 3721e40dd075f590328166c29b4e982dbeedeb56
   CapacitorFilesystem: 2cb7c29536024668f333266a2177f8c10bbd9c98
   CapacitorHaptics: 2079d9fa04c5a71e18663b4722323c304c58245c
+  CapacitorNetwork: 156f8096cbbce5337eb1769fcc0d6adc4b85d3f3
   CapacitorPreferences: 443fabe9670226200e595658a87ef0b1566716d4
   CapacitorSplashScreen: 422880d7117605c30699eb4b21644b62db42e86c
   CapacitorStatusBar: 312e2e67928dfe9514c4a8916a1fd610552f5f35
@@ -122,6 +128,6 @@ SPEC CHECKSUMS:
   RevenueCat: a5fcd0a12b5ec9bbddc0cf0dd20c14b7e6213df6
   RevenuecatPurchasesCapacitor: 4fa710eec90225a84056f13b734093ccf35cd18c
 
-PODFILE CHECKSUM: e89221a8a5c98a6a521393d3e6b520d0a48568f2
+PODFILE CHECKSUM: fb4dfe050506d8d0f942c93114e40e6d28a8a49d
 
 COCOAPODS: 1.16.2

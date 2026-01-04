@@ -9,6 +9,7 @@ export interface Material {
     source: 'bundled' | 'remote'; // Source: Local or PB
     location: MaterialLocation;
     title: string;
+    title_translate?: string; // Chinese translation of title
     subtitle?: string;
     audioUrl: string;         // Web URL or Local File Path
     coverUrl: string;

@@ -11,9 +11,10 @@ interface PaywallProps {
     isOpen: boolean;
     onClose: () => void;
     onSuccess: () => void;
+    source?: string;
 }
 
-export function Paywall({ isOpen, onClose, onSuccess }: PaywallProps) {
+export function Paywall({ isOpen, onClose, onSuccess, source }: PaywallProps) {
     const { currentOffering, purchasePackage, restorePurchases, isReady } = useRevenueCat();
     const [loading, setLoading] = useState(false);
     const [selectedPackage, setSelectedPackage] = useState<PurchasesPackage | null>(null);
@@ -24,11 +25,15 @@ export function Paywall({ isOpen, onClose, onSuccess }: PaywallProps) {
     useEffect(() => {
         if (isOpen) {
             setIsVisible(true);
+            // Track paywall view with source
+            if (window.posthog) {
+                window.posthog.capture('view_paywall', { source: source || 'unknown' });
+            }
         } else {
             const timer = setTimeout(() => setIsVisible(false), 300);
             return () => clearTimeout(timer);
         }
-    }, [isOpen]);
+    }, [isOpen, source]);
 
     // Fetch subscription tier from PocketBase for stable detection
     useEffect(() => {
@@ -72,6 +77,15 @@ export function Paywall({ isOpen, onClose, onSuccess }: PaywallProps) {
     const handleSubscribe = async () => {
         if (!selectedPackage) return;
         setLoading(true);
+
+        // Track purchase attempt with source and package info
+        if (window.posthog) {
+            window.posthog.capture('paywall_purchase_attempt', {
+                source: source || 'unknown',
+                package: selectedPackage.identifier,
+                price: selectedPackage.product.priceString
+            });
+        }
 
         const result = await purchasePackage(selectedPackage);
         if (result.success) {

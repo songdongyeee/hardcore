@@ -1,8 +1,10 @@
-import { useState, useEffect } from "react";
-import { Library, Sparkles, Menu, Upload, Filter, BookOpen, X, Star } from 'lucide-react';
+import { useState, useEffect, useRef } from "react";
+import { Library, Sparkles, Menu, Upload, Filter, BookOpen, X, Star, RefreshCw } from 'lucide-react';
 import { Dialog } from '@capacitor/dialog';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Preferences } from '@capacitor/preferences';
+import { Network } from '@capacitor/network';
+import { App as CapacitorApp } from '@capacitor/app';
 import { MaterialCard } from "@/components/MaterialCard";
 import { useUsageLimit } from "@/hooks/useUsageLimit";
 import { useRevenueCat } from "@/hooks/useRevenueCat";
@@ -12,7 +14,7 @@ import { audioConverter } from "@/services/audioConverter";
 import { cn } from "@/lib/utils";
 import { materialService } from "@/lib/materialService";
 import { UploadModal } from "@/components/UploadModal";
-import { pb, updateUserProgress, fetchUserProgress } from "@/lib/api";
+import { pb, updateUserProgress, fetchUserProgress, silentLogin } from "@/lib/api";
 import type { Material } from "@/data/types";
 import type { TranscriptSegment } from "@/data/transcript";
 
@@ -46,10 +48,11 @@ interface HomeViewProps {
   onPlay: (audioUrl: string, targetView?: 'listening' | 'shadowing', transcript?: TranscriptSegment[], materialId?: string, waveformData?: number[][], title?: string) => void;
   onProfile: () => void;
   isActive?: boolean;
+  isAuthCheckComplete: boolean; // 🛡️ Strict Auth Gate
 }
 
 
-export function HomeView({ onPlay, onProfile, isActive }: HomeViewProps) {
+export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: HomeViewProps) {
   // Removed unused activeId state
   const [showPaywall, setShowPaywall] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<'initial' | 'progress' | 'success' | 'error'>('initial');
@@ -77,6 +80,14 @@ export function HomeView({ onPlay, onProfile, isActive }: HomeViewProps) {
   const [hasMorePages, setHasMorePages] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
+  // Network failure state - for manual retry UI
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  // 🎯 Track whether we've successfully loaded remote data (not just bundled materials)
+  const hasLoadedRemoteDataRef = useRef(false);
+  const isRecoveringRef = useRef(false); // 🔒 Mutex lock for network recovery
+  const hasInitializedRef = useRef(false); // 🎯 Ensure initData runs only once
+
   const { isVip } = useRevenueCat();
   const { } = useUsageLimit(isVip);
 
@@ -89,7 +100,20 @@ export function HomeView({ onPlay, onProfile, isActive }: HomeViewProps) {
   };
 
   useEffect(() => {
+    // 🛡️ Strict Auth Gate: Block execution until auth check is complete
+    if (!isAuthCheckComplete) {
+      console.log('🛡️ Blocked by Auth Gate: Waiting for auth check...');
+      return;
+    }
+
     const initData = async () => {
+      // 🔒 Prevent multiple concurrent executions
+      if (hasInitializedRef.current) {
+        console.log('🔒 initData already running/completed, skipping...');
+        return;
+      }
+      hasInitializedRef.current = true;
+
       // 1. 立即显示 bundled 材料
       const bundled = materialService.getBundledOnly();
       setAllMaterials(bundled);
@@ -126,36 +150,202 @@ export function HomeView({ onPlay, onProfile, isActive }: HomeViewProps) {
           materialService.loadMaterialsPage(1, 20, progressList)
         ]);
 
-        // 更新Daily Spark
-        setAllMaterials(prev => prev.filter(m => m.location !== 'daily_spark'));
-        if (dailySparkItems.length > 0) {
-          setAllMaterials(prev => materialService.mergeMaterials(prev, dailySparkItems));
+        console.log('🔍 [Debug] Daily Spark items:', dailySparkItems.length);
+        console.log('🔍 [Debug] Core Library items:', coreLibResult.items.length);
+        console.log('🔍 [Debug] Core Library result:', coreLibResult);
 
-          // 🎯 保存今天选中的Daily Spark ID
+        // 🔥 一次性更新Daily Spark和Core Library，避免中间状态
+        setAllMaterials(prev => {
+          console.log('🔍 [Debug] Previous materials:', prev.length);
+          // 1. 清除旧的Daily Spark
+          const withoutDailySpark = prev.filter(m => m.location !== 'daily_spark');
+          console.log('🔍 [Debug] After removing Daily Spark:', withoutDailySpark.length);
+          // 2. 合并新的Daily Spark
+          const withDailySpark = dailySparkItems.length > 0
+            ? materialService.mergeMaterials(withoutDailySpark, dailySparkItems)
+            : withoutDailySpark;
+          console.log('🔍 [Debug] After adding Daily Spark:', withDailySpark.length);
+          // 3. 合并Core Library
+          const final = materialService.mergeMaterials(withDailySpark, coreLibResult.items);
+          console.log('🔍 [Debug] Final materials count:', final.length);
+          console.log('🔍 [Debug] Final materials:', final);
+          return final;
+        });
+
+        // 保存今天选中的Daily Spark ID
+        if (dailySparkItems.length > 0) {
           const { value: cachedId } = await Preferences.get({ key: 'daily_spark_id' });
           setSelectedDailySparkId(cachedId);
         }
-
-        // 更新Core Library
-        setAllMaterials(prev => materialService.mergeMaterials(prev, coreLibResult.items));
         setHasMorePages(coreLibResult.hasMore);
         setCurrentPage(1);
 
-        // ✅ 如果之前没有内容，现在结束loading
-        setIsInitialLoading(false);
+        // ✅ 只有当确实加载到了数据时，才结束Loading并标记为已加载
+        // 如果数据为空，可能是网络不稳定导致的部分失败，保持Loading等待Network Listener重试
+        if (coreLibResult.items.length > 0 || dailySparkItems.length > 0) {
+          setIsInitialLoading(false);
+          hasLoadedRemoteDataRef.current = true; // 🎯 Critical: prevent network listener from triggering redundant recovery
+        } else {
+          console.warn('⚠️ Initial load returned empty data, maintaining loading state');
+        }
 
         // 后台预缓存封面
         setTimeout(() => prefetchCovers(coreLibResult.items, 20), 2000);
 
       } catch (error) {
         console.error('Failed to load remote data:', error);
-        // ⚠️ 即使失败也要结束loading，避免一直卡住
-        setIsInitialLoading(false);
+        // ⚠️ 不要立即显示"加载失败"，保持loading状态
+        // 原因：用户可能还在"允许网络"弹窗上，还没做决定
+        // 网络监听器会在授权后自动触发重试
+        // 只记录日志，不改变UI状态
       }
     };
 
     initData();
-  }, [pb.authStore.isValid]);
+
+    // 🕐 超时检查：30秒后如果还在loading且没有材料，显示重试按钮
+    // 🕐 超时检查：30秒后如果还在loading且没有材料，显示重试按钮
+    // 🛡️ Strict Auth Gate: Only start timer if auth check is complete
+    let timeoutId: any;
+    if (isAuthCheckComplete) {
+      timeoutId = setTimeout(() => {
+        if (isInitialLoading && allMaterials.length === 0) {
+          console.warn('⏱️ Loading timeout after 30s, showing retry button');
+          setLoadFailed(true);
+          setIsInitialLoading(false);
+        }
+      }, 30000);
+    }
+
+    return () => clearTimeout(timeoutId);
+  }, [pb.authStore.isValid, isAuthCheckComplete]); // Add isAuthCheckComplete dep
+
+  // 🎯 Event-Driven Network Recovery: Listen for network status changes and app state changes
+  // 🎯 Event-Driven Network Recovery: Listen for network status changes and app state changes
+  useEffect(() => {
+    let networkListener: any;
+    let appStateListener: any;
+    let debounceTimer: any = null;
+
+    const handleNetworkRecovery = async () => {
+      // 🔒 Prevent overlapping recovery attempts (check and set atomically)
+      if (isRecoveringRef.current) {
+        console.warn('🔒 Recovery already in progress, skipping...');
+        return;
+      }
+      isRecoveringRef.current = true; // Set lock BEFORE any await
+
+      console.log('📡 Network status changed, attempting to reload data...');
+      setLoadFailed(false);
+
+      // Re-authenticate if needed
+      if (!pb.authStore.isValid) {
+        // Double check validity inside the lock (in case another thread fixed it)
+        if (!pb.authStore.isValid) {
+          const { Device } = await import('@capacitor/device');
+          const deviceId = await Device.getId();
+          const success = await silentLogin(deviceId.identifier);
+          if (!success) {
+            console.warn('Re-authentication failed');
+            isRecoveringRef.current = false; // Release lock
+            return;
+          }
+        }
+      }
+
+      // 🔄 Reload data with single automatic retry (production-grade approach)
+      let lastError;
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          console.log(`📡 Network recovery attempt ${attempt}/2...`);
+          const progressList = await fetchUserProgress();
+          const [dailySparkItems, coreLibResult] = await Promise.all([
+            materialService.loadDailySparkMaterials(progressList),
+            materialService.loadMaterialsPage(1, 20, progressList)
+          ]);
+
+          // ✅ Success - update UI
+          if (coreLibResult.items.length === 0) {
+            console.warn('⚠️ Core library empty after reload, marking as partial failure');
+            setLoadFailed(true);
+          }
+
+          setAllMaterials(prev => {
+            const withoutDailySpark = prev.filter(m => m.location !== 'daily_spark');
+            const withDailySpark = dailySparkItems.length > 0
+              ? materialService.mergeMaterials(withoutDailySpark, dailySparkItems)
+              : withoutDailySpark;
+            return materialService.mergeMaterials(withDailySpark, coreLibResult.items);
+          });
+
+          if (dailySparkItems.length > 0) {
+            const { value: cachedId } = await Preferences.get({ key: 'daily_spark_id' });
+            setSelectedDailySparkId(cachedId);
+          }
+          setHasMorePages(coreLibResult.hasMore);
+          setCurrentPage(1);
+          hasLoadedRemoteDataRef.current = true; // 🎯 Mark remote data as successfully loaded
+
+          console.log(`✅ Network recovery successful on attempt ${attempt}`);
+          isRecoveringRef.current = false;
+          return; // Success - exit early
+
+        } catch (error) {
+          lastError = error;
+          console.warn(`⚠️ Network recovery attempt ${attempt}/2 failed:`, error);
+
+          if (attempt === 1) {
+            // First attempt failed, wait 1s before retry
+            console.log('⏳ Waiting 1s before retry...');
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        }
+      }
+
+      // Both attempts failed - show error
+      console.error('❌ Network recovery failed after 2 attempts:', lastError);
+      setLoadFailed(true);
+      isRecoveringRef.current = false;
+    };
+
+    const setupListeners = async () => {
+      // Listen for network status changes
+      networkListener = await Network.addListener('networkStatusChange', status => {
+        // Trigger reload if: network connected AND (not authenticated OR failed to load OR no remote data yet)
+        const shouldReload = status.connected && (!pb.authStore.isValid || loadFailed || !hasLoadedRemoteDataRef.current);
+        if (shouldReload) {
+          // ⏳ Debounce: Wait 200ms for network to stabilize and coalesce events
+          if (debounceTimer) clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => {
+            console.log('📡 Network connected (debounced), triggering reload...');
+            handleNetworkRecovery();
+          }, 200); // Reduced from 500ms to 200ms
+        }
+      });
+
+      // Listen for app returning to foreground
+      appStateListener = await CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+        // Trigger reload if: app became active AND (not authenticated OR failed to load OR no remote data yet)
+        const shouldReload = isActive && (!pb.authStore.isValid || loadFailed || !hasLoadedRemoteDataRef.current);
+        if (shouldReload) {
+          // ⏳ Debounce: Wait 200ms
+          if (debounceTimer) clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => {
+            console.log('🔄 App became active (debounced), triggering reload...');
+            handleNetworkRecovery();
+          }, 200); // Reduced from 500ms to 200ms
+        }
+      });
+    };
+
+    setupListeners();
+
+    return () => {
+      networkListener?.remove();
+      appStateListener?.remove();
+      if (debounceTimer) clearTimeout(debounceTimer);
+    };
+  }, []); // ⚠️ Empty dependencies: listeners should only be set once on mount
 
   // Removed: isActive refresh - causes unnecessary reloads
 
@@ -1132,8 +1322,8 @@ export function HomeView({ onPlay, onProfile, isActive }: HomeViewProps) {
                   />
                 </div>
               ))
-            ) : isInitialLoading ? (
-              // Skeleton loading state
+            ) : isInitialLoading && !loadFailed ? (
+              // Skeleton loading state - only show if still loading AND hasn't failed
               <>
                 {[1, 2, 3].map((i) => (
                   <div key={i} className="animate-pulse">
@@ -1142,30 +1332,119 @@ export function HomeView({ onPlay, onProfile, isActive }: HomeViewProps) {
                 ))}
               </>
             ) : (
-              // Empty State
-              <div className="col-span-1 py-12 flex flex-col items-center justify-center text-zinc-500 gap-2">
+              // Empty State or Failed State
+              <div className="col-span-1 py-12 flex flex-col items-center justify-center text-zinc-500 gap-4">
                 <Library className="w-12 h-12 opacity-20 mb-2" />
                 <div className="text-center">
-                  <p className="text-sm font-medium">No materials in library</p>
-                  <p className="text-xs opacity-60">材料每日更新中</p>
+                  <p className="text-sm font-medium">
+                    {loadFailed ? '加载失败' : 'No materials in library'}
+                  </p>
+                  <p className="text-xs opacity-60">
+                    {loadFailed ? '请检查网络连接后重试' : '材料每日更新中'}
+                  </p>
+
+                  {/* Manual Retry Button - only show after confirmed timeout */}
+                  {loadFailed && (
+                    <button
+                      onClick={async () => {
+                        setLoadFailed(false);
+                        setIsInitialLoading(true);
+
+                        try {
+                          const progressList = await fetchUserProgress();
+                          const [dailySparkItems, coreLibResult] = await Promise.all([
+                            materialService.loadDailySparkMaterials(progressList),
+                            materialService.loadMaterialsPage(1, 20, progressList)
+                          ]);
+
+                          setAllMaterials(prev => {
+                            const withoutDailySpark = prev.filter(m => m.location !== 'daily_spark');
+                            const withDailySpark = dailySparkItems.length > 0
+                              ? materialService.mergeMaterials(withoutDailySpark, dailySparkItems)
+                              : withoutDailySpark;
+                            return materialService.mergeMaterials(withDailySpark, coreLibResult.items);
+                          });
+
+                          if (dailySparkItems.length > 0) {
+                            const { value: cachedId } = await Preferences.get({ key: 'daily_spark_id' });
+                            setSelectedDailySparkId(cachedId);
+                          }
+                          setHasMorePages(coreLibResult.hasMore);
+                          setCurrentPage(1);
+                          setIsInitialLoading(false);
+                        } catch (error) {
+                          console.error('Manual retry failed:', error);
+                          setLoadFailed(true);
+                          setIsInitialLoading(false);
+                        }
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      <span>点击重试</span>
+                    </button>
+                  )}
                 </div>
               </div>
             )}
 
-            {/* Loading More Indicator */}
-            {isLoadingMore && (
-              <div className="col-span-1 flex justify-center py-8">
-                <div className="animate-spin h-8 w-8 border-3 border-blue-500 rounded-full border-t-transparent" />
-              </div>
-            )}
-
-            {/* All Loaded Indicator */}
-            {!hasMorePages && displayMaterials.length > 0 && !isInitialLoading && (
-              <div className="col-span-1 text-center py-6 text-zinc-500 text-sm">
-                已加载全部 {displayMaterials.length} 条材料
-              </div>
-            )}
           </div>
+
+          {/* Partial Failure Retry Button - shows if we have some data (e.g. Daily Spark) but load failed */}
+          {loadFailed && displayMaterials.length > 0 && (
+            <div className="col-span-1 flex flex-col items-center justify-center py-8 gap-3">
+              <p className="text-zinc-500 text-sm">部分内容加载失败</p>
+              <button
+                onClick={async () => {
+                  setLoadFailed(false);
+                  setIsInitialLoading(true);
+                  // Reuse the same retry logic (could be extracted to a function)
+                  try {
+                    const progressList = await fetchUserProgress();
+                    const [dailySparkItems, coreLibResult] = await Promise.all([
+                      materialService.loadDailySparkMaterials(progressList),
+                      materialService.loadMaterialsPage(1, 20, progressList)
+                    ]);
+
+                    setAllMaterials(prev => {
+                      const withoutDailySpark = prev.filter(m => m.location !== 'daily_spark');
+                      const withDailySpark = dailySparkItems.length > 0
+                        ? materialService.mergeMaterials(withoutDailySpark, dailySparkItems)
+                        : withoutDailySpark;
+                      return materialService.mergeMaterials(withDailySpark, coreLibResult.items);
+                    });
+
+                    setHasMorePages(coreLibResult.hasMore);
+                    setCurrentPage(1);
+                    setIsInitialLoading(false);
+                    // Check empty again
+                    if (coreLibResult.items.length === 0) setLoadFailed(true);
+                  } catch (error) {
+                    console.error('Manual retry failed:', error);
+                    setLoadFailed(true);
+                    setIsInitialLoading(false);
+                  }
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors"
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span>点击重试</span>
+              </button>
+            </div>
+          )}
+
+          {/* Loading More Indicator */}
+          {isLoadingMore && (
+            <div className="col-span-1 flex justify-center py-8">
+              <div className="animate-spin h-8 w-8 border-3 border-blue-500 rounded-full border-t-transparent" />
+            </div>
+          )}
+
+          {/* All Loaded Indicator */}
+          {!hasMorePages && displayMaterials.length > 0 && !isInitialLoading && (
+            <div className="col-span-1 text-center py-6 text-zinc-500 text-sm">
+            </div>
+          )}
 
           {/* Bottom Feed Status */}
           <div className="mt-8 mb-20 flex flex-col items-center gap-3 opacity-50 animate-in fade-in duration-1000 delay-500">
@@ -1177,7 +1456,7 @@ export function HomeView({ onPlay, onProfile, isActive }: HomeViewProps) {
           </div>
         </section>
 
-      </div >
+      </div>
 
       <Paywall
         isOpen={showPaywall}
@@ -1213,6 +1492,6 @@ export function HomeView({ onPlay, onProfile, isActive }: HomeViewProps) {
           setTimeout(() => setUploadStatus('initial'), 300);
         }}
       />
-    </main >
+    </main>
   );
 }

@@ -28,70 +28,67 @@ function App() {
   // Ref to prevent async init from overwriting user actions (CRITICAL FIX)
   const isUserActiveRef = useRef(false);
 
+  // 🛡️ Strict Auth Gate: Block HomeView execution until auth check is done (success or fail)
+  const [isAuthCheckComplete, setIsAuthCheckComplete] = useState(false);
+
   const { isPlaying, currentTime, togglePlay, seek, audioRef, pause, play } = useAudio(currentSrc, activeView === 'listening');
   const { appUserID, isReady: isRcReady } = useRevenueCat();
 
   // 1. Silent Login & Initial Load
   useEffect(() => {
     async function init() {
-      // 1. Get ID for Login - Use RevenueCat ID (maintains subscription continuity)
-      let loginId = appUserID;
-      if (!loginId) {
-        // Fallback to device ID only if RevenueCat not ready
-        const deviceId = await Device.getId();
-        loginId = deviceId.identifier;
-      }
+      try {
+        // 1. Get ID for Login - Use RevenueCat ID (maintains subscription continuity)
+        let loginId = appUserID;
+        if (!loginId) {
+          // Fallback to device ID only if RevenueCat not ready
+          const deviceId = await Device.getId();
+          loginId = deviceId.identifier;
+        }
 
-      console.log('[Auth] Login ID:', loginId);
-      console.log('[Auth] Source:', appUserID ? 'RevenueCat' : 'Device');
+        console.log('[Auth] Login ID:', loginId);
+        console.log('[Auth] Source:', appUserID ? 'RevenueCat' : 'Device');
 
-      if (loginId) {
-        // Retry login up to 3 times
-        let retries = 3;
-        let success = false;
-
-        while (retries > 0 && !success) {
-          success = await silentLogin(loginId);
+        if (loginId) {
+          // Single attempt - event listeners will handle retry on network recovery
+          const success = await silentLogin(loginId);
           if (success) {
             console.log('✅ Login successful');
-            break;
-          }
-
-          retries--;
-          if (retries > 0) {
-            console.log(`⚠️ Login failed, retrying... (${retries} attempts left)`);
-            await new Promise(r => setTimeout(r, 1000)); // Wait 1 second
+          } else {
+            console.warn('⚠️ Login failed. Will retry when network becomes available or app returns to foreground.');
           }
         }
 
-        if (!success) {
-          console.warn('⚠️ Login failed after 3 attempts. App will work in offline mode.');
+        // 2. Initial Data Loading (SKIP if user already active)
+        if (isUserActiveRef.current) {
+          console.log('Skipping init data load: User is active');
+          return;
         }
-      }
 
-      // 2. Initial Data Loading (SKIP if user already active)
-      if (isUserActiveRef.current) {
-        console.log('Skipping init data load: User is active');
-        return;
-      }
+        const cached = await getCachedTranscript();
+        // Double check active state after await
+        if (cached && !isUserActiveRef.current) {
+          setCurrentSrc(cached.url);
+          setCurrentTranscript(cached.segments);
+        }
 
-      const cached = await getCachedTranscript();
-      // Double check active state after await
-      if (cached && !isUserActiveRef.current) {
-        setCurrentSrc(cached.url);
-        setCurrentTranscript(cached.segments);
-      }
-
-      const data = await getLatestTranscript();
-      // Double check active state after await
-      if (data && data.segments.length > 0 && !isUserActiveRef.current) {
-        // Double check audioSrc state just in case
-        setCurrentSrc(prev => {
-          if (prev && prev !== '') return prev;
-          return data.url;
-        });
-        setCurrentTranscript(data.segments);
-        saveTranscriptToCache(data);
+        const data = await getLatestTranscript();
+        // Double check active state after await
+        if (data && data.segments.length > 0 && !isUserActiveRef.current) {
+          // Double check audioSrc state just in case
+          setCurrentSrc(prev => {
+            if (prev && prev !== '') return prev;
+            return data.url;
+          });
+          setCurrentTranscript(data.segments);
+          saveTranscriptToCache(data);
+        }
+      } catch (error) {
+        console.error('[App] Init failed:', error);
+      } finally {
+        // 🛡️ Release the gate: Authentication check is legally complete (success or fail)
+        console.log('🛡️ Auth Gate Released');
+        setIsAuthCheckComplete(true);
       }
     }
 
@@ -184,6 +181,7 @@ function App() {
             onPlay={handlePlay}
             onProfile={() => setActiveView('profile')}
             isActive={activeView === 'home'}
+            isAuthCheckComplete={isAuthCheckComplete}
           />
 
           {activeView === 'listening' && (

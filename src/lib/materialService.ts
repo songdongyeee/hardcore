@@ -693,7 +693,8 @@ export const materialService = {
             };
         } catch (error) {
             console.error('Failed to load materials page:', error);
-            return { items: [], totalPages: 0, hasMore: false };
+            // ⚠️ Propagate error so UI knows it failed (instead of returning empty list)
+            throw error;
         }
     },
 
