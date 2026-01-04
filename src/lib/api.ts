@@ -145,8 +145,20 @@ export async function saveTranscriptToCache(data: { url: string; segments: Trans
     }
 }
 
-export async function userTranscripts() { /* placeholder just to match indentation context if needed, but actually I will append the missing functions before getUserTranscripts or after? */ }
-// I will actually overwrite the getUserTranscripts area again to include everything or use a better strategy.
+export async function getTranscriptById(id: string): Promise<{ url: string; segments: TranscriptSegment[]; title?: string; id: string } | null> {
+    try {
+        const record = await pb.collection('transcripts').getOne(id);
+        return {
+            url: record.audio_url,
+            segments: record.transcript_data as TranscriptSegment[],
+            title: record.title,
+            id: record.id
+        };
+    } catch (e) {
+        console.warn("Failed to get transcript by ID", e);
+        return null;
+    }
+}
 
 // Strategy: The previous call replaced 148-263.
 // The new content ended with `updateUserProgress`.

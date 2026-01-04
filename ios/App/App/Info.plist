@@ -60,5 +60,16 @@
 	</dict>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.hardcore.language</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>hardcore-english</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

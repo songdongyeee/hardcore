@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.hardcore.english',
+  appId: 'com.hardcore.language',
   appName: 'Hardcore English',
   webDir: 'dist',
   plugins: {

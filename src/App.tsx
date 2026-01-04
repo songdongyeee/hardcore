@@ -10,9 +10,10 @@ import { AnalysisView } from "@/components/views/AnalysisView";
 import { ShadowingView } from "@/components/views/ShadowingView";
 import { ProfileView } from "@/components/views/ProfileView";
 
-import { getLatestTranscript, getCachedTranscript, saveTranscriptToCache, silentLogin, updateUserProgress } from "@/lib/api";
+import { getLatestTranscript, getCachedTranscript, saveTranscriptToCache, silentLogin, updateUserProgress, getTranscriptById } from "@/lib/api";
 import { useRevenueCat } from "@/hooks/useRevenueCat";
 import { Device } from "@capacitor/device";
+import { App as CapacitorApp } from '@capacitor/app';
 
 type ViewState = 'home' | 'listening' | 'analysis' | 'shadowing' | 'profile';
 
@@ -99,6 +100,39 @@ function App() {
   useEffect(() => {
     console.log('📝 currentTranscript changed:', currentTranscript.length, 'segments');
   }, [currentTranscript]);
+
+  // Deep Link Listener (Custom Scheme + Universal Links)
+  useEffect(() => {
+    const listener = CapacitorApp.addListener('appUrlOpen', async (data) => {
+      console.log('🔗 Deep link received:', data.url);
+
+      const url = new URL(data.url);
+
+      // Handle /listening with ID
+      if (url.pathname.includes('/listening')) {
+        const materialId = url.searchParams.get('id');
+        if (materialId) {
+          const transcript = await getTranscriptById(materialId);
+          if (transcript) {
+            handlePlay(transcript.url, 'listening', transcript.segments, transcript.id);
+          }
+        }
+      }
+      // Handle /profile
+      else if (url.pathname.includes('/profile')) {
+        setActiveView('profile');
+      }
+      // Handle /home
+      else if (url.pathname.includes('/home')) {
+        setActiveView('home');
+      }
+    });
+
+    return () => {
+      listener.then(l => l.remove());
+    };
+  }, []); // Empty deps - listener uses latest handlePlay via closure
+
 
   const handlePlay = (audioUrl: string, targetView?: ViewState, newTranscript?: TranscriptSegment[], materialId?: string, waveformData?: number[][]) => {
     const now = Date.now();
