@@ -13,6 +13,8 @@ import { ProfileView } from "@/components/views/ProfileView";
 import { getLatestTranscript, getCachedTranscript, saveTranscriptToCache, silentLogin, updateUserProgress, getTranscriptById } from "@/lib/api";
 import { useRevenueCat } from "@/hooks/useRevenueCat";
 import { Device } from "@capacitor/device";
+import { analytics } from "@/lib/analytics";
+
 import { App as CapacitorApp } from '@capacitor/app';
 
 type ViewState = 'home' | 'listening' | 'analysis' | 'shadowing' | 'profile';
@@ -51,6 +53,11 @@ function App() {
         console.log('[Auth] Source:', appUserID ? 'RevenueCat' : 'Device');
 
         if (loginId) {
+          // Init Analytics
+          analytics.init();
+          analytics.identify(loginId);
+          analytics.track('app_opened', { platform: 'capacitor' });
+
           // Single attempt - event listeners will handle retry on network recovery
           const success = await silentLogin(loginId);
           if (success) {
@@ -152,6 +159,14 @@ function App() {
     if (materialId) {
       setCurrentMaterialId(materialId);
       setCurrentWaveformData(waveformData);
+
+      // Analytics: View Material
+      analytics.track('view_material', {
+        material_id: materialId,
+        material_title: (newTranscript && newTranscript.length > 0) ? 'Loaded Material' : 'Unknown', // Basic info
+        category: 'core_library'
+      });
+
       // 🔥 Trigger Phase 1 Progress (Entered Listening)
       if (!targetView || targetView === 'listening') {
         updateUserProgress(materialId, { current_step: 1 });

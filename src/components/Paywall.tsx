@@ -5,6 +5,7 @@ import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import type { PurchasesPackage } from "@revenuecat/purchases-capacitor";
 import { pb } from "@/lib/api";
+import { analytics } from "@/lib/analytics"; // Restore analytics
 
 
 interface PaywallProps {
@@ -25,10 +26,7 @@ export function Paywall({ isOpen, onClose, onSuccess, source }: PaywallProps) {
     useEffect(() => {
         if (isOpen) {
             setIsVisible(true);
-            // Track paywall view with source
-            if (window.posthog) {
-                window.posthog.capture('view_paywall', { source: source || 'unknown' });
-            }
+            analytics.track('view_paywall', { source: source || 'unknown' });
         } else {
             const timer = setTimeout(() => setIsVisible(false), 300);
             return () => clearTimeout(timer);
@@ -78,14 +76,12 @@ export function Paywall({ isOpen, onClose, onSuccess, source }: PaywallProps) {
         if (!selectedPackage) return;
         setLoading(true);
 
-        // Track purchase attempt with source and package info
-        if (window.posthog) {
-            window.posthog.capture('paywall_purchase_attempt', {
-                source: source || 'unknown',
-                package: selectedPackage.identifier,
-                price: selectedPackage.product.priceString
-            });
-        }
+        // Analytics: Track Purchase Attempt
+        analytics.track('paywall_purchase_attempt', {
+            source: source || 'unknown',
+            package: selectedPackage.identifier,
+            price: selectedPackage.product.priceString
+        });
 
         const result = await purchasePackage(selectedPackage);
         if (result.success) {
@@ -372,22 +368,21 @@ export function Paywall({ isOpen, onClose, onSuccess, source }: PaywallProps) {
                             )
                         }
                     </button>
-                    <p className="text-center text-[10px] text-zinc-600 mt-4 leading-relaxed px-4 font-light">
+                    <p className="text-center text-xs text-zinc-400 mt-4 leading-relaxed px-4 font-normal">
                         确认购买即表示您同意我们的
                         <span
-                            onClick={() => Browser.open({ url: 'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/' })}
-                            className="mx-1 text-zinc-500 underline decoration-zinc-800 cursor-pointer hover:text-zinc-800"
+                            onClick={() => Browser.open({ url: 'https://zjcnex.top/terms.html' })}
+                            className="mx-1 text-zinc-300 underline decoration-zinc-600 cursor-pointer hover:text-white"
                         >
-                            服务条款
+                            用户服务协议
                         </span>
                         与
                         <span
                             onClick={() => Browser.open({ url: 'https://zjcnex.top/privacy.html' })}
-                            className="mx-1 text-zinc-500 underline decoration-zinc-800 cursor-pointer hover:text-zinc-800"
+                            className="mx-1 text-zinc-300 underline decoration-zinc-600 cursor-pointer hover:text-white"
                         >
                             隐私政策
                         </span>。
-                        订阅将通过您的 Apple ID 账户自动续费。
                     </p>
                 </div>
             </div>

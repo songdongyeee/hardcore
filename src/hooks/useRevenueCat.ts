@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Purchases, LOG_LEVEL, type PurchasesPackage, type PurchasesOffering } from '@revenuecat/purchases-capacitor';
 import { pb } from '@/lib/api';
+import { analytics } from '@/lib/analytics'; // Restore analytics
 // Global init flag to prevent hitting RC multiple times if hook is used in multiple components simultaneously
 let isConfigured = false;
 
@@ -189,6 +190,14 @@ export function useRevenueCat() {
         try {
             const { customerInfo } = await Purchases.purchasePackage({ aPackage: rcPackage });
             checkEntitlement(customerInfo);
+
+            // Analytics: Track Subscription Success
+            analytics.track('subscription_started', {
+                tier: rcPackage.product.title,
+                value: rcPackage.product.price,
+                currency: rcPackage.product.currencyCode
+            });
+
             return { success: true, customerInfo };
         } catch (e: any) {
             if (!e.userCancelled) {

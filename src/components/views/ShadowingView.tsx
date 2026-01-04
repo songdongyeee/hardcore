@@ -10,6 +10,7 @@ import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Preferences } from '@capacitor/preferences';
 import { pb, updateUserProgress } from '@/lib/api';
 import { getCachedWaveform, cacheWaveform } from '@/lib/waveformCache';
+import { analytics } from '@/lib/analytics';
 
 import { Paywall } from "@/components/Paywall";
 
@@ -481,6 +482,37 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
     }
   };
 
+  // --- Exit Handler: Clean up recording if active ---
+  const cleanupRecording = async () => {
+    if (status === 'recording') {
+      try {
+        // Stop recording without saving
+        await VoiceRecorder.stopRecording();
+        console.log('[ShadowingView] Recording stopped due to exit');
+
+        // Cancel recording animation loop
+        if (recordingRafRef.current) {
+          cancelAnimationFrame(recordingRafRef.current);
+        }
+
+        // Reset to idle state (don't save or enter review)
+        setStatus('idle');
+      } catch (e) {
+        console.error('[ShadowingView] Error stopping recording on exit:', e);
+      }
+    }
+  };
+
+  const handleBack = async () => {
+    await cleanupRecording();
+    onBack();
+  };
+
+  const handleHome = async () => {
+    await cleanupRecording();
+    onHome();
+  };
+
   const isTogglingRef = useRef(false);
 
   const toggleMasterPlay = async () => {
@@ -647,6 +679,11 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
           // 🔥 TRACK PROGRESS: Phase 3 Completed
           if (materialId) {
             updateUserProgress(materialId, { current_step: 3 });
+
+            // 📊 ANALYTICS: Track recording completion
+            analytics.track('recording_finished', {
+              material_id: materialId
+            });
           }
 
           const tempPath = `temp_session_${Date.now()}.aac`;
@@ -828,12 +865,12 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
   return (
     <div className="absolute inset-0 z-50 flex flex-col bg-black text-white pt-[env(safe-area-inset-top)] pb-12 overflow-hidden">
       <div className="flex items-center justify-between h-14 px-4 shrink-0 z-20 bg-black/80 backdrop-blur-md">
-        <button onClick={onBack} className="p-2"><ChevronLeft className="w-6 h-6 text-zinc-400" /></button>
+        <button onClick={handleBack} className="p-2"><ChevronLeft className="w-6 h-6 text-zinc-400" /></button>
         <div className="flex flex-col items-center">
           <span className="text-xs font-medium text-zinc-500 tracking-widest uppercase">第三步</span>
           <span className="text-sm font-semibold text-white tracking-tight">语速 要一样</span>
         </div>
-        <button onClick={onHome} className="p-2"><X className="w-6 h-6 text-zinc-400" /></button>
+        <button onClick={handleHome} className="p-2"><X className="w-6 h-6 text-zinc-400" /></button>
       </div>
 
       <div className="flex-1 relative min-h-0 bg-[#0c0c0c] group">
