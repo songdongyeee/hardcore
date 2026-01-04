@@ -116,8 +116,8 @@ export function useRevenueCat() {
                 // Log status for debugging
                 console.log(`[useRevenueCat] Sync Check: RC Tier=${subInfo.tier}, PB Tier=${user.subscription_tier}`);
 
-                // Always sync upgrades (free -> paid)
-                const upgradedToPaid = user.subscription_tier === 'free' && subInfo.tier !== 'free';
+                // Always sync upgrades (free/null -> paid)
+                const upgradedToPaid = (!user.subscription_tier || user.subscription_tier === 'free') && subInfo.tier !== 'free';
                 // Also sync if user is already paid but changed plans (e.g., monthly -> yearly)
                 const planChanged = user.subscription_tier !== 'free' && subInfo.tier !== 'free' && user.subscription_tier !== subInfo.tier;
 
