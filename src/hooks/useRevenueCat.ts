@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Purchases, LOG_LEVEL, type PurchasesPackage, type PurchasesOffering } from '@revenuecat/purchases-capacitor';
 import { pb } from '@/lib/api';
+import { App as CapApp } from '@capacitor/app';
 import { analytics } from '@/lib/analytics'; // Restore analytics
 // Global init flag to prevent hitting RC multiple times if hook is used in multiple components simultaneously
 let isConfigured = false;
@@ -8,6 +9,27 @@ let isConfigured = false;
 // Credentials provided by user
 const API_KEY = "appl_ItWPUWsRrylahhZdTrBpvJbEtIo";
 export const ENTITLEMENT_ID = "app_pro";
+
+// ✅ 同步RevenueCat ID到PocketBase
+async function syncRevenueCatIdToPocketBase(rcUserId: string) {
+    try {
+        if (!pb.authStore.isValid || !pb.authStore.model?.id) {
+            console.log('[RC-PB Sync] PB not logged in, skip');
+            return;
+        }
+        const currentRevId = pb.authStore.model.revenue_id;
+        if (currentRevId === rcUserId) {
+            console.log('[RC-PB Sync] ✅ Already synced:', rcUserId);
+            return;
+        }
+        await pb.collection('users').update(pb.authStore.model.id, {
+            revenue_id: rcUserId
+        });
+        console.log('[RC-PB Sync] ✅ Synced RC ID to PB:', rcUserId);
+    } catch (e) {
+        console.error('[RC-PB Sync] Failed:', e);
+    }
+}
 
 export function useRevenueCat() {
     const [currentOffering, setCurrentOffering] = useState<PurchasesOffering | null>(null);
@@ -18,8 +40,9 @@ export function useRevenueCat() {
 
     useEffect(() => {
         let customerInfoListener: any = null;
+        let retryTimeout: number | null = null;
 
-        const init = async () => {
+        const init = async (retryCount = 0) => {
             try {
                 if (import.meta.env.VITE_PLATFORM === 'web') return; // Skip on web
 
@@ -40,6 +63,11 @@ export function useRevenueCat() {
                 setCustomerInfo(info);
                 checkEntitlement(info);
 
+                // ✅ 同步RC ID到PB（启动时）
+                if (info.customerInfo?.originalAppUserId) {
+                    syncRevenueCatIdToPocketBase(info.customerInfo.originalAppUserId);
+                }
+
                 // Get offerings
                 const offerings = await Purchases.getOfferings();
                 if (offerings.current !== null) {
@@ -47,17 +75,44 @@ export function useRevenueCat() {
                 }
 
                 setIsReady(true);
+                console.log('✅ RevenueCat initialized successfully');
             } catch (e) {
                 console.error("RevenueCat Init Error:", e);
+
+                // ⚡ 重试逻辑
+                if (retryCount < 8) {
+                    const delay = Math.min(1000 * Math.pow(2, retryCount), 15000);
+                    console.log(`⏳ Retrying RevenueCat init in ${delay / 1000}s... (attempt ${retryCount + 1}/8)`);
+                    retryTimeout = setTimeout(() => init(retryCount + 1), delay);
+                } else {
+                    console.warn('⚠️ RevenueCat initialization failed after 8 attempts.');
+                    setIsReady(true);
+                }
             }
         };
 
         init();
 
+        // ⚡ 监听App状态变化
+        let appStateListener: any = null;
+        if (import.meta.env.VITE_PLATFORM !== 'web') {
+            appStateListener = CapApp.addListener('appStateChange', (state) => {
+                if (state.isActive && !isReady) {
+                    console.log('📱 App became active, retrying RevenueCat init...');
+                    init(0);
+                }
+            });
+        }
+
         return () => {
             if (customerInfoListener) {
-                // remove() returns a promise or void depending on version, safe to call
                 try { customerInfoListener.remove(); } catch (e) { }
+            }
+            if (retryTimeout) {
+                clearTimeout(retryTimeout);
+            }
+            if (appStateListener) {
+                appStateListener.remove();
             }
         };
     }, []);
@@ -198,6 +253,11 @@ export function useRevenueCat() {
                 currency: rcPackage.product.currencyCode
             });
 
+            // ✅ 同步RC ID到PB（购买成功后）
+            if (customerInfo.originalAppUserId) {
+                syncRevenueCatIdToPocketBase(customerInfo.originalAppUserId);
+            }
+
             return { success: true, customerInfo };
         } catch (e: any) {
             if (!e.userCancelled) {
@@ -222,6 +282,11 @@ export function useRevenueCat() {
                         subscription_tier: tier,
                         quota_reset_date: entitlement.expirationDate || null
                     });
+
+                    // ✅ 同步RC ID到PB（恢复购买后）
+                    if (customerInfo.originalAppUserId) {
+                        syncRevenueCatIdToPocketBase(customerInfo.originalAppUserId);
+                    }
                     console.log(`🔄 Restore successful: ${tier}`);
                 }
 

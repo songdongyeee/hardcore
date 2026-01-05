@@ -63,7 +63,8 @@ function App() {
           if (success) {
             console.log('✅ Login successful');
           } else {
-            console.warn('⚠️ Login failed. Will retry when network becomes available or app returns to foreground.');
+            console.warn('⚠️ Login failed. Will retry after 2 seconds...');
+            await new Promise(r => setTimeout(r, 2000)); // Wait 2 seconds
           }
         }
 
