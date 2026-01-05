@@ -215,10 +215,22 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
 
       if (!isMounted) return;
 
-      const durationForCalc = fetchedDuration > 0 ? fetchedDuration : (duration > 0 ? duration : 0);
+      let durationForCalc = fetchedDuration > 0 ? fetchedDuration : (duration > 0 ? duration : 0);
+
+      // 🔥 FIX: 如果 duration 仍为 0，从 peaks 数量推算（后端生成是 30 pps）
+      if (durationForCalc === 0 && peaks && peaks.length > 0) {
+        const BACKEND_PPS = 30; // 后端 waveform-worker.js 的采样率
+        durationForCalc = peaks.length / BACKEND_PPS;
+        console.log(`🎯 [Waveform DEBUG] Duration fallback from peaks: ${durationForCalc.toFixed(2)}s`);
+      }
+
       const actualPeaksPerSec = (durationForCalc > 0 && peaks) ? (peaks.length / durationForCalc) : PEAKS_PER_SEC;
 
-      console.log(`[Waveform] Data analysis: ${peaks?.length || 0} peaks, ${durationForCalc.toFixed(2)}s duration, ~${actualPeaksPerSec.toFixed(2)} peaks/sec`);
+      console.log(`🎯 [Waveform DEBUG] ========== START ==========`);
+      console.log(`🎯 [Waveform DEBUG] Total peaks: ${peaks?.length || 0}`);
+      console.log(`🎯 [Waveform DEBUG] Duration: ${durationForCalc.toFixed(2)}s`);
+      console.log(`🎯 [Waveform DEBUG] Actual PPS: ${actualPeaksPerSec.toFixed(2)}`);
+      console.log(`🎯 [Waveform DEBUG] Segment start: ${segmentStart}s`);
 
       if (peaks) {
         const startIdx = Math.floor(segmentStart * actualPeaksPerSec);
@@ -229,17 +241,35 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
         // Store full peaks for segment switching
         setFullPeaks(peaks);
 
+        console.log(`🎯 [Waveform DEBUG] Segment peaks before processing: ${segmentPeaks.length}`);
+        console.log(`🎯 [Waveform DEBUG] Segment duration: ${segmentDuration.toFixed(2)}s`);
+
         // Apple Style Upsampling Logic
         const TARGET_PPS = 25; // 25 peaks per second = perfect for 2px Bar + 2px Gap (100px total)
 
+        console.log(`🎯 [Waveform DEBUG] TARGET_PPS: ${TARGET_PPS}`);
+        console.log(`🎯 [Waveform DEBUG] Will interpolate? ${actualPeaksPerSec < TARGET_PPS && segmentPeaks.length > 1}`);
+
         if (actualPeaksPerSec < TARGET_PPS && segmentPeaks.length > 1) {
           const targetLength = Math.max(Math.floor(segmentDuration * TARGET_PPS), segmentPeaks.length);
+          console.log(`🎯 [Waveform DEBUG] Interpolating from ${segmentPeaks.length} to ${targetLength} peaks`);
           segmentPeaks = interpolateWaveform(segmentPeaks, targetLength);
-          console.log(`[Waveform] Smart Upsampled: ${segmentPeaks.length} peaks (~${TARGET_PPS} pps)`);
+          console.log(`🎯 [Waveform DEBUG] ✅ Interpolation done, new length: ${segmentPeaks.length}`);
+        } else {
+          console.log(`🎯 [Waveform DEBUG] ⏭️  Skipping interpolation (density sufficient)`);
         }
 
         if (sourceContainerRef.current) {
-          if (sourceWs.current) sourceWs.current.destroy();
+          console.log(`🎯 [Waveform DEBUG] Creating WaveSurfer instance...`);
+          console.log(`🎯 [Waveform DEBUG] Final segment peaks: ${segmentPeaks.length}`);
+          console.log(`🎯 [Waveform DEBUG] normalize: false`);
+          console.log(`🎯 [Waveform DEBUG] minPxPerSec: ${PX_PER_SEC}`);
+
+          if (sourceWs.current) {
+            console.log(`🎯 [Waveform DEBUG] Destroying existing WaveSurfer instance`);
+            sourceWs.current.destroy();
+          }
+
           sourceWs.current = WaveSurfer.create({
             container: sourceContainerRef.current,
             waveColor: 'rgba(255, 255, 255, 0.6)',
@@ -257,6 +287,9 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
             interact: false, // Purely visual
             autoScroll: false,
           });
+
+          console.log(`🎯 [Waveform DEBUG] ✅ WaveSurfer created successfully`);
+          console.log(`🎯 [Waveform DEBUG] ========== END ==========`);
 
           // Mute visual WaveSurfer (Audio is handled by sourceAudioRef)
           sourceWs.current.setVolume(0);
@@ -886,7 +919,7 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
 
         <div
           className={cn(
-            "absolute left-1/2 top-0 z-30 -translate-x-1/2 w-[2px] pointer-events-none transition-all duration-300",
+            "absolute left-1/2 top-0 z-10 -translate-x-1/2 w-[2px] pointer-events-none transition-all duration-300",
             status === 'recording'
               ? "bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.8)] animate-pulse h-[250px]"
               : status === 'review'
@@ -1004,7 +1037,7 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
 
         {status === 'review' && (
           <>
-            <div className="absolute right-0 top-0 bottom-0 w-[48px] border-l border-zinc-800/50 bg-black/20 z-40 animate-in fade-in slide-in-from-right-8">
+            <div className="absolute right-0 top-0 bottom-0 w-[48px] border-l border-zinc-800/50 bg-black/20 z-10 animate-in fade-in slide-in-from-right-8">
               <div className="absolute top-[60px] left-0 right-0 flex flex-col items-center gap-2 h-[160px] justify-center">
                 <div className="flex flex-col items-center gap-1.5">
                   <button
@@ -1042,7 +1075,7 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
 
             <button
               onClick={toggleMasterPlay}
-              className="absolute left-1/2 -translate-x-1/2 bottom-[30px] z-50 w-20 h-20 rounded-full bg-white text-black shadow-[0_0_40px_rgba(255,255,255,0.4)] flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
+              className="absolute left-1/2 -translate-x-1/2 bottom-[30px] z-10 w-20 h-20 rounded-full bg-white text-black shadow-[0_0_40px_rgba(255,255,255,0.4)] flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
             >
               {isPlayingMaster ? <Pause className="w-8 h-8 fill-current" /> : <Play className="w-8 h-8 fill-current ml-1" />}
             </button>
@@ -1077,7 +1110,7 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
           )}
 
           {status === 'review' && (
-            <div className="w-full h-full flex items-center justify-between gap-4 animate-in fade-in slide-in-from-bottom-4 px-4 relative z-50">
+            <div className="w-full h-full flex items-center justify-between gap-4 animate-in fade-in slide-in-from-bottom-4 px-4 relative z-10">
               <button
                 onClick={() => {
                   if (sourceWs.current) {
