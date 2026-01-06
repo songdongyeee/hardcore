@@ -303,7 +303,7 @@ export const MaterialCard = React.memo(function MaterialCard({
                             <>
                                 {/* Blue Tag: Daily Spark */}
                                 <span className="px-3 py-1 rounded-2xl bg-indigo-500/30 text-indigo-100 border border-indigo-400/40 text-[11px] font-bold tracking-wide">
-                                    日练短句
+                                    每日短句
                                 </span>
                                 {/* Date Tag */}
                                 <span className="px-3 py-1 rounded-2xl bg-zinc-400/20 backdrop-blur-xl text-zinc-50 border border-white/20 text-[11px] font-medium tracking-wide shadow-sm">
