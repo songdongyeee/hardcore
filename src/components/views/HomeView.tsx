@@ -99,41 +99,71 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
     setAllMaterials(data);
   };
 
+  // 🎯 缓存加载标志位 - 用于区分首次安装和重开应用
+  const hasCacheLoadedRef = useRef(false);
+
   useEffect(() => {
-    // 🛡️ Strict Auth Gate: Block execution until auth check is complete
-    if (!isAuthCheckComplete) {
-      console.log('🛡️ Blocked by Auth Gate: Waiting for auth check...');
-      return;
-    }
-
     const initData = async () => {
-      // 🔒 Prevent multiple concurrent executions
-      if (hasInitializedRef.current) {
-        console.log('🔒 initData already running/completed, skipping...');
-        return;
-      }
-      hasInitializedRef.current = true;
+      // 🚀 阶段 1: 尝试加载缓存（不等待 Auth）
+      if (!hasCacheLoadedRef.current) {
+        const snapshot = await materialService.getCachedSnapshot();
+        if (snapshot && snapshot.length > 0) {
+          hasCacheLoadedRef.current = true;
+          console.log('✅ [Fast Path] Cache loaded, bypassing Auth Gate');
 
-      // 1. 立即显示 bundled 材料
-      const bundled = materialService.getBundledOnly();
-      setAllMaterials(bundled);
-
-      // 2. 尝试显示缓存
-      const snapshot = await materialService.getCachedSnapshot();
-      if (snapshot && snapshot.length > 0) {
-        setAllMaterials(prev => materialService.mergeMaterials(prev, snapshot));
+          // 合并缓存（不覆盖 bundled）
+          setAllMaterials(prev => materialService.mergeMaterials(prev, snapshot));
+          setIsInitialLoading(false); // 立即关闭骨架屏
+        }
       }
 
-      // ✅ 根据是否有内容决定何时结束loading
-      const hasContent = bundled.length > 0 || (snapshot && snapshot.length > 0);
-      if (hasContent) {
-        // 有内容：立即显示
-        setIsInitialLoading(false);
-      }
-      // 如果没有内容，保持loading直到远程数据到达
+      // 🎯 阶段 2: 根据缓存情况选择加载路径
+      if (hasCacheLoadedRef.current) {
+        // ========== 路径 B: 有缓存 (重开应用) ==========
+        // 等 Auth 后直接加载远程数据（静默更新）
+        if (!isAuthCheckComplete) return;
+        if (hasInitializedRef.current) return;
+        hasInitializedRef.current = true;
 
-      // 🔄 后台快速加载远程数据
-      loadRemoteDataInBackground();
+        console.log('🔄 [Fast Path] Loading remote data in background...');
+        loadRemoteDataInBackground();
+      } else {
+        // ========== 路径 A: 无缓存 (首次安装) ==========
+        // 🛡️ Strict Auth Gate: Block execution until auth check is complete
+        if (!isAuthCheckComplete) {
+          console.log('🛡️ [First Install] Blocked by Auth Gate: Waiting for auth check...');
+          return;
+        }
+
+        // 🔒 Prevent multiple concurrent executions
+        if (hasInitializedRef.current) {
+          console.log('🔒 initData already running/completed, skipping...');
+          return;
+        }
+        hasInitializedRef.current = true;
+
+        console.log('🎬 [First Install] Starting original init sequence...');
+
+        // 1. 立即显示 bundled 材料
+        const bundled = materialService.getBundledOnly();
+        setAllMaterials(bundled);
+
+        // 2. 尝试显示缓存（理论上不会走到这里，因为前面已经检查过了）
+        const snapshot = await materialService.getCachedSnapshot();
+        if (snapshot && snapshot.length > 0) {
+          setAllMaterials(prev => materialService.mergeMaterials(prev, snapshot));
+        }
+
+        // ✅ 根据是否有内容决定何时结束loading
+        const hasContent = bundled.length > 0 || (snapshot && snapshot.length > 0);
+        if (hasContent) {
+          setIsInitialLoading(false);
+        }
+        // 如果没有内容，保持loading直到远程数据到达
+
+        // 🔄 后台快速加载远程数据
+        loadRemoteDataInBackground();
+      }
     };
 
     // 新函数：后台快速加载（并行 + 共享缓存）
@@ -167,6 +197,10 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
           const final = materialService.mergeMaterials(withDailySpark, coreLibResult.items);
           console.log('🔍 [Debug] Final materials count:', final.length);
           console.log('🔍 [Debug] Final materials:', final);
+
+          // 🔥 CRITICAL: 保存快照到缓存（下次启动用）
+          materialService.saveSnapshot(final);
+
           return final;
         });
 
@@ -201,7 +235,6 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
 
     initData();
 
-    // 🕐 超时检查：30秒后如果还在loading且没有材料，显示重试按钮
     // 🕐 超时检查：30秒后如果还在loading且没有材料，显示重试按钮
     // 🛡️ Strict Auth Gate: Only start timer if auth check is complete
     let timeoutId: any;

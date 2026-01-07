@@ -13,15 +13,15 @@ const SNAPSHOT_KEY = 'materials_snapshot_v1';
 export const materialService = {
     /**
      * Loads the last known good state from local storage for instant render
-     * 🎯 只返回Core Library材料，Daily Spark每天都会变不应缓存
+     * 🎯 缓存所有材料（包括 Daily Spark）以实现秒开
      */
     async getCachedSnapshot(): Promise<Material[] | null> {
         try {
             const { value } = await Preferences.get({ key: SNAPSHOT_KEY });
             if (!value) return null;
             const materials = JSON.parse(value);
-            // 过滤掉Daily Spark，因为它每天都会变
-            return materials.filter((m: Material) => m.location === 'core_library');
+            // 返回所有材料（包括 Daily Spark）
+            return materials;
         } catch (e) {
             return null;
         }
@@ -30,14 +30,13 @@ export const materialService = {
     /**
      * Saves current materials to local storage. 
      * This ALWAYS overwrites the previous snapshot, so it never grows in size.
-     * 🎯 只保存Core Library材料，Daily Spark每天都会变不需要缓存
+     * 🎯 保存所有材料（包括 Daily Spark）以实现秒开
      */
     async saveSnapshot(materials: Material[]): Promise<void> {
         try {
-            // 只保存Core Library（Daily Spark每天都会变）
-            const coreLibOnly = materials.filter(m => m.location === 'core_library');
+            // 保存所有材料（包括 Daily Spark）
             // Limits the snapshot to avoid extreme string lengths
-            const limitedMaterials = coreLibOnly.slice(0, 100);
+            const limitedMaterials = materials.slice(0, 100);
             await Preferences.set({
                 key: SNAPSHOT_KEY,
                 value: JSON.stringify(limitedMaterials)
