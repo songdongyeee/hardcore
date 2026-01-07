@@ -127,10 +127,8 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
       // ✅ 根据是否有内容决定何时结束loading
       const hasContent = bundled.length > 0 || (snapshot && snapshot.length > 0);
       if (hasContent) {
-        // 有内容：短暂延迟后立即显示（给用户"正在加载"的感知）
-        setTimeout(() => {
-          setIsInitialLoading(false);
-        }, 300);
+        // 有内容：立即显示
+        setIsInitialLoading(false);
       }
       // 如果没有内容，保持loading直到远程数据到达
 
