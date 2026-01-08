@@ -4,12 +4,25 @@ export interface Word {
   end: number;
 }
 
+// 🧠 Intelligent phrase chunking from spaCy NLP
+export interface PhraseChunk {
+  text: string;
+  begin_time: number;  // milliseconds (from ASR)
+  end_time: number;    // milliseconds (from ASR)
+  words: Array<{
+    text: string;
+    begin_time: number;
+    end_time: number;
+  }>;
+}
+
 export interface TranscriptSegment {
   start: number;
   end: number;
   text: string;
   words?: Word[];
   translation?: string; // 🆕 Chinese translation
+  phrase_chunks?: PhraseChunk[]; // 🧠 Smart phrase grouping
 }
 
 const rawTranscript: TranscriptSegment[] = [

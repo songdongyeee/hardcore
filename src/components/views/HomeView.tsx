@@ -185,18 +185,21 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
         // 🔥 一次性更新Daily Spark和Core Library，避免中间状态
         setAllMaterials(prev => {
           console.log('🔍 [Debug] Previous materials:', prev.length);
-          // 1. 清除旧的Daily Spark
-          const withoutDailySpark = prev.filter(m => m.location !== 'daily_spark');
-          console.log('🔍 [Debug] After removing Daily Spark:', withoutDailySpark.length);
-          // 2. 合并新的Daily Spark
-          const withDailySpark = dailySparkItems.length > 0
-            ? materialService.mergeMaterials(withoutDailySpark, dailySparkItems)
-            : withoutDailySpark;
-          console.log('🔍 [Debug] After adding Daily Spark:', withDailySpark.length);
-          // 3. 合并Core Library
-          const final = materialService.mergeMaterials(withDailySpark, coreLibResult.items);
+
+          // 🎯 原子性更新：直接构建最终状态（避免闪现）
+          const final = [
+            // 1. 保留非 Daily Spark 的材料
+            ...prev.filter(m => m.location !== 'daily_spark'),
+            // 2. 添加新的 Daily Spark
+            ...dailySparkItems,
+            // 3. 合并 Core Library（去重）
+            ...coreLibResult.items.filter(item =>
+              !prev.some(p => p.id === item.id) && // 不在旧数据里
+              !dailySparkItems.some(d => d.id === item.id) // 也不在 Daily Spark 里
+            )
+          ];
+
           console.log('🔍 [Debug] Final materials count:', final.length);
-          console.log('🔍 [Debug] Final materials:', final);
 
           // 🔥 CRITICAL: 保存快照到缓存（下次启动用）
           materialService.saveSnapshot(final);
@@ -601,40 +604,37 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
     // Applies to Bundled materials AND Remote Public materials
     const isPublicContent = material.source === 'bundled' || material.visibility === 'public' || material.id.includes('bundled');
 
+    console.log(`[Free Limit] Material: ${material.id}, isPublicContent: ${isPublicContent}, location: ${material.location}`);
     if (isPublicContent) {
       try {
         const user = await pb.collection('users').getOne(pb.authStore.model.id);
         const subscriptionTier = user.subscription_tier || 'free';
+        const currentCount = user.materials_read_count || 0;
+
+        console.log(`[Free Limit] User tier: ${subscriptionTier}, current count: ${currentCount}/3`);
 
         // Only apply limit for free users
         if (subscriptionTier === 'free') {
           // Check if this material has a progress record (means it was accessed before)
-          // IF accessed before -> ALLOW (don't increment, don't block)
-          // IF NOT accessed before -> CHECK LIMIT -> Increment or Block
           try {
             await pb.collection('user_progress').getFirstListItem(
               `user="${pb.authStore.model.id}" && material_id="${material.id}"`
             );
             // Material was accessed before, Allow access
-            console.log(`Material ${material.id} was accessed before, allowing access`);
+            console.log(`[Free Limit] ✅ Material ${material.id} was accessed before, allowing access`);
           } catch (notFoundErr) {
             // No progress record found, this is first access
-            // CHECK LIMIT
-            const materialsReadCount = user.materials_read_count || 0;
-            if (materialsReadCount >= 3) {
+            // CHECK LIMIT (计数会在App.tsx的handlePlay中自动处理)
+            console.log(`[Free Limit] 🆕 First time accessing ${material.id}, checking limit...`);
+
+            if (currentCount >= 3) {
+              console.log(`[Free Limit] ❌ BLOCKED! Count ${currentCount} >= 3, showing paywall`);
               setShowPaywall(true);
               return;
             }
 
-            // Increment count
-            try {
-              await pb.collection('users').update(pb.authStore.model.id, {
-                materials_read_count: materialsReadCount + 1
-              });
-              console.log(`Free user material access count: ${materialsReadCount + 1}/3`);
-            } catch (updateErr) {
-              console.error("Failed to update materials_read_count. Please check 'users' collection API rules.", updateErr);
-            }
+            // ✅ 允许访问（计数会在App.tsx的handlePlay中自动处理）
+            console.log(`[Free Limit] ✅ ALLOWED! (count will auto-increment in handlePlay)`);
           }
         }
       } catch (e) {

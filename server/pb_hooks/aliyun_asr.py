@@ -7,6 +7,74 @@ import logging
 # Configure logging
 logging.basicConfig(level=logging.ERROR)
 
+# 🧠 Smart Phrase Chunking with spaCy
+def add_phrase_chunks(transcription_data):
+    """
+    Add intelligent phrase chunking using spaCy NLP.
+    Groups words into meaningful phrases based on linguistic structure.
+    """
+    try:
+        import spacy
+        # Load English model (small, fast)
+        try:
+            nlp = spacy.load("en_core_web_sm")
+        except OSError:
+            # Model not installed, skip phrase chunking
+            logging.warning("spaCy model not found. Skipping phrase chunking. Install with: python -m spacy download en_core_web_sm")
+            return transcription_data
+        
+        # Process each sentence
+        for sentence in transcription_data:
+            text = sentence.get('text', '')
+            words = sentence.get('words', [])
+            
+            if not text or not words:
+                continue
+            
+            # Analyze with spaCy
+            doc = nlp(text)
+            chunks = []
+            
+            # Build a clean word list for matching
+            clean_words = []
+            for word in words:
+                clean_text = word.get('text', '').strip()
+                if clean_text:
+                    clean_words.append(clean_text)
+            
+            # Extract noun chunks (natural phrase boundaries)
+            for noun_chunk in doc.noun_chunks:
+                # Get token indices in the doc
+                start_idx = noun_chunk.start
+                end_idx = noun_chunk.end
+                
+                # Map to original words using token positions
+                chunk_words = []
+                if start_idx < len(words) and end_idx <= len(words):
+                    chunk_words = words[start_idx:end_idx]
+                
+                if chunk_words:
+                    chunks.append({
+                        'text': noun_chunk.text,
+                        'begin_time': chunk_words[0].get('begin_time', 0),
+                        'end_time': chunk_words[-1].get('end_time', 0),
+                        'words': chunk_words
+                    })
+            
+            # Add chunks to sentence data
+            sentence['phrase_chunks'] = chunks
+        
+        return transcription_data
+        
+    except ImportError:
+        # spaCy not installed, skip
+        logging.warning("spaCy not installed. Skipping phrase chunking.")
+        return transcription_data
+    except Exception as e:
+        # Any other error, log and continue without chunks
+        logging.error(f"Phrase chunking error: {e}")
+        return transcription_data
+
 def main():
     # 1. Print a start marker (so we know it ran)
     # But strictly speaking, we want JSON at the end.
@@ -67,6 +135,15 @@ def main():
                     with urllib.request.urlopen(transcription_url) as response:
                         transcription_data = response.read().decode('utf-8')
                         transcription_json = json.loads(transcription_data)
+                        
+                        # 🧠 Add intelligent phrase chunking
+                        if isinstance(transcription_json, list) and len(transcription_json) > 0:
+                            # Handle array format: [{"channel_id": 0, "sentences": [...]}]
+                            sentences = transcription_json[0].get('sentences', [])
+                            transcription_json[0]['sentences'] = add_phrase_chunks(sentences)
+                        elif isinstance(transcription_json, dict) and 'sentences' in transcription_json:
+                            # Handle direct dict format
+                            transcription_json['sentences'] = add_phrase_chunks(transcription_json['sentences'])
                         
                         # Return the complete transcription data (not the SDK output)
                         print(json.dumps(transcription_json))

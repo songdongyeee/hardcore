@@ -228,36 +228,49 @@ export function ListeningView({
                   onClick={() => handleSentenceClick(idx, seg.start)}
                 >
                   {isCurrentSentence ? (
-                    // 当前句子：显示单词级Karaoke
-                    seg.words?.map((word, wIdx) => {
-                      // 🔥 容错优化：ASR时间戳可能不精确，给予±100ms容错
-                      const TOLERANCE = 0.1; // 100ms 容错
-                      const isWordActive = currentTime >= (word.start - TOLERANCE) &&
-                        currentTime < (word.end + TOLERANCE);
+                    // 当前句子：🧠 智能短语级 Karaoke (优雅降级到单词级)
+                    (() => {
+                      // 🧠 优先使用后端NLP识别的短语,如果没有则降级到单词
+                      const displayChunks = seg.phrase_chunks?.map(chunk => ({
+                        text: chunk.text,
+                        start: chunk.begin_time / 1000,  // Convert ms to seconds
+                        end: chunk.end_time / 1000
+                      })) || seg.words?.map(word => ({
+                        text: word.text,
+                        start: word.start,
+                        end: word.end
+                      })) || [];
 
-                      return (
-                        <span key={wIdx} className="inline-block mr-1.5 relative group">
-                          {/* Karaoke Cursor Block */}
-                          <span
-                            className={cn(
-                              "absolute inset-0 -inset-x-0.5 -inset-y-0 bg-gradient-to-r from-indigo-500 to-indigo-600 rounded shadow-lg shadow-indigo-500/50 transition-all duration-150 ease-out z-0",
-                              isWordActive ? "opacity-100 scale-100" : "opacity-0 scale-95"
-                            )}
-                          ></span>
+                      return displayChunks.map((chunk, cIdx) => {
+                        // 🔥 容错优化：ASR时间戳可能不精确，给予±100ms容错
+                        const TOLERANCE = 0.1; // 100ms 容错
+                        const isChunkActive = currentTime >= (chunk.start - TOLERANCE) &&
+                          currentTime < (chunk.end + TOLERANCE);
 
-                          {/* Blurred Text */}
-                          <span
-                            className={cn(
-                              "relative z-10 transition-all duration-300 select-none",
-                              "filter blur-[4px]",
-                              isWordActive ? "text-white" : "text-zinc-400"
-                            )}
-                          >
-                            {word.text}
+                        return (
+                          <span key={cIdx} className="inline-block mr-1.5 relative group">
+                            {/* Karaoke Cursor Block */}
+                            <span
+                              className={cn(
+                                "absolute inset-0 -inset-x-0.5 -inset-y-0 bg-gradient-to-r from-indigo-500 to-indigo-600 rounded shadow-lg shadow-indigo-500/50 transition-all duration-150 ease-out z-0",
+                                isChunkActive ? "opacity-100 scale-100" : "opacity-0 scale-95"
+                              )}
+                            ></span>
+
+                            {/* Blurred Text */}
+                            <span
+                              className={cn(
+                                "relative z-10 transition-all duration-300 select-none",
+                                "filter blur-[4px]",
+                                isChunkActive ? "text-white" : "text-zinc-400"
+                              )}
+                            >
+                              {chunk.text}
+                            </span>
                           </span>
-                        </span>
-                      );
-                    })
+                        );
+                      });
+                    })()
                   ) : (
                     // 其他句子：仅显示整句模糊文本（无单词分割）
                     <span className={cn(

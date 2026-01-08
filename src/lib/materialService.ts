@@ -20,7 +20,19 @@ export const materialService = {
             const { value } = await Preferences.get({ key: SNAPSHOT_KEY });
             if (!value) return null;
             const materials = JSON.parse(value);
-            // 返回所有材料（包括 Daily Spark）
+
+            // 🔥 过滤掉过期的 Daily Spark
+            const { value: lastDateStr } = await Preferences.get({ key: 'daily_spark_date' });
+            const today = new Date().toISOString().split('T')[0]; // "2024-01-08"
+            const cachedDate = lastDateStr ? new Date(lastDateStr).toISOString().split('T')[0] : '';
+
+            // 如果日期变了，移除所有 Daily Spark（让后台加载今天的）
+            if (today !== cachedDate) {
+                console.log('🗓️ Date changed, filtering out cached Daily Spark');
+                return materials.filter((m: Material) => m.location !== 'daily_spark');
+            }
+
+            // 日期没变，返回所有材料（包括 Daily Spark）
             return materials;
         } catch (e) {
             return null;
