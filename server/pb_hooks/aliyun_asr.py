@@ -2,84 +2,91 @@
 import os
 import sys
 import json
-import logging
 
-# Configure logging
-logging.basicConfig(level=logging.ERROR)
-
-# 🧠 Smart Phrase Chunking with spaCy
-def add_phrase_chunks(transcription_data):
-    """
-    Add intelligent phrase chunking using spaCy NLP.
-    Groups words into meaningful phrases based on linguistic structure.
-    """
+def log(msg):
+    """安全的日志输出"""
     try:
-        import spacy
-        # Load English model (small, fast)
-        try:
-            nlp = spacy.load("en_core_web_sm")
-        except OSError:
-            # Model not installed, skip phrase chunking
-            logging.warning("spaCy model not found. Skipping phrase chunking. Install with: python -m spacy download en_core_web_sm")
-            return transcription_data
-        
-        # Process each sentence
-        for sentence in transcription_data:
-            text = sentence.get('text', '')
-            words = sentence.get('words', [])
-            
-            if not text or not words:
-                continue
-            
-            # Analyze with spaCy
-            doc = nlp(text)
-            chunks = []
-            
-            # Build a clean word list for matching
-            clean_words = []
-            for word in words:
-                clean_text = word.get('text', '').strip()
-                if clean_text:
-                    clean_words.append(clean_text)
-            
-            # Extract noun chunks (natural phrase boundaries)
-            for noun_chunk in doc.noun_chunks:
-                # Get token indices in the doc
-                start_idx = noun_chunk.start
-                end_idx = noun_chunk.end
-                
-                # Map to original words using token positions
-                chunk_words = []
-                if start_idx < len(words) and end_idx <= len(words):
-                    chunk_words = words[start_idx:end_idx]
-                
-                if chunk_words:
-                    chunks.append({
-                        'text': noun_chunk.text,
-                        'begin_time': chunk_words[0].get('begin_time', 0),
-                        'end_time': chunk_words[-1].get('end_time', 0),
-                        'words': chunk_words
-                    })
-            
-            # Add chunks to sentence data
-            sentence['phrase_chunks'] = chunks
-        
-        return transcription_data
-        
+        with open('/tmp/asr_translation.log', 'a') as f:
+            f.write(msg + '\n')
+            f.flush()
+    except:
+        pass
+
+def translate_sentences(data, api_key):
+    """使用 Qwen-Flash 逐句翻译转写结果"""
+    log("🔍 translate_sentences called")
+    
+    try:
+        from dashscope import Generation
     except ImportError:
-        # spaCy not installed, skip
-        logging.warning("spaCy not installed. Skipping phrase chunking.")
-        return transcription_data
+        log("❌ dashscope import failed")
+        return data
+    
+    # 🔥 正确处理 Aliyun ASR 的真实数据结构
+    # 数据格式：{file_url, properties, transcripts: [{channel_id, sentences: [...]}]}
+    transcripts = data.get('transcripts', [])
+    if not transcripts or len(transcripts) == 0:
+        log("❌ No transcripts found")
+        return data
+    
+    # 获取第一个 transcript
+    transcript_obj = transcripts[0]
+    sentences_list = transcript_obj.get('sentences', [])
+    log(f"📋 Found {len(sentences_list)} sentences")
+    
+    if not sentences_list:
+        return data
+    
+    # 提取文本
+    sentence_texts = [item.get('text', '') for item in sentences_list if item.get('text')]
+    if not sentence_texts:
+        return data
+    
+    log(f"📝 Translating {len(sentence_texts)} sentences...")
+    
+    # 构造 Prompt
+    prompt = f"""请将以下句子逐句翻译成中文，保持原有顺序，每行一个翻译结果：
+{chr(10).join(f"{i+1}. {s}" for i, s in enumerate(sentence_texts))}
+要求：
+- 只输出翻译结果，不要解释
+- 每行一个翻译，用换行符分隔
+- 保持句子顺序
+- 去掉序号"""
+    
+    try:
+        response = Generation.call(
+            model='qwen-flash',
+            prompt=prompt,
+            api_key=api_key
+        )
+        
+        log(f"📡 API status: {response.status_code}")
+        
+        if response.status_code == 200:
+            # 🔥 FIX: 过滤掉空行！Filter out empty lines to prevent offset
+            raw_lines = response.output.text.strip().split('\n')
+            translations = [line.strip() for line in raw_lines if line.strip()]
+            
+            log(f"🎯 Received {len(translations)} translations (from {len(raw_lines)} raw lines)")
+            log(f"Sample: {translations[:3]}")
+            
+            # 写回 JSON
+            for i, item in enumerate(sentences_list):
+                if i < len(translations):
+                    # 去掉可能的序号 B.C. "1. " 或 "1."
+                    translation = translations[i].lstrip('0123456789. ')
+                    item['translation'] = translation
+            
+            log(f"✅ Translation completed")
+        else:
+            log(f"❌ API error: {response.code} - {response.message}")
+    
     except Exception as e:
-        # Any other error, log and continue without chunks
-        logging.error(f"Phrase chunking error: {e}")
-        return transcription_data
+        log(f"❌ Exception: {type(e).__name__}: {str(e)}")
+    
+    return data
 
 def main():
-    # 1. Print a start marker (so we know it ran)
-    # But strictly speaking, we want JSON at the end.
-    # Let's collect result and print ONCE.
-
     try:
         # Load Key
         api_key = os.getenv("DASHSCOPE_API_KEY") or os.getenv("ALIYUN_API_KEY")
@@ -90,33 +97,31 @@ def main():
                     api_key = f.read().strip()
             except:
                 pass
-
         if not api_key:
-            print(json.dumps({"error": "Missing DASHSCOPE_API_KEY (Check Env or api_key.txt)"}))
+            print(json.dumps({"error": "Missing DASHSCOPE_API_KEY"}))
             return
 
-        # 2. Defensive Import
+        # Import
         try:
             from dashscope.audio.asr import Transcription
         except ImportError as e:
-            print(json.dumps({"error": f"ImportError: dashscope not found. Install with: python3.11 -m pip install dashscope. Details: {str(e)}"}))
+            print(json.dumps({"error": f"dashscope not found: {str(e)}"}))
             return
-        except Exception as e:
-             print(json.dumps({"error": f"ImportError (Other): {str(e)}"}))
-             return
 
-        # 3. Get Args
+        # Get Args
         if len(sys.argv) < 2:
-            print(json.dumps({"error": "Usage: python3 aliyun_asr.py <audio_url>"}))
+            print(json.dumps({"error": "Usage: python3 aliyun_asr.py <audio_url> [language]"}))
             return
 
         file_url = sys.argv[1]
+        language = sys.argv[2] if len(sys.argv) >= 3 else 'en'
+        log(f"🎙️ Starting ASR for language: {language}")
 
-        # 4. Run Task
+        # Run ASR
         task_response = Transcription.async_call(
             model='paraformer-v2',
             file_urls=[file_url],
-            language_hints=['en', 'zh'],
+            language_hints=[language],
             timestamp_alignment_enabled=True,
             api_key=api_key
         )
@@ -125,27 +130,24 @@ def main():
 
         if transcription_response.status_code == 200:
             if transcription_response.output['task_status'] == 'SUCCEEDED':
-                # Get the transcription URL from results
                 results = transcription_response.output.get('results', [])
                 if results and len(results) > 0 and 'transcription_url' in results[0]:
                     transcription_url = results[0]['transcription_url']
                     
-                    # Download the transcription JSON from OSS
                     import urllib.request
                     with urllib.request.urlopen(transcription_url) as response:
                         transcription_data = response.read().decode('utf-8')
                         transcription_json = json.loads(transcription_data)
                         
-                        # 🧠 Add intelligent phrase chunking
-                        if isinstance(transcription_json, list) and len(transcription_json) > 0:
-                            # Handle array format: [{"channel_id": 0, "sentences": [...]}]
-                            sentences = transcription_json[0].get('sentences', [])
-                            transcription_json[0]['sentences'] = add_phrase_chunks(sentences)
-                        elif isinstance(transcription_json, dict) and 'sentences' in transcription_json:
-                            # Handle direct dict format
-                            transcription_json['sentences'] = add_phrase_chunks(transcription_json['sentences'])
+                        log(f"📥 ASR completed")
+                        log(f"🔄 Calling translate_sentences...")
                         
-                        # Return the complete transcription data (not the SDK output)
+                        # Call translation
+                        transcription_json = translate_sentences(transcription_json, api_key)
+                        
+                        log(f"🔙 translate_sentences returned")
+                        
+                        # 返回完整数据
                         print(json.dumps(transcription_json))
                 else:
                     print(json.dumps({"error": "No transcription URL in response"}))
@@ -159,6 +161,7 @@ def main():
             sys.exit(1)
 
     except Exception as e:
+        log(f"❌ Exception: {str(e)}")
         print(json.dumps({"error": str(e)}))
         sys.exit(1)
 
