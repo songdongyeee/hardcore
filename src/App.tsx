@@ -180,7 +180,7 @@ function App() {
   }, []); // Empty deps - listener uses latest handlePlay via closure
 
 
-  const handlePlay = (audioUrl: string, targetView?: ViewState, newTranscript?: TranscriptSegment[], materialId?: string, waveformData?: number[][]) => {
+  const handlePlay = (audioUrl: string, targetView?: ViewState, newTranscript?: TranscriptSegment[], materialId?: string, waveformData?: number[][], title?: string) => {
     const now = Date.now();
     // Debounce: Ignore if called within 500ms (prevent double clicks causing audio restart)
     if (now - lastPlayTime.current < 500 && audioUrl === currentSrc) {
@@ -202,7 +202,7 @@ function App() {
       // Analytics: View Material
       analytics.track('view_material', {
         material_id: materialId,
-        material_title: (newTranscript && newTranscript.length > 0) ? 'Loaded Material' : 'Unknown', // Basic info
+        material_title: title || 'Unknown',
         category: 'core_library'
       });
 
