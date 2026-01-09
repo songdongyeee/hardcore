@@ -1424,7 +1424,7 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
           {/* Partial Failure Retry Button - shows if we have some data (e.g. Daily Spark) but load failed */}
           {loadFailed && displayMaterials.length > 0 && (
             <div className="col-span-1 flex flex-col items-center justify-center py-8 gap-3">
-              <p className="text-zinc-500 text-sm">部分内容加载失败</p>
+              <p className="text-zinc-500 text-sm">加载中...</p>
               <button
                 onClick={async () => {
                   setLoadFailed(false);

@@ -255,7 +255,7 @@ function App() {
       <div
         id="app-container"
         className={cn(
-          "w-full max-w-md bg-black md:bg-zinc-900/50 md:backdrop-blur-xl md:border md:border-zinc-800 md:rounded-3xl h-[100dvh] md:h-[850px] overflow-hidden relative shadow-2xl flex flex-col transition-all duration-500",
+          "w-full max-w-md md:max-w-2xl lg:max-w-3xl bg-black md:bg-zinc-900/50 md:backdrop-blur-xl md:border md:border-zinc-800 md:rounded-3xl h-[100dvh] overflow-hidden relative shadow-2xl flex flex-col transition-all duration-500",
           activeView !== 'home' && "md:bg-black"
         )}
       >

@@ -221,61 +221,60 @@ export function AnalysisView({ onBack, onNextPhase, audioRef: _audioRef, current
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>
-      </div>
 
-      {/* Dictionary Modal */}
-      {selectedWordEntry && (
-        <>
-          <div
-            className="absolute inset-0 bg-black/40 z-50 transition-opacity"
-            onClick={() => setSelectedWordEntry(null)}
-          ></div>
-          <div className="absolute bottom-0 left-0 right-0 bg-zinc-900 border-t border-zinc-800 rounded-t-3xl p-6 z-50 pb-[calc(2rem+env(safe-area-inset-bottom))] animate-in slide-in-from-bottom duration-300">
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <h3 className="text-3xl font-bold text-white mb-1">{selectedWordEntry.word}</h3>
-                <div className="flex items-center gap-2 text-zinc-400">
-                  <span className="font-mono text-sm">{selectedWordEntry.phonetic}</span>
-                  <button
-                    onClick={() => {
-                      // 🔊 Use Web Speech API for pronunciation
-                      const utterance = new SpeechSynthesisUtterance(selectedWordEntry.word);
-                      utterance.lang = 'en-US'; // American English
-                      utterance.rate = 0.9; // Slightly slower for clarity
-                      utterance.volume = 1.0; // Match audio file volume
-                      speechSynthesis.speak(utterance);
-                    }}
-                    className="p-1 rounded-full bg-zinc-800 hover:bg-zinc-700">
-                    <Volume2 className="w-4 h-4 text-indigo-400" />
-                  </button>
+        {/* Dictionary Modal */}
+        {selectedWordEntry && (
+          <>
+            <div
+              className="absolute inset-0 bg-black/40 z-50 transition-opacity"
+              onClick={() => setSelectedWordEntry(null)}
+            ></div>
+            <div className="absolute bottom-0 left-0 right-0 bg-zinc-900 border-t border-zinc-800 rounded-t-3xl p-6 z-50 pb-[calc(2rem+env(safe-area-inset-bottom))] animate-in slide-in-from-bottom duration-300">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h3 className="text-3xl font-bold text-white mb-1">{selectedWordEntry.word}</h3>
+                  <div className="flex items-center gap-2 text-zinc-400">
+                    <span className="font-mono text-sm">{selectedWordEntry.phonetic}</span>
+                    <button
+                      onClick={() => {
+                        // 🔊 Use Web Speech API for pronunciation
+                        const utterance = new SpeechSynthesisUtterance(selectedWordEntry.word);
+                        utterance.lang = 'en-US'; // American English
+                        utterance.rate = 0.9; // Slightly slower for clarity
+                        utterance.volume = 1.0; // Match audio file volume
+                        speechSynthesis.speak(utterance);
+                      }}
+                      className="p-1 rounded-full bg-zinc-800 hover:bg-zinc-700">
+                      <Volume2 className="w-4 h-4 text-indigo-400" />
+                    </button>
+                  </div>
                 </div>
+                <button
+                  onClick={() => setSelectedWordEntry(null)}
+                  className="p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-white hover:bg-zinc-700"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-              <button
-                onClick={() => setSelectedWordEntry(null)}
-                className="p-2 bg-zinc-800 rounded-full text-zinc-400 hover:text-white hover:bg-zinc-700"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
 
-            <div className="space-y-4">
-              {selectedWordEntry.meanings.map((meaning, i) => (
-                <div key={i}>
-                  <span className="text-xs font-bold text-indigo-400 uppercase tracking-wider bg-indigo-500/10 px-2 py-0.5 rounded">{meaning.partOfSpeech}</span>
-                  <ul className="mt-2 space-y-2">
-                    {meaning.definitions.map((def, j) => (
-                      <li key={j} className="text-zinc-300 text-base leading-relaxed">
-                        • {def}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
+              <div className="space-y-4">
+                {selectedWordEntry.meanings.map((meaning, i) => (
+                  <div key={i}>
+                    <span className="text-xs font-bold text-indigo-400 uppercase tracking-wider bg-indigo-500/10 px-2 py-0.5 rounded">{meaning.partOfSpeech}</span>
+                    <ul className="mt-2 space-y-2">
+                      {meaning.definitions.map((def, j) => (
+                        <li key={j} className="text-zinc-300 text-base leading-relaxed">
+                          • {def}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        </>
-      )}
+          </>
+        )}
 
-    </div>
-  );
+      </div>
+      );
 }

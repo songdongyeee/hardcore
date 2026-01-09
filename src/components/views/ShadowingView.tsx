@@ -31,7 +31,7 @@ interface ShadowingViewProps {
   waveformData?: number[][]; // Waveform visualization data [[min, max], ...]
 }
 
-type ShadowingStatus = 'idle' | 'recording' | 'review';
+type ShadowingStatus = 'idle' | 'preparing' | 'recording' | 'review';
 
 export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId, waveformData }: ShadowingViewProps) {
   // UNIQUE SESSION KEY PER AUDIO FILE
@@ -758,9 +758,15 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
 
   const startRecording = async () => {
     try {
+      // ✅ 阶段1: 立即显示"准备录音" - 用户马上看到反馈
+      setStatus('preparing');
+
       await Haptics.impact({ style: ImpactStyle.Light });
       const canRecord = await VoiceRecorder.canDeviceVoiceRecord();
-      if (!canRecord.value) return alert("Device Capability Error");
+      if (!canRecord.value) {
+        setStatus('idle');
+        return alert("Device Capability Error");
+      }
 
       if (userWs.current) { userWs.current.destroy(); userWs.current = null; }
       setRecordedBase64(null);
@@ -770,12 +776,15 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
       userAudioRef.current?.pause();
 
       await VoiceRecorder.startRecording();
+
+      // ✅ 阶段2: 录音真正开始,切换到"录音中"
       setStatus('recording');
       const startOffset = sourceWs.current ? sourceWs.current.getCurrentTime() : 0;
       startTimeRef.current = performance.now() - (startOffset * 1000);
 
       if (sourceWs.current) sourceWs.current.pause();
     } catch (e: any) {
+      setStatus('idle');
       alert('Record Error: ' + e.message);
     }
   };
@@ -893,297 +902,318 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
 
   const totalDuration = Math.max(duration, userDuration);
   const totalWidth = totalDuration > 0 ? (totalDuration * PX_PER_SEC) : '100%';
-  const paddingX = '50vw';
+
+  // 🔥 FIX: Calculate padding based on actual container width, not viewport width
+  // This ensures waveform is centered correctly on both mobile and iPad
+  const containerWidth = scrollContainerRef.current?.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 448);
+  const paddingX = `${containerWidth / 2}px`;
 
   return (
     <div className="absolute inset-0 z-50 flex flex-col bg-black text-white pt-[env(safe-area-inset-top)] pb-12 overflow-hidden">
-      <div className="flex items-center justify-between h-14 px-4 shrink-0 z-20 bg-black/80 backdrop-blur-md">
-        <button onClick={handleBack} className="p-2"><ChevronLeft className="w-6 h-6 text-zinc-400" /></button>
-        <div className="flex flex-col items-center">
-          <span className="text-xs font-medium text-zinc-500 tracking-widest uppercase">第三步</span>
-          <span className="text-sm font-semibold text-white tracking-tight">语速 要一样</span>
-        </div>
-        <button onClick={handleHome} className="p-2"><X className="w-6 h-6 text-zinc-400" /></button>
-      </div>
-
-      <div className="flex-1 relative min-h-0 bg-[#0c0c0c] group">
-        {/* Loading Indicator */}
-        {isWaveformLoading && (
-          <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-            <div className="flex flex-col items-center gap-3">
-              <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-              <span className="text-sm text-white/60 tracking-wide">加载波形中...</span>
-            </div>
+      {/* Centered Container for iPad - keeps 50vw padding calculation consistent */}
+      <div className="w-full max-w-md md:max-w-2xl lg:max-w-3xl mx-auto h-full flex flex-col relative">
+        <div className="flex items-center justify-between h-14 px-4 shrink-0 z-20 bg-black/80 backdrop-blur-md">
+          <button onClick={handleBack} className="p-2"><ChevronLeft className="w-6 h-6 text-zinc-400" /></button>
+          <div className="flex flex-col items-center">
+            <span className="text-xs font-medium text-zinc-500 tracking-widest uppercase">第三步</span>
+            <span className="text-sm font-semibold text-white tracking-tight">语速 要一样</span>
           </div>
-        )}
+          <button onClick={handleHome} className="p-2"><X className="w-6 h-6 text-zinc-400" /></button>
+        </div>
 
-        <div
-          className={cn(
-            "absolute left-1/2 top-0 z-10 -translate-x-1/2 w-[2px] pointer-events-none transition-all duration-300",
-            status === 'recording'
-              ? "bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.8)] animate-pulse h-[250px]"
-              : status === 'review'
-                ? "bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)] bottom-[120px]"
-                : "bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)] bottom-0"
+        <div className="flex-1 relative min-h-0 bg-[#0c0c0c] group">
+          {/* Loading Indicator */}
+          {isWaveformLoading && (
+            <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+              <div className="flex flex-col items-center gap-3">
+                <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                <span className="text-sm text-white/60 tracking-wide">加载波形中...</span>
+              </div>
+            </div>
           )}
-        ></div>
 
-        <div
-          ref={scrollContainerRef}
-          className="w-full h-full overflow-x-auto overflow-y-hidden no-scrollbar relative z-10"
-          onScroll={onScroll}
-          onPointerDown={handlePointerDown}
-          onPointerUp={handlePointerUp}
-          onPointerLeave={handlePointerUp}
-        >
           <div
-            className="relative h-full"
-            style={{
-              width: typeof totalWidth === 'number' ? `${totalWidth}px` : totalWidth,
-              marginLeft: paddingX,
-              marginRight: paddingX,
-              minWidth: '50vw'
-            }}
+            className={cn(
+              "absolute left-1/2 top-0 z-10 -translate-x-1/2 w-[2px] pointer-events-none transition-all duration-300",
+              status === 'preparing'
+                ? "bg-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.8)] animate-pulse h-[250px]"
+                : status === 'recording'
+                  ? "bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.8)] animate-pulse h-[250px]"
+                  : status === 'review'
+                    ? "bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)] bottom-[120px]"
+                    : "bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)] bottom-0"
+            )}
+          ></div>
+
+          <div
+            ref={scrollContainerRef}
+            className="w-full h-full overflow-x-auto overflow-y-hidden no-scrollbar relative z-10"
+            onScroll={onScroll}
+            onPointerDown={handlePointerDown}
+            onPointerUp={handlePointerUp}
+            onPointerLeave={handlePointerUp}
           >
             <div
-              className="absolute top-[40px] h-[160px] opacity-80 pointer-events-none"
-              ref={sourceContainerRef}
+              className="relative h-full"
               style={{
-                left: `${segmentStart * PX_PER_SEC}px`,
-                width: fullPeaks && fullPeaks.length > SEGMENT_DURATION * PEAKS_PER_SEC
-                  ? `${SEGMENT_DURATION * PX_PER_SEC}px`
-                  : '100%'
+                width: typeof totalWidth === 'number' ? `${totalWidth}px` : totalWidth,
+                marginLeft: paddingX,
+                marginRight: paddingX,
+                minWidth: paddingX
               }}
-            />
-
-            <div className="absolute top-[214px] left-4 z-30 pointer-events-auto">
-              <button
-                onClick={toggleCloze}
-                className="flex items-center gap-1.5 px-2.5 py-1 bg-zinc-900/95 backdrop-blur-md border border-zinc-700/50 rounded-full text-[10px] font-bold text-zinc-100 shadow-xl active:scale-95 transition-all h-[24px] min-w-[60px] justify-center"
-              >
-                {clozeMode === 'hidden' && <EyeOff className="w-3 h-3 text-zinc-400" />}
-                {clozeMode === 'partial' && <Eye className="w-3 h-3 text-amber-400" />}
-                {clozeMode === 'visible' && <Eye className="w-3 h-3 text-emerald-400" />}
-
-                <span className="tracking-widest leading-none text-center">
-                  {clozeMode === 'hidden' && "文本"}
-                  {clozeMode === 'partial' && "70%"}
-                  {clozeMode === 'visible' && "隐藏"}
-                </span>
-              </button>
-            </div>
-
-            <div className="absolute top-[210px] left-0 w-full h-[30px] pointer-events-none z-20">
-              {transcript.map((seg, si) =>
-                seg.words?.map((word, wi) => {
-                  const left = word.start * PX_PER_SEC;
-                  const width = Math.max((word.end - word.start) * PX_PER_SEC, 20);
-                  return (
-                    <div
-                      key={`${si}-${wi}`}
-                      className={cn(
-                        "absolute top-[4px] flex items-center justify-center text-xs font-medium transition-all duration-300 select-none px-0.5 whitespace-nowrap overflow-hidden rounded-[2px] h-[18px]",
-                        // UI Polish: Block style for Cloze
-                        (() => {
-                          if (clozeMode === 'hidden') return "bg-zinc-800 text-transparent";
-                          if (clozeMode === 'visible') return "text-white/60 bg-transparent";
-                          // Partial
-                          const isHidden = hiddenIndices.has(`${si}-${wi}`);
-                          return isHidden ? "bg-zinc-800 text-transparent" : "text-white/60 bg-transparent";
-                        })()
-                      )}
-                      style={{ left: `${left}px`, width: `${width - 2}px` }} // Add small gap
-                    >
-                      {word.text}
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            <div className="absolute top-[250px] left-0 w-full h-[160px] pointer-events-none">
-              <div
-                ref={userContainerRef}
-                className={cn(
-                  "absolute inset-0 w-full h-full transition-opacity duration-500 delay-100",
-                  status === 'review' ? "opacity-100" : "opacity-0"
-                )}
-              />
-            </div>
-          </div>
-        </div>
-
-        {status === 'recording' && (
-          <div className="absolute left-0 right-0 top-[250px] h-[160px] pointer-events-none z-10 flex flex-col items-center justify-center">
-            <div className="absolute w-64 h-64 bg-rose-500/10 rounded-full blur-3xl pointer-events-none animate-pulse"></div>
-            <div className="flex items-center justify-center gap-1.5 h-16 relative z-10">
-              <div className="w-1.5 bg-rose-500 rounded-full animate-sound-bar bar-1"></div>
-              <div className="w-1.5 bg-rose-400 rounded-full animate-sound-bar bar-2"></div>
-              <div className="w-1.5 bg-rose-500 rounded-full animate-sound-bar bar-3"></div>
-              <div className="w-1.5 bg-rose-300 rounded-full animate-sound-bar bar-4"></div>
-              <div className="w-1.5 bg-rose-500 rounded-full animate-sound-bar bar-5"></div>
-              <div className="w-1.5 bg-rose-400 rounded-full animate-sound-bar bar-6"></div>
-              <div className="w-1.5 bg-rose-500 rounded-full animate-sound-bar bar-2"></div>
-              <div className="w-1.5 bg-rose-300 rounded-full animate-sound-bar bar-4"></div>
-              <div className="w-1.5 bg-rose-500 rounded-full animate-sound-bar bar-1"></div>
-              <div className="w-1.5 bg-rose-400 rounded-full animate-sound-bar bar-3"></div>
-            </div>
-            <div className="mt-4 flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></div>
-              <span className="text-sm font-medium text-rose-500 tracking-wide uppercase">Listening...</span>
-            </div>
-          </div>
-        )}
-
-        {status === 'review' && (
-          <>
-            <div className="absolute right-0 top-0 bottom-0 w-[48px] border-l border-zinc-800/50 bg-black/20 z-10 animate-in fade-in slide-in-from-right-8">
-              <div className="absolute top-[60px] left-0 right-0 flex flex-col items-center gap-2 h-[160px] justify-center">
-                <div className="flex flex-col items-center gap-1.5">
-                  <button
-                    onClick={toggleSourceMute}
-                    className={cn(
-                      "w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200",
-                      !isSourceMuted
-                        ? "bg-white text-black shadow-[0_0_15px_rgba(255,255,255,0.4)] scale-110"
-                        : "bg-zinc-800 text-zinc-500 border border-zinc-500"
-                    )}
-                  >
-                    {!isSourceMuted ? <Ear className="w-3.5 h-3.5" /> : <EarOff className="w-3.5 h-3.5" />}
-                  </button>
-                  <span className="text-[8px] font-bold tracking-widest transition-colors text-zinc-200">原声</span>
-                </div>
-              </div>
-
-              <div className="absolute top-[250px] left-0 right-0 flex flex-col items-center gap-2 h-[160px] justify-center">
-                <div className="flex flex-col items-center gap-1.5">
-                  <button
-                    onClick={toggleUserMute}
-                    className={cn(
-                      "w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200",
-                      !isUserMuted
-                        ? "bg-white text-black shadow-[0_0_15px_rgba(255,255,255,0.4)] scale-110"
-                        : "bg-zinc-800 text-zinc-500 border border-zinc-500"
-                    )}
-                  >
-                    {!isUserMuted ? <Ear className="w-3.5 h-3.5" /> : <EarOff className="w-3.5 h-3.5" />}
-                  </button>
-                  <span className="text-[8px] font-bold tracking-widest transition-colors text-zinc-200">录音</span>
-                </div>
-              </div>
-            </div>
-
-            <button
-              onClick={toggleMasterPlay}
-              className="absolute left-1/2 -translate-x-1/2 bottom-[30px] z-10 w-20 h-20 rounded-full bg-white text-black shadow-[0_0_40px_rgba(255,255,255,0.4)] flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
             >
-              {isPlayingMaster ? <Pause className="w-8 h-8 fill-current" /> : <Play className="w-8 h-8 fill-current ml-1" />}
-            </button>
-          </>
-        )}
-      </div>
+              <div
+                className="absolute top-[40px] h-[160px] opacity-80 pointer-events-none"
+                ref={sourceContainerRef}
+                style={{
+                  left: `${segmentStart * PX_PER_SEC}px`,
+                  width: fullPeaks && fullPeaks.length > SEGMENT_DURATION * PEAKS_PER_SEC
+                    ? `${SEGMENT_DURATION * PX_PER_SEC}px`
+                    : '100%'
+                }}
+              />
 
-      <div className="h-48 bg-zinc-950 flex flex-col justify-between shrink-0 z-20 border-t border-zinc-900 pb-[env(safe-area-inset-bottom)] pt-4 px-6">
-        <div className="flex-1 flex items-center justify-center w-full">
-          {status === 'idle' && (
-            <div className="flex items-center justify-center w-full animate-in fade-in slide-in-from-bottom-4">
-              <button onClick={startRecording} className="relative group">
-                <div className="absolute inset-0 bg-red-600 rounded-full blur opacity-20 group-hover:opacity-40 transition-opacity" />
-                <div className="w-20 h-20 rounded-full bg-red-600 border-[3px] border-zinc-900 shadow-2xl flex items-center justify-center group-active:scale-95 transition-transform">
-                  <Mic className="w-8 h-8 text-white" />
-                </div>
-              </button>
-              <span className="absolute mt-28 text-xs text-zinc-500 tracking-wider font-medium">TAP TO RECORD</span>
-            </div>
-          )}
+              <div className="absolute top-[214px] left-4 z-30 pointer-events-auto">
+                <button
+                  onClick={toggleCloze}
+                  className="flex items-center gap-1.5 px-2.5 py-1 bg-zinc-900/95 backdrop-blur-md border border-zinc-700/50 rounded-full text-[10px] font-bold text-zinc-100 shadow-xl active:scale-95 transition-all h-[24px] min-w-[60px] justify-center"
+                >
+                  {clozeMode === 'hidden' && <EyeOff className="w-3 h-3 text-zinc-400" />}
+                  {clozeMode === 'partial' && <Eye className="w-3 h-3 text-amber-400" />}
+                  {clozeMode === 'visible' && <Eye className="w-3 h-3 text-emerald-400" />}
 
-          {status === 'recording' && (
-            <div className="flex flex-col items-center gap-4 animate-in zoom-in">
-              <div className="relative">
-                <div className="absolute inset-0 bg-red-500/30 rounded-full animate-ping" />
-                <button onClick={stopRecording} className="relative w-24 h-24 rounded-full bg-transparent border-[4px] border-white flex items-center justify-center transition-transform active:scale-90">
-                  <div className="w-10 h-10 bg-red-500 rounded-md shadow-inner" />
+                  <span className="tracking-widest leading-none text-center">
+                    {clozeMode === 'hidden' && "文本"}
+                    {clozeMode === 'partial' && "70%"}
+                    {clozeMode === 'visible' && "隐藏"}
+                  </span>
                 </button>
               </div>
-              <span className="text-red-500 font-bold tracking-[0.2em] text-xs uppercase animate-pulse">Recording...</span>
+
+              <div className="absolute top-[210px] left-0 w-full h-[30px] pointer-events-none z-20">
+                {transcript.map((seg, si) =>
+                  seg.words?.map((word, wi) => {
+                    const left = word.start * PX_PER_SEC;
+                    const width = Math.max((word.end - word.start) * PX_PER_SEC, 20);
+                    return (
+                      <div
+                        key={`${si}-${wi}`}
+                        className={cn(
+                          "absolute top-[4px] flex items-center justify-center text-xs font-medium transition-all duration-300 select-none px-0.5 whitespace-nowrap overflow-hidden rounded-[2px] h-[18px]",
+                          // UI Polish: Block style for Cloze
+                          (() => {
+                            if (clozeMode === 'hidden') return "bg-zinc-800 text-transparent";
+                            if (clozeMode === 'visible') return "text-white/60 bg-transparent";
+                            // Partial
+                            const isHidden = hiddenIndices.has(`${si}-${wi}`);
+                            return isHidden ? "bg-zinc-800 text-transparent" : "text-white/60 bg-transparent";
+                          })()
+                        )}
+                        style={{ left: `${left}px`, width: `${width - 2}px` }} // Add small gap
+                      >
+                        {word.text}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              <div className="absolute top-[250px] left-0 w-full h-[160px] pointer-events-none">
+                <div
+                  ref={userContainerRef}
+                  className={cn(
+                    "absolute inset-0 w-full h-full transition-opacity duration-500 delay-100",
+                    status === 'review' ? "opacity-100" : "opacity-0"
+                  )}
+                />
+              </div>
+            </div>
+          </div>
+
+          {status === 'recording' && (
+            <div className="absolute left-0 right-0 top-[250px] h-[160px] pointer-events-none z-10 flex flex-col items-center justify-center">
+              <div className="absolute w-64 h-64 bg-rose-500/10 rounded-full blur-3xl pointer-events-none animate-pulse"></div>
+              <div className="flex items-center justify-center gap-1.5 h-16 relative z-10">
+                <div className="w-1.5 bg-rose-500 rounded-full animate-sound-bar bar-1"></div>
+                <div className="w-1.5 bg-rose-400 rounded-full animate-sound-bar bar-2"></div>
+                <div className="w-1.5 bg-rose-500 rounded-full animate-sound-bar bar-3"></div>
+                <div className="w-1.5 bg-rose-300 rounded-full animate-sound-bar bar-4"></div>
+                <div className="w-1.5 bg-rose-500 rounded-full animate-sound-bar bar-5"></div>
+                <div className="w-1.5 bg-rose-400 rounded-full animate-sound-bar bar-6"></div>
+                <div className="w-1.5 bg-rose-500 rounded-full animate-sound-bar bar-2"></div>
+                <div className="w-1.5 bg-rose-300 rounded-full animate-sound-bar bar-4"></div>
+                <div className="w-1.5 bg-rose-500 rounded-full animate-sound-bar bar-1"></div>
+                <div className="w-1.5 bg-rose-400 rounded-full animate-sound-bar bar-3"></div>
+              </div>
+              <div className="mt-4 flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></div>
+                <span className="text-sm font-medium text-rose-500 tracking-wide uppercase">Listening...</span>
+              </div>
             </div>
           )}
 
           {status === 'review' && (
-            <div className="w-full h-full flex items-center justify-between gap-4 animate-in fade-in slide-in-from-bottom-4 px-4 relative z-10">
-              <button
-                onClick={() => {
-                  if (sourceWs.current) {
-                    sourceWs.current.setTime(0);
-                    sourceWs.current.pause();
-                  }
-                  scrollToUnsafe(0);
-                  setStatus('idle');
-                  Preferences.remove({ key: sessionKey });
-                }}
-                className="flex-[1.2] h-14 rounded-2xl bg-zinc-900 text-zinc-400 font-semibold tracking-wide flex items-center justify-center border border-zinc-800 hover:bg-zinc-800 hover:text-white active:scale-95 transition-all"
-              >
-                <div className="flex items-center gap-2">
-                  <RotateCcw className="w-5 h-5" />
-                  <span>重录</span>
+            <>
+              <div className="absolute right-0 top-0 bottom-0 w-[48px] border-l border-zinc-800/50 bg-black/20 z-10 animate-in fade-in slide-in-from-right-8">
+                <div className="absolute top-[60px] left-0 right-0 flex flex-col items-center gap-2 h-[160px] justify-center">
+                  <div className="flex flex-col items-center gap-1.5">
+                    <button
+                      onClick={toggleSourceMute}
+                      className={cn(
+                        "w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200",
+                        !isSourceMuted
+                          ? "bg-white text-black shadow-[0_0_15px_rgba(255,255,255,0.4)] scale-110"
+                          : "bg-zinc-800 text-zinc-500 border border-zinc-500"
+                      )}
+                    >
+                      {!isSourceMuted ? <Ear className="w-3.5 h-3.5" /> : <EarOff className="w-3.5 h-3.5" />}
+                    </button>
+                    <span className="text-[8px] font-bold tracking-widest transition-colors text-zinc-200">原声</span>
+                  </div>
                 </div>
-              </button>
+
+                <div className="absolute top-[250px] left-0 right-0 flex flex-col items-center gap-2 h-[160px] justify-center">
+                  <div className="flex flex-col items-center gap-1.5">
+                    <button
+                      onClick={toggleUserMute}
+                      className={cn(
+                        "w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200",
+                        !isUserMuted
+                          ? "bg-white text-black shadow-[0_0_15px_rgba(255,255,255,0.4)] scale-110"
+                          : "bg-zinc-800 text-zinc-500 border border-zinc-500"
+                      )}
+                    >
+                      {!isUserMuted ? <Ear className="w-3.5 h-3.5" /> : <EarOff className="w-3.5 h-3.5" />}
+                    </button>
+                    <span className="text-[8px] font-bold tracking-widest transition-colors text-zinc-200">录音</span>
+                  </div>
+                </div>
+              </div>
 
               <button
-                onClick={async () => {
-                  if (!recordedBase64) return;
-
-                  // 🔒 PAYWALL CHECK
-                  // Use PocketBase auth store for stable VIP check (avoids async/cache issues)
-
-                  // Force refresh auth store model if possible
-                  if (pb.authStore.isValid && !pb.authStore.model) {
-                    try { await pb.collection('users').authRefresh(); } catch (e) { }
-                  }
-
-                  const user = pb.authStore.model;
-                  const tier = user?.subscription_tier || 'free';
-                  console.log('[ShadowingView] Clicked Save. User:', user?.id, 'Tier:', tier);
-
-                  const isPaidUser = tier === 'monthly' || tier === 'quarterly' || tier === 'yearly';
-
-                  if (!isPaidUser) {
-                    console.log('[ShadowingView] Access Denied. Showing Paywall.');
-                    setShowPaywall(true);
-                    return;
-                  }
-
-                  console.log('[ShadowingView] Access Granted. Saving...');
-
-                  try {
-                    const fileName = "shadowing_" + Date.now() + ".aac";
-                    await Filesystem.writeFile({
-                      path: fileName,
-                      data: recordedBase64,
-                      directory: Directory.Documents
-                    });
-                    alert("保存成功！\n\n已保存至“文件 > 我的iPhone > 语核”文件夹");
-                  } catch (e: any) { alert("Save Failed:" + e.message); }
-                }}
-                className="flex-[2] h-14 rounded-2xl bg-[#00D68F] text-black font-bold tracking-wide flex items-center justify-center hover:brightness-110 active:scale-95 transition-all shadow-lg shadow-[#00D68F]/20"
+                onClick={toggleMasterPlay}
+                className="absolute left-1/2 -translate-x-1/2 bottom-[30px] z-10 w-20 h-20 rounded-full bg-white text-black shadow-[0_0_40px_rgba(255,255,255,0.4)] flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
               >
-                <div className="flex items-center gap-2">
-                  <Download className="w-5 h-5" />
-                  <span>保存录音</span>
-                </div>
+                {isPlayingMaster ? <Pause className="w-8 h-8 fill-current" /> : <Play className="w-8 h-8 fill-current ml-1" />}
               </button>
-            </div>
+            </>
           )}
         </div>
 
-        <Paywall
-          isOpen={showPaywall}
-          onClose={() => setShowPaywall(false)}
-          onSuccess={() => {
-            setShowPaywall(false);
-            alert("开通成功！请再次点击“保存”按钮。");
-          }}
-        />
+        <div className="h-48 bg-zinc-950 flex flex-col justify-between shrink-0 z-20 border-t border-zinc-900 pb-[env(safe-area-inset-bottom)] pt-4 px-6">
+          <div className="flex-1 flex items-center justify-center w-full">
+            {status === 'idle' && (
+              <div className="flex items-center justify-center w-full animate-in fade-in slide-in-from-bottom-4">
+                <button onClick={startRecording} className="relative group">
+                  <div className="absolute inset-0 bg-red-600 rounded-full blur opacity-20 group-hover:opacity-40 transition-opacity" />
+                  <div className="w-20 h-20 rounded-full bg-red-600 border-[3px] border-zinc-900 shadow-2xl flex items-center justify-center group-active:scale-95 transition-transform">
+                    <Mic className="w-8 h-8 text-white" />
+                  </div>
+                </button>
+                <span className="absolute mt-28 text-xs text-zinc-500 tracking-wider font-medium">TAP TO RECORD</span>
+              </div>
+            )}
+
+            {status === 'preparing' && (
+              <div className="flex flex-col items-center gap-4 animate-in zoom-in">
+                <div className="relative">
+                  <div className="absolute inset-0 bg-amber-500/30 rounded-full animate-ping" />
+                  <div className="relative w-24 h-24 rounded-full bg-transparent border-[4px] border-amber-500 flex items-center justify-center">
+                    <div className="w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+                  </div>
+                </div>
+                <span className="text-amber-500 font-bold tracking-[0.2em] text-xs uppercase animate-pulse">准备录音中...</span>
+              </div>
+            )}
+
+            {status === 'recording' && (
+              <div className="flex flex-col items-center gap-4 animate-in zoom-in">
+                <div className="relative">
+                  <div className="absolute inset-0 bg-red-500/30 rounded-full animate-ping" />
+                  <button onClick={stopRecording} className="relative w-24 h-24 rounded-full bg-transparent border-[4px] border-white flex items-center justify-center transition-transform active:scale-90">
+                    <div className="w-10 h-10 bg-red-500 rounded-md shadow-inner" />
+                  </button>
+                </div>
+                <span className="text-red-500 font-bold tracking-[0.2em] text-xs uppercase animate-pulse">Recording...</span>
+              </div>
+            )}
+
+            {status === 'review' && (
+              <div className="w-full h-full flex items-center justify-between gap-4 animate-in fade-in slide-in-from-bottom-4 px-4 relative z-10">
+                <button
+                  onClick={() => {
+                    if (sourceWs.current) {
+                      sourceWs.current.setTime(0);
+                      sourceWs.current.pause();
+                    }
+                    scrollToUnsafe(0);
+                    setStatus('idle');
+                    Preferences.remove({ key: sessionKey });
+                  }}
+                  className="flex-[1.2] h-14 rounded-2xl bg-zinc-900 text-zinc-400 font-semibold tracking-wide flex items-center justify-center border border-zinc-800 hover:bg-zinc-800 hover:text-white active:scale-95 transition-all"
+                >
+                  <div className="flex items-center gap-2">
+                    <RotateCcw className="w-5 h-5" />
+                    <span>重录</span>
+                  </div>
+                </button>
+
+                <button
+                  onClick={async () => {
+                    if (!recordedBase64) return;
+
+                    // 🔒 PAYWALL CHECK
+                    // Use PocketBase auth store for stable VIP check (avoids async/cache issues)
+
+                    // Force refresh auth store model if possible
+                    if (pb.authStore.isValid && !pb.authStore.model) {
+                      try { await pb.collection('users').authRefresh(); } catch (e) { }
+                    }
+
+                    const user = pb.authStore.model;
+                    const tier = user?.subscription_tier || 'free';
+                    console.log('[ShadowingView] Clicked Save. User:', user?.id, 'Tier:', tier);
+
+                    const isPaidUser = tier === 'monthly' || tier === 'quarterly' || tier === 'yearly';
+
+                    if (!isPaidUser) {
+                      console.log('[ShadowingView] Access Denied. Showing Paywall.');
+                      setShowPaywall(true);
+                      return;
+                    }
+
+                    console.log('[ShadowingView] Access Granted. Saving...');
+
+                    try {
+                      const fileName = "shadowing_" + Date.now() + ".aac";
+                      await Filesystem.writeFile({
+                        path: fileName,
+                        data: recordedBase64,
+                        directory: Directory.Documents
+                      });
+                      alert("保存成功！\n\n已保存至“文件 > 我的iPhone > 语核”文件夹");
+                    } catch (e: any) { alert("Save Failed:" + e.message); }
+                  }}
+                  className="flex-[2] h-14 rounded-2xl bg-[#00D68F] text-black font-bold tracking-wide flex items-center justify-center hover:brightness-110 active:scale-95 transition-all shadow-lg shadow-[#00D68F]/20"
+                >
+                  <div className="flex items-center gap-2">
+                    <Download className="w-5 h-5" />
+                    <span>保存录音</span>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
+
+          <Paywall
+            isOpen={showPaywall}
+            onClose={() => setShowPaywall(false)}
+            onSuccess={() => {
+              setShowPaywall(false);
+              alert("开通成功！请再次点击“保存”按钮。");
+            }}
+          />
+        </div>
       </div>
     </div>
   );

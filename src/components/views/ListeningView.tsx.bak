@@ -392,6 +392,5 @@ export function ListeningView({
           </button>
         </div>
       </div>
-    </div>
-  );
+      );
 }
