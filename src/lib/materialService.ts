@@ -12,6 +12,17 @@ const SNAPSHOT_KEY = 'materials_snapshot_v1';
 
 export const materialService = {
     /**
+     * 获取本地日期字符串（避免UTC时区问题）
+     */
+    getLocalDateString(): string {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    },
+
+    /**
      * Loads the last known good state from local storage for instant render
      * 🎯 缓存所有材料（包括 Daily Spark）以实现秒开
      */
@@ -21,20 +32,17 @@ export const materialService = {
             if (!value) return null;
             const materials = JSON.parse(value);
 
-            // 🔥 过滤掉过期的 Daily Spark
-            const { value: lastDateStr } = await Preferences.get({ key: 'daily_spark_date' });
-            const today = new Date().toISOString().split('T')[0]; // "2024-01-08"
-            const cachedDate = lastDateStr ? new Date(lastDateStr).toISOString().split('T')[0] : '';
+            // ✅ 优化：始终返回完整缓存，包括Daily Spark
+            // 理由：
+            // 1. 避免Daily Spark区域消失，用户体验更好
+            // 2. 显示昨天的内容总比不显示好
+            // 3. 后台加载会在1-2秒内替换成今天的内容
+            // 4. 用户感知：旧内容 → 平滑过渡 → 新内容
 
-            // 如果日期变了，移除所有 Daily Spark（让后台加载今天的）
-            if (today !== cachedDate) {
-                console.log('🗓️ Date changed, filtering out cached Daily Spark');
-                return materials.filter((m: Material) => m.location !== 'daily_spark');
-            }
-
-            // 日期没变，返回所有材料（包括 Daily Spark）
+            console.log('✅ [Cache] Loaded snapshot with', materials.length, 'materials');
             return materials;
         } catch (e) {
+            console.error('Failed to load cache snapshot:', e);
             return null;
         }
     },
@@ -525,10 +533,11 @@ export const materialService = {
             const { value: lastDateStr } = await Preferences.get({ key: STORAGE_KEY_DATE });
             const { value: cachedId } = await Preferences.get({ key: STORAGE_KEY_ID });
 
-            // 🎯 改用日期字符串比较（更可靠）
-            const now = new Date();
-            const todayDateStr = now.toISOString().split('T')[0];  // "2024-12-30"
-            const lastSelectedDateStr = lastDateStr ? new Date(lastDateStr).toISOString().split('T')[0] : '';
+            // 🎯 使用本地日期比较（避免UTC时区问题）
+            const todayDateStr = this.getLocalDateString();  // "2026-01-10"
+            const lastSelectedDateStr = lastDateStr
+                ? new Date(lastDateStr).toLocaleDateString('en-CA')  // "2026-01-09"
+                : '';
 
             console.log('📅 [Daily Spark] Date check:', {
                 today: todayDateStr,
