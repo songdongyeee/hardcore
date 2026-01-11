@@ -2,7 +2,7 @@ import { pb, fetchUserProgress } from "./api";
 import { BUNDLED_MATERIALS } from "@/data/bundled_materials";
 import type { Material, UserProgress } from "@/data/types";
 import { Preferences } from '@capacitor/preferences';
-import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Capacitor } from '@capacitor/core';
 import writeBlob from 'capacitor-blob-writer';
 
@@ -25,22 +25,42 @@ export const materialService = {
     /**
      * Loads the last known good state from local storage for instant render
      * 🎯 缓存所有材料（包括 Daily Spark）以实现秒开
+     * 🔥 使用 Filesystem 存储以突破 4MB 限制
      */
     async getCachedSnapshot(): Promise<Material[] | null> {
         try {
-            const { value } = await Preferences.get({ key: SNAPSHOT_KEY });
-            if (!value) return null;
-            const materials = JSON.parse(value);
+            // 1. 尝试从 Filesystem 读取（新版本）
+            try {
+                const result = await Filesystem.readFile({
+                    path: 'cache/materials.json',
+                    directory: Directory.Documents,
+                    encoding: Encoding.UTF8
+                });
 
-            // ✅ 优化：始终返回完整缓存，包括Daily Spark
-            // 理由：
-            // 1. 避免Daily Spark区域消失，用户体验更好
-            // 2. 显示昨天的内容总比不显示好
-            // 3. 后台加载会在1-2秒内替换成今天的内容
-            // 4. 用户感知：旧内容 → 平滑过渡 → 新内容
+                const materials = JSON.parse(result.data as string);
+                console.log('✅ [Cache] Loaded snapshot from Filesystem:', materials.length, 'materials');
+                return materials;
+            } catch (fsError) {
+                console.log('📂 [Cache] Filesystem cache not found, checking Preferences...');
 
-            console.log('✅ [Cache] Loaded snapshot with', materials.length, 'materials');
-            return materials;
+                // 2. Fallback: 从 Preferences 读取并迁移（旧版本兼容）
+                const { value } = await Preferences.get({ key: SNAPSHOT_KEY });
+                if (value) {
+                    const materials = JSON.parse(value);
+                    console.log('🔄 [Cache] Migrating from Preferences to Filesystem...');
+
+                    // 迁移到 Filesystem
+                    await this.saveSnapshot(materials);
+
+                    // 清除旧的 Preferences 缓存
+                    await Preferences.remove({ key: SNAPSHOT_KEY });
+
+                    console.log('✅ [Cache] Migration complete:', materials.length, 'materials');
+                    return materials;
+                }
+
+                return null;
+            }
         } catch (e) {
             console.error('Failed to load cache snapshot:', e);
             return null;
@@ -51,16 +71,26 @@ export const materialService = {
      * Saves current materials to local storage. 
      * This ALWAYS overwrites the previous snapshot, so it never grows in size.
      * 🎯 保存所有材料（包括 Daily Spark）以实现秒开
+     * 🔥 使用 Filesystem 存储以突破 4MB 限制
      */
     async saveSnapshot(materials: Material[]): Promise<void> {
         try {
-            // 保存所有材料（包括 Daily Spark）
-            // Limits the snapshot to avoid extreme string lengths
-            const limitedMaterials = materials.slice(0, 100);
-            await Preferences.set({
-                key: SNAPSHOT_KEY,
-                value: JSON.stringify(limitedMaterials)
+            // 创建缓存目录（如果不存在）
+            await Filesystem.mkdir({
+                path: 'cache',
+                directory: Directory.Documents,
+                recursive: true
+            }).catch(() => { }); // 目录已存在时忽略错误
+
+            // 保存所有材料到 Filesystem（无大小限制）
+            await Filesystem.writeFile({
+                path: 'cache/materials.json',
+                data: JSON.stringify(materials),
+                directory: Directory.Documents,
+                encoding: Encoding.UTF8
             });
+
+            console.log('💾 [Cache] Saved snapshot to Filesystem:', materials.length, 'materials');
         } catch (e) {
             console.error("Failed to save snapshot", e);
         }
@@ -462,6 +492,28 @@ export const materialService = {
                 sentences = rawData;
             } else if (rawData.transcripts) {
                 sentences = rawData.transcripts;
+            } else if (rawData.sentences && Array.isArray(rawData.sentences)) {
+                // 🔥 FIX: 优先检查 sentences 数组（在 fallback 之前）
+                // 某些材料格式：{ "text": "...", "sentences": [...] }
+                sentences = rawData.sentences;
+            } else if (rawData.text && typeof rawData.text === 'string') {
+                // 🔥 FALLBACK: 兼容不完整的格式 { "text": "...", "content_duration_in_milliseconds": 123 }
+                // 将整段文本作为一个 segment
+                const duration = rawData.content_duration_in_milliseconds
+                    ? rawData.content_duration_in_milliseconds / 1000
+                    : 0;
+
+                console.warn('⚠️ Incomplete transcript format detected, using fallback parser:', {
+                    hasText: !!rawData.text,
+                    duration: duration
+                });
+
+                sentences = [{
+                    text: rawData.text,
+                    begin_time: 0,
+                    end_time: duration * 1000, // Convert back to ms for consistency
+                    words: [] // Empty words array, will generate mock timings below
+                }];
             }
 
             const result = sentences.map((s: any) => {

@@ -148,9 +148,14 @@ export async function saveTranscriptToCache(data: { url: string; segments: Trans
 export async function getTranscriptById(id: string): Promise<{ url: string; segments: TranscriptSegment[]; title?: string; id: string } | null> {
     try {
         const record = await pb.collection('transcripts').getOne(id);
+
+        // 🔥 FIX: 使用 text 字段并解析，而不是直接读取 transcript_data
+        const { materialService } = await import('./materialService');
+        const segments = record.text ? materialService.parseTranscript(record.text) : [];
+
         return {
-            url: record.audio_url,
-            segments: record.transcript_data as TranscriptSegment[],
+            url: record.audio_url || pb.files.getUrl(record, record.audio),
+            segments: segments,
             title: record.title,
             id: record.id
         };
@@ -286,13 +291,30 @@ export async function updateUserProgress(materialId: string, data: { is_starred?
 
             await pb.collection('user_progress').update(record.id, data);
         } catch (e) {
-            // Create new
+            // Create new - 这是首次访问这个材料
             const rawId = materialId.startsWith('user-') ? materialId.replace('user-', '') : materialId;
             await pb.collection('user_progress').create({
                 user: userId,
                 material_id: rawId,
                 ...data
             });
+
+            // 🔥 FIX: 如果是首次访问 (current_step=1) 且用户是 free tier，立即计数
+            if (data.current_step === 1) {
+                try {
+                    const user = await pb.collection('users').getOne(userId!);
+                    if (user.subscription_tier === 'free' || !user.subscription_tier) {
+                        const count = user.materials_read_count || 0;
+                        await pb.collection('users').update(userId!, {
+                            materials_read_count: count + 1
+                        });
+                        console.log(`[Free Limit] ✅ Incremented count: ${count} -> ${count + 1} for material ${materialId}`);
+                    }
+                } catch (countError) {
+                    console.error('[Free Limit] Failed to increment count:', countError);
+                    // 不抛出错误，不影响progress创建
+                }
+            }
         }
     } catch (e) {
         console.error("Failed to update user progress", e);

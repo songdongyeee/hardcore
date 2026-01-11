@@ -16,44 +16,8 @@ import { Device } from "@capacitor/device";
 import { analytics } from "@/lib/analytics";
 
 import { App as CapacitorApp } from '@capacitor/app';
-import { pb } from "@/lib/api";
 
-/**
- * 尝试在Progress创建后立即计数（不阻塞播放）
- * 只对免费用户、且Progress是新创建的（5秒内）才计数
- */
-async function tryIncrementIfFirstAccess(materialId: string) {
-  try {
-    const user = await pb.collection('users').getOne(pb.authStore.model!.id);
 
-    // 只对免费用户计数
-    if (user.subscription_tier !== 'free') return;
-
-    // 检查这个material的progress创建时间
-    const progress = await pb.collection('user_progress').getFirstListItem(
-      `user="${pb.authStore.model!.id}" && material_id="${materialId}"`
-    );
-
-    // 如果progress是刚刚创建的（5秒内），才计数
-    const createdTime = new Date(progress.created);
-    const now = new Date();
-    const diffSeconds = (now.getTime() - createdTime.getTime()) / 1000;
-
-    if (diffSeconds < 5) {
-      // 是新创建的，计数+1
-      const count = user.materials_read_count || 0;
-      await pb.collection('users').update(pb.authStore.model!.id, {
-        materials_read_count: count + 1
-      });
-      console.log(`[Count Sync] Incremented: ${count} -> ${count + 1} for material ${materialId}`);
-    } else {
-      console.log(`[Count Sync] Progress existed (${diffSeconds.toFixed(0)}s old), skipping count`);
-    }
-  } catch (error) {
-    console.error('[Count Sync] Failed to increment:', error);
-    // 不抛出错误，不影响播放
-  }
-}
 
 type ViewState = 'home' | 'listening' | 'analysis' | 'shadowing' | 'profile';
 
@@ -180,7 +144,7 @@ function App() {
   }, []); // Empty deps - listener uses latest handlePlay via closure
 
 
-  const handlePlay = (audioUrl: string, targetView?: ViewState, newTranscript?: TranscriptSegment[], materialId?: string, waveformData?: number[][], title?: string) => {
+  const handlePlay = async (audioUrl: string, targetView?: ViewState, newTranscript?: TranscriptSegment[], materialId?: string, waveformData?: number[][], title?: string) => {
     const now = Date.now();
     // Debounce: Ignore if called within 500ms (prevent double clicks causing audio restart)
     if (now - lastPlayTime.current < 500 && audioUrl === currentSrc) {
@@ -207,20 +171,50 @@ function App() {
       });
 
       // 🔥 Trigger Phase 1 Progress (Entered Listening)
+      // updateUserProgress 内部会处理 free user 计数
       if (!targetView || targetView === 'listening') {
         updateUserProgress(materialId, { current_step: 1 });
-
-        // 🔥 NEW: Progress创建后立即尝试计数（不阻塞播放）
-        tryIncrementIfFirstAccess(materialId).catch(err => {
-          console.error('[Count Sync Error]', err);
-          // 失败也不影响播放
-        });
       }
     }
 
     // Only update src if it's actually different (prevent audio reload)
     if (audioUrl !== currentSrc) {
       setCurrentSrc(audioUrl);
+    }
+
+    // 🔥 FIX: 如果 transcript 为空但有 materialId，主动加载
+    if ((!newTranscript || newTranscript.length === 0) && materialId) {
+      console.warn('⚠️ Transcript missing or empty for material:', materialId, '- fetching from server...');
+      try {
+        const fullData = await getTranscriptById(materialId);
+        if (fullData && fullData.segments && fullData.segments.length > 0) {
+          console.log('✅ Loaded transcript from server:', fullData.segments.length, 'segments');
+          setCurrentTranscript(fullData.segments);
+          setTimeout(() => setActiveView(targetView || 'listening'), 0);
+
+          // Auto-play if listening view
+          if (!targetView || targetView === 'listening') {
+            play();
+          }
+          return;
+        } else {
+          console.warn('⚠️ Server returned empty transcript for material:', materialId);
+        }
+      } catch (error: any) {
+        console.error('❌ Failed to load transcript:', error);
+
+        // 🔥 FIX: 如果是404错误，说明材料不存在，阻止播放
+        if (error.status === 404) {
+          console.error('❌ Material not found on server:', materialId);
+          // 恢复到之前的状态
+          setCurrentSrc(currentSrc); // 保持原有音频
+          // 提示用户并返回Home
+          alert('该材料不存在或已被删除');
+          setActiveView('home');
+          return;
+        }
+        // 其他错误(网络异常等)继续执行原有逻辑，不阻塞播放
+      }
     }
 
     if (newTranscript && newTranscript.length > 0) {

@@ -1,9 +1,13 @@
-import { ChevronLeft, RotateCcw, ShieldCheck, Trash2 } from "lucide-react";
+import { ChevronLeft, RotateCcw, ShieldCheck, Trash2, RefreshCw } from "lucide-react";
 import { useRevenueCat } from "@/hooks/useRevenueCat";
 import { deleteUserData, pb } from "@/lib/api";
 import { useEffect, useState } from "react";
 import { Paywall } from "@/components/Paywall";
 import { App } from "@capacitor/app";
+import { Dialog } from "@capacitor/dialog";
+import { materialService } from "@/lib/materialService";
+import { Preferences } from "@capacitor/preferences";
+import { Filesystem, Directory } from "@capacitor/filesystem";
 
 interface ProfileViewProps {
     onBack: () => void;
@@ -133,6 +137,63 @@ export function ProfileView({ onBack }: ProfileViewProps) {
                     >
                         <RotateCcw className="w-5 h-5" />
                         恢复购买
+                    </button>
+
+                    <button
+                        onClick={async () => {
+                            const { value } = await Dialog.confirm({
+                                title: '确认清除缓存？',
+                                message: '将清除已下载和上传的材料，不会影响登录和订阅。',
+                                okButtonTitle: '确认清除',
+                                cancelButtonTitle: '不'
+                            });
+
+                            if (value) {
+                                try {
+                                    // 1. 清除本地媒体文件
+                                    await materialService.clearAllCache();
+
+                                    // 2. 清除材料列表快照（Filesystem 新位置）
+                                    // 直接删除文件，而不是整个目录（避免权限问题）
+                                    try {
+                                        await Filesystem.deleteFile({
+                                            path: 'cache/materials.json',
+                                            directory: Directory.Documents
+                                        });
+                                        console.log('✅ Deleted materials.json');
+                                    } catch (e) {
+                                        console.warn('Cache file not found or already deleted');
+                                    }
+
+                                    // 3. 清除材料列表快照（Preferences 旧位置）
+                                    await Preferences.remove({ key: 'materials_snapshot_v1' });
+
+                                    // 4. 清除 Daily Spark ID
+                                    await Preferences.remove({ key: 'daily_spark_id' });
+
+                                    console.log('✅ 缓存已清除');
+
+                                    // 提示用户并返回首页，触发重新加载
+                                    await Dialog.alert({
+                                        title: '缓存已清除',
+                                        message: '正在重新加载数据...'
+                                    });
+
+                                    // 返回首页，让 HomeView 重新初始化
+                                    onBack();
+                                } catch (error) {
+                                    console.error('❌ 清除缓存失败:', error);
+                                    await Dialog.alert({
+                                        title: '清除失败',
+                                        message: '请重试'
+                                    });
+                                }
+                            }
+                        }}
+                        className="w-full h-12 bg-zinc-900 border border-zinc-800 text-zinc-400 font-medium rounded-lg flex items-center justify-center gap-2 active:scale-95 transition hover:bg-zinc-800 hover:text-white"
+                    >
+                        <RefreshCw className="w-5 h-5" />
+                        清除缓存
                     </button>
 
                     <div className="text-center text-xs text-zinc-600 pt-4 space-y-1">

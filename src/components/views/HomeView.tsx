@@ -229,23 +229,36 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
 
       } catch (error) {
         console.error('Failed to load remote data:', error);
-        // ⚠️ 不要立即显示"加载失败"，保持loading状态
-        // 原因：用户可能还在"允许网络"弹窗上，还没做决定
-        // 网络监听器会在授权后自动触发重试
-        // 只记录日志，不改变UI状态
+
+        // 🔥 FIX: 如果没有缓存数据，立即显示重试按钮
+        // 只有在有缓存数据时才保持 loading 等待网络恢复
+        if (allMaterials.length === 0 || !allMaterials.some(m => m.source !== 'bundled')) {
+          console.warn('⚠️ Failed to load remote data and no cache available, showing retry button');
+          setLoadFailed(true);
+          setIsInitialLoading(false);
+        } else {
+          console.log('✅ Has cached data, will retry in background');
+        }
       }
     };
 
     initData();
 
-    // 🕐 超时检查：30秒后如果还在loading且没有材料，显示重试按钮
+    // 🕐 超时检查：30秒后如果还在loading且连 bundled materials 都没有，显示重试按钮
     // 🛡️ Strict Auth Gate: Only start timer if auth check is complete
     let timeoutId: any;
     if (isAuthCheckComplete) {
       timeoutId = setTimeout(() => {
-        if (isInitialLoading && allMaterials.length === 0) {
+        // 📦 只有在连 bundled materials 都没有时才认为超时
+        // 如果有 bundled materials，说明 App 可以正常使用，即使远程数据加载失败
+        const hasBundled = allMaterials.some(m => m.source === 'bundled');
+        if (isInitialLoading && !hasBundled) {
           console.warn('⏱️ Loading timeout after 30s, showing retry button');
           setLoadFailed(true);
+          setIsInitialLoading(false);
+        } else if (hasBundled) {
+          // 有 bundled materials，关闭 loading 状态
+          console.log('✅ Has bundled materials, closing loading state');
           setIsInitialLoading(false);
         }
       }, 30000);
@@ -611,7 +624,7 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
         const subscriptionTier = user.subscription_tier || 'free';
         const currentCount = user.materials_read_count || 0;
 
-        console.log(`[Free Limit] User tier: ${subscriptionTier}, current count: ${currentCount}/3`);
+        console.log(`[Free Limit] User tier: ${subscriptionTier}, current count: ${currentCount}/2`);
 
         // Only apply limit for free users
         if (subscriptionTier === 'free') {
@@ -627,8 +640,8 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
             // CHECK LIMIT (计数会在App.tsx的handlePlay中自动处理)
             console.log(`[Free Limit] 🆕 First time accessing ${material.id}, checking limit...`);
 
-            if (currentCount >= 3) {
-              console.log(`[Free Limit] ❌ BLOCKED! Count ${currentCount} >= 3, showing paywall`);
+            if (currentCount >= 2) {
+              console.log(`[Free Limit] ❌ BLOCKED! Count ${currentCount} >= 2, showing paywall`);
               setShowPaywall(true);
               return;
             }
