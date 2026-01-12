@@ -24,6 +24,8 @@ type ViewState = 'home' | 'listening' | 'analysis' | 'shadowing' | 'profile';
 function App() {
   const [activeView, setActiveView] = useState<ViewState>('home');
   const [currentSrc, setCurrentSrc] = useState<string>('');
+  const [currentCoverUrl, setCurrentCoverUrl] = useState<string | undefined>(undefined);
+  const [currentTitle, setCurrentTitle] = useState<string | undefined>(undefined);
   const [currentTranscript, setCurrentTranscript] = useState<TranscriptSegment[]>(defaultTranscript);
   const [currentMaterialId, setCurrentMaterialId] = useState<string>(''); // NEW STATE
   const [currentWaveformData, setCurrentWaveformData] = useState<number[][] | undefined>(undefined);
@@ -151,6 +153,7 @@ function App() {
     materialId?: string,
     waveformData?: number[][],
     title?: string,
+    coverUrl?: string, // 🔥 新增：封面URL
     dataPromise?: Promise<any>  // 🔥 新增：预加载的Promise
   ) => {
     const now = Date.now();
@@ -170,6 +173,8 @@ function App() {
     if (materialId) {
       setCurrentMaterialId(materialId);
       setCurrentWaveformData(waveformData);
+      if (title) setCurrentTitle(title);
+      if (coverUrl) setCurrentCoverUrl(coverUrl);
 
       // Analytics: View Material
       analytics.track('view_material', {
@@ -332,6 +337,9 @@ function App() {
               togglePlay={togglePlay}
               seek={seek}
               transcript={currentTranscript}
+              waveformData={currentWaveformData}
+              coverUrl={currentCoverUrl} // 🔥 Pass down
+              title={currentTitle}       // 🔥 Pass down
             />
           )}
 
