@@ -145,7 +145,7 @@ export async function saveTranscriptToCache(data: { url: string; segments: Trans
     }
 }
 
-export async function getTranscriptById(id: string): Promise<{ url: string; segments: TranscriptSegment[]; title?: string; id: string } | null> {
+export async function getTranscriptById(id: string): Promise<{ url: string; segments: TranscriptSegment[]; title?: string; id: string; waveform_data?: any } | null> {
     try {
         const record = await pb.collection('transcripts').getOne(id);
 
@@ -157,7 +157,8 @@ export async function getTranscriptById(id: string): Promise<{ url: string; segm
             url: record.audio_url || pb.files.getUrl(record, record.audio),
             segments: segments,
             title: record.title,
-            id: record.id
+            id: record.id,
+            waveform_data: record.waveform_data  // 🔥 确保返回波形数据
         };
     } catch (e) {
         console.warn("Failed to get transcript by ID", e);
@@ -299,21 +300,25 @@ export async function updateUserProgress(materialId: string, data: { is_starred?
                 ...data
             });
 
-            // 🔥 FIX: 如果是首次访问 (current_step=1) 且用户是 free tier，立即计数
+            // 🔥 FIX: 异步计数 - 使用fire-and-forget模式确保绝不阻塞progress创建和播放
             if (data.current_step === 1) {
-                try {
-                    const user = await pb.collection('users').getOne(userId!);
-                    if (user.subscription_tier === 'free' || !user.subscription_tier) {
-                        const count = user.materials_read_count || 0;
-                        await pb.collection('users').update(userId!, {
-                            materials_read_count: count + 1
-                        });
-                        console.log(`[Free Limit] ✅ Incremented count: ${count} -> ${count + 1} for material ${materialId}`);
+                // 使用Promise.resolve().then()确保计数逻辑在下一个事件循环执行
+                // 这样即使查询失败或延迟,也绝对不会影响当前的progress创建流程
+                Promise.resolve().then(async () => {
+                    try {
+                        const user = await pb.collection('users').getOne(userId!);
+                        if (user.subscription_tier === 'free' || !user.subscription_tier) {
+                            const count = user.materials_read_count || 0;
+                            await pb.collection('users').update(userId!, {
+                                materials_read_count: count + 1
+                            });
+                            console.log(`[Free Limit] ✅ Incremented count: ${count} -> ${count + 1} for material ${materialId}`);
+                        }
+                    } catch (countError) {
+                        console.error('[Free Limit] Failed to increment count:', countError);
+                        // Fire-and-forget: 完全独立,失败不影响任何流程
                     }
-                } catch (countError) {
-                    console.error('[Free Limit] Failed to increment count:', countError);
-                    // 不抛出错误，不影响progress创建
-                }
+                });
             }
         }
     } catch (e) {

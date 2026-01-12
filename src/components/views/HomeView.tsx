@@ -14,7 +14,7 @@ import { audioConverter } from "@/services/audioConverter";
 import { cn } from "@/lib/utils";
 import { materialService } from "@/lib/materialService";
 import { UploadModal } from "@/components/UploadModal";
-import { pb, updateUserProgress, fetchUserProgress, silentLogin } from "@/lib/api";
+import { pb, updateUserProgress, fetchUserProgress, silentLogin, getTranscriptById } from "@/lib/api";
 import type { Material } from "@/data/types";
 import type { TranscriptSegment } from "@/data/transcript";
 
@@ -45,7 +45,7 @@ const calculateNextResetDate = (
 };
 
 interface HomeViewProps {
-  onPlay: (audioUrl: string, targetView?: 'listening' | 'shadowing', transcript?: TranscriptSegment[], materialId?: string, waveformData?: number[][], title?: string) => void;
+  onPlay: (audioUrl: string, targetView?: 'listening' | 'shadowing', transcript?: TranscriptSegment[], materialId?: string, waveformData?: number[][], title?: string, dataPromise?: Promise<any>) => void;
   onProfile: () => void;
   isActive?: boolean;
   isAuthCheckComplete: boolean; // 🛡️ Strict Auth Gate
@@ -135,6 +135,8 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
           return;
         }
 
+        console.log('[HomeView] 🎬 initData started at:', Date.now());
+
         // 🔒 Prevent multiple concurrent executions
         if (hasInitializedRef.current) {
           console.log('🔒 initData already running/completed, skipping...');
@@ -175,7 +177,7 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
         // ⚡ 优化2：并行加载Daily Spark和Core Library（节省500ms）
         const [dailySparkItems, coreLibResult] = await Promise.all([
           materialService.loadDailySparkMaterials(progressList),
-          materialService.loadMaterialsPage(1, 20, progressList)
+          materialService.loadMaterialsPage(1, 15, progressList)  // 🔥 从20改为15，减少25%加载量
         ]);
 
         console.log('🔍 [Debug] Daily Spark items:', dailySparkItems.length);
@@ -230,15 +232,10 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
       } catch (error) {
         console.error('Failed to load remote data:', error);
 
-        // 🔥 FIX: 如果没有缓存数据，立即显示重试按钮
-        // 只有在有缓存数据时才保持 loading 等待网络恢复
-        if (allMaterials.length === 0 || !allMaterials.some(m => m.source !== 'bundled')) {
-          console.warn('⚠️ Failed to load remote data and no cache available, showing retry button');
-          setLoadFailed(true);
-          setIsInitialLoading(false);
-        } else {
-          console.log('✅ Has cached data, will retry in background');
-        }
+        // 🔥 NEW: 首次失败不立即显示重试按钮
+        // 保持loading状态，让网络监听器在权限授予后自动重试
+        // 只有30秒超时后才显示重试按钮
+        console.warn('⚠️ Initial load failed, keeping loading state for auto-retry...');
       }
     };
 
@@ -681,10 +678,30 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
       }
     }
 
-    // 3. Play with LOCAL URL
-    console.log('[HomeView] Playing material:', material.id);
-    console.log('[HomeView] Waveform data:', material.waveform_data);
-    onPlay(finalAudioUrl, 'listening', material.transcript, material.id, material.waveform_data, material.title); // Pass material.title
+    // 🔥 NEW: Hero转场流程 - 预加载 + 80ms延迟 + 非阻塞导航
+    console.log('[Hero] Starting preload + delayed navigation...');
+
+    // 🌐 立即开始预加载数据（如果transcript缺失）
+    let dataPromise: Promise<any> | undefined;
+    if (!material.transcript || material.transcript.length === 0) {
+      console.log('[Hero] Transcript missing, starting preload...');
+      dataPromise = getTranscriptById(material.id);
+    }
+
+    // ⏱️ 80ms延迟后触发导航（给触觉反馈留时间）
+    await new Promise(resolve => setTimeout(resolve, 80));
+
+    // 🎬 触发页面切换并传递预加载Promise
+    console.log('[Hero] Triggering navigation after 80ms...');
+    onPlay(
+      finalAudioUrl,
+      'listening',
+      material.transcript,  // 可能为空
+      material.id,
+      material.waveform_data,  // 可能为空
+      material.title,
+      dataPromise  // 预加载Promise（如果有）
+    );
   };
 
   const handleImportClick = () => {

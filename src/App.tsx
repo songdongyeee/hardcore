@@ -144,7 +144,15 @@ function App() {
   }, []); // Empty deps - listener uses latest handlePlay via closure
 
 
-  const handlePlay = async (audioUrl: string, targetView?: ViewState, newTranscript?: TranscriptSegment[], materialId?: string, waveformData?: number[][], title?: string) => {
+  const handlePlay = async (
+    audioUrl: string,
+    targetView?: ViewState,
+    newTranscript?: TranscriptSegment[],
+    materialId?: string,
+    waveformData?: number[][],
+    title?: string,
+    dataPromise?: Promise<any>  // 🔥 新增：预加载的Promise
+  ) => {
     const now = Date.now();
     // Debounce: Ignore if called within 500ms (prevent double clicks causing audio restart)
     if (now - lastPlayTime.current < 500 && audioUrl === currentSrc) {
@@ -180,6 +188,38 @@ function App() {
     // Only update src if it's actually different (prevent audio reload)
     if (audioUrl !== currentSrc) {
       setCurrentSrc(audioUrl);
+    }
+
+    // 🔥 NEW: 预加载模式 - 立即切换页面，后台等待数据
+    if (dataPromise) {
+      console.log('🎬 Preload mode: switching view immediately, waiting for data in background');
+
+      // 立即切换页面（让Hero动画开始）
+      setActiveView(targetView || 'listening');
+
+      // 后台等待数据
+      try {
+        const data = await dataPromise;
+        if (data && data.segments && data.segments.length > 0) {
+          console.log('✅ Preloaded data arrived:', data.segments.length, 'segments');
+          setCurrentTranscript(data.segments);
+          if (data.waveform_data) {
+            setCurrentWaveformData(data.waveform_data);
+          }
+        } else {
+          console.warn('⚠️ Preloaded data is empty or invalid');
+        }
+      } catch (error) {
+        console.error('❌ Preload data failed:', error);
+        // 失败也继续，不阻塞播放
+      }
+
+      // 🔥 CRITICAL FIX: 无论数据是否成功，都要调用play()
+      // 否则会永远卡在0秒
+      if (!targetView || targetView === 'listening') {
+        play();
+      }
+      return;
     }
 
     // 🔥 FIX: 如果 transcript 为空但有 materialId，主动加载

@@ -29,15 +29,24 @@ export const materialService = {
      */
     async getCachedSnapshot(): Promise<Material[] | null> {
         try {
+            console.log('[Cache] 🕐 Loading snapshot...', Date.now());
+            console.time('[Cache] Total load time');
+
             // 1. 尝试从 Filesystem 读取（新版本）
             try {
+                console.time('[Cache] Filesystem read');
                 const result = await Filesystem.readFile({
                     path: 'cache/materials.json',
                     directory: Directory.Documents,
                     encoding: Encoding.UTF8
                 });
+                console.timeEnd('[Cache] Filesystem read');
 
+                console.time('[Cache] JSON parse');
                 const materials = JSON.parse(result.data as string);
+                console.timeEnd('[Cache] JSON parse');
+                console.timeEnd('[Cache] Total load time');
+
                 console.log('✅ [Cache] Loaded snapshot from Filesystem:', materials.length, 'materials');
                 return materials;
             } catch (fsError) {
@@ -75,6 +84,13 @@ export const materialService = {
      */
     async saveSnapshot(materials: Material[]): Promise<void> {
         try {
+            // 🛡️ 防御性编程：如果材料为空，不要覆盖缓存！
+            // 这防止了由网络错误导致的空数据清除掉本地合法的缓存
+            if (!materials || materials.length === 0) {
+                console.warn('⚠️ [Cache] Attempted to save empty snapshot. Skipping to preserve existing data.');
+                return;
+            }
+
             // 创建缓存目录（如果不存在）
             await Filesystem.mkdir({
                 path: 'cache',
@@ -82,15 +98,45 @@ export const materialService = {
                 recursive: true
             }).catch(() => { }); // 目录已存在时忽略错误
 
-            // 保存所有材料到 Filesystem（无大小限制）
+            // 🔥 精简化：移除大字段（transcript和waveform_data）
+            // 这些数据会在点击时按需加载
+            const lightweight = materials.map(m => ({
+                id: m.id,
+                source: m.source,
+                location: m.location,
+                title: m.title,
+                title_translate: m.title_translate,
+                subtitle: m.subtitle,
+                audioUrl: m.audioUrl,
+                coverUrl: m.coverUrl,
+                // 不保存 transcript (20-50KB/个)
+                // 不保存 waveform_data (10-30KB/个)
+                visibility: m.visibility,
+                createdAt: m.createdAt,
+                tags: m.tags,
+                userMeta: m.userMeta
+            }));
+
+            // 🔥 原子化写入：防止崩溃导致文件损坏
+            // 1. 写入临时文件
+            const tempPath = 'cache/materials.temp.json';
+            const finalPath = 'cache/materials.json';
+
             await Filesystem.writeFile({
-                path: 'cache/materials.json',
-                data: JSON.stringify(materials),
+                path: tempPath,
+                data: JSON.stringify(lightweight),
                 directory: Directory.Documents,
                 encoding: Encoding.UTF8
             });
 
-            console.log('💾 [Cache] Saved snapshot to Filesystem:', materials.length, 'materials');
+            // 2. 重命名（原子操作）
+            await Filesystem.rename({
+                from: tempPath,
+                to: finalPath,
+                directory: Directory.Documents
+            });
+
+            console.log('💾 [Cache] Saved lightweight snapshot (Atomic):', lightweight.length, 'materials');
         } catch (e) {
             console.error("Failed to save snapshot", e);
         }
