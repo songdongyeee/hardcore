@@ -16,8 +16,7 @@ import { Device } from "@capacitor/device";
 import { analytics } from "@/lib/analytics";
 
 import { App as CapacitorApp } from '@capacitor/app';
-
-
+import { Preferences } from '@capacitor/preferences';
 
 type ViewState = 'home' | 'listening' | 'analysis' | 'shadowing' | 'profile';
 
@@ -35,76 +34,129 @@ function App() {
 
   // 🛡️ Strict Auth Gate: Block HomeView execution until auth check is done (success or fail)
   const [isAuthCheckComplete, setIsAuthCheckComplete] = useState(false);
+  const hasLoggedRef = useRef(false); // 🔥 Prevent double login
 
   const { isPlaying, currentTime, togglePlay, seek, audioRef, pause, play } = useAudio(currentSrc, activeView === 'listening');
-  const { appUserID, isReady: isRcReady } = useRevenueCat();
+  const { appUserID } = useRevenueCat();
 
-  // 1. Silent Login & Initial Load
+  // 1. 🔥 PARALLEL DATA LOADING (Independent of Auth)
   useEffect(() => {
-    async function init() {
+    async function loadData() {
+      if (isUserActiveRef.current) return;
       try {
-        // 1. Get ID for Login - Use RevenueCat ID (maintains subscription continuity)
-        let loginId = appUserID;
-        if (!loginId) {
-          // Fallback to device ID only if RevenueCat not ready
-          const deviceId = await Device.getId();
-          loginId = deviceId.identifier;
-        }
+        console.log('🚀 Parallel Load: Starting Data Fetch...');
 
-        console.log('[Auth] Login ID:', loginId);
-        console.log('[Auth] Source:', appUserID ? 'RevenueCat' : 'Device');
-
-        if (loginId) {
-          // Init Analytics
-          analytics.init();
-          analytics.identify(loginId);
-          analytics.track('app_opened', { platform: 'capacitor' });
-
-          // Single attempt - event listeners will handle retry on network recovery
-          const success = await silentLogin(loginId);
-          if (success) {
-            console.log('✅ Login successful');
-          } else {
-            console.warn('⚠️ Login failed. Will retry after 2 seconds...');
-            await new Promise(r => setTimeout(r, 2000)); // Wait 2 seconds
-          }
-        }
-
-        // 2. Initial Data Loading (SKIP if user already active)
-        if (isUserActiveRef.current) {
-          console.log('Skipping init data load: User is active');
-          return;
-        }
-
+        // Load Cache Immediately for Speed
         const cached = await getCachedTranscript();
-        // Double check active state after await
         if (cached && !isUserActiveRef.current) {
+          console.log('⚡ Cache Hit: Loaded transcript');
           setCurrentSrc(cached.url);
           setCurrentTranscript(cached.segments);
         }
 
+        // Fetch Server Data in Background
         const data = await getLatestTranscript();
-        // Double check active state after await
         if (data && data.segments.length > 0 && !isUserActiveRef.current) {
-          // Double check audioSrc state just in case
-          setCurrentSrc(prev => {
-            if (prev && prev !== '') return prev;
-            return data.url;
-          });
+          console.log('🌐 Server Data Arrived');
+          setCurrentSrc(prev => (prev ? prev : data.url));
           setCurrentTranscript(data.segments);
           saveTranscriptToCache(data);
         }
-      } catch (error) {
-        console.error('[App] Init failed:', error);
-      } finally {
-        // 🛡️ Release the gate: Authentication check is legally complete (success or fail)
-        console.log('🛡️ Auth Gate Released');
+      } catch (err) {
+        console.warn('Data load warning:', err);
+      }
+    }
+    loadData();
+  }, []);
+
+  // 2. 🔐 SMART AUTH STRATEGY (Cache -> RC Wait -> Device Fallback)
+  // This effect orchestrates the login race.
+  useEffect(() => {
+    async function initAuth() {
+      if (hasLoggedRef.current) return;
+
+      try {
+        // A. ⚡ Try Cache First (0ms latency for existing users)
+        const { value: cachedId } = await Preferences.get({ key: 'last_rc_id' });
+        if (cachedId) {
+          console.log('💾 Auth Cache Hit:', cachedId);
+          hasLoggedRef.current = true; // Lock
+
+          analytics.init();
+          analytics.identify(cachedId);
+          analytics.track('app_opened', { platform: 'capacitor', method: 'cache' });
+
+          await silentLogin(cachedId);
+          setIsAuthCheckComplete(true);
+          return;
+        }
+
+        // B. ⏳ If no cache, start the "Race against Time"
+        console.log('⏳ No auth cache. Waiting for RevenueCat...');
+
+        // We set a trap: if RC doesn't reply in 2.5s, we proceed with Device ID.
+        setTimeout(async () => {
+          if (!hasLoggedRef.current) {
+            console.warn('⏰ RC Timeout (2.5s). Fallback to Device ID.');
+            try {
+              const deviceInfo = await Device.getId();
+              const deviceId = deviceInfo.identifier;
+
+              hasLoggedRef.current = true; // Lock
+
+              analytics.init();
+              analytics.identify(deviceId);
+              analytics.track('app_opened', { platform: 'capacitor', method: 'device_fallback' });
+
+              await silentLogin(deviceId);
+            } catch (e) {
+              console.error('Fallback failed', e);
+            } finally {
+              setIsAuthCheckComplete(true);
+            }
+          }
+        }, 2500);
+
+      } catch (e) {
+        console.error('Auth Init Error', e);
         setIsAuthCheckComplete(true);
       }
     }
 
-    init();
-  }, [appUserID, isRcReady]);
+    initAuth();
+  }, []); // Run once on mount
+
+  // 3. 📡 REVENUECAT LISTENER (The "Winner" of the race)
+  useEffect(() => {
+    if (appUserID && !hasLoggedRef.current) {
+      console.log('💎 RevenueCat ID Ready:', appUserID);
+      hasLoggedRef.current = true; // Lock
+
+      analytics.init();
+      analytics.identify(appUserID);
+      analytics.track('app_opened', { platform: 'capacitor', method: 'revenuecat' });
+
+      silentLogin(appUserID).then(() => {
+        setIsAuthCheckComplete(true);
+      });
+    }
+  }, [appUserID]); // Trigger when RC provides ID
+
+  // 4. 🔄 SAFETY RE-FETCH (Ensure Content Loads)
+  // If parallel fetch failed (e.g. fresh install + protected DB), retry after auth.
+  useEffect(() => {
+    if (isAuthCheckComplete && currentTranscript.length <= 1) {
+      console.log('🔄 Auth Complete & No Data: Retrying fetch...');
+      getLatestTranscript().then(data => {
+        if (data && data.segments.length > 0) {
+          console.log('✅ Safety Fetch Success');
+          setCurrentSrc(prev => (prev ? prev : data.url));
+          setCurrentTranscript(data.segments);
+          saveTranscriptToCache(data);
+        }
+      });
+    }
+  }, [isAuthCheckComplete]);
 
   // Debug: Track transcript changes
   useEffect(() => {

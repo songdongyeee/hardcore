@@ -2,12 +2,12 @@ import { useState, useEffect, useRef } from "react";
 import { Library, Sparkles, Menu, Upload, Filter, BookOpen, X, Star, RefreshCw } from 'lucide-react';
 import { Dialog } from '@capacitor/dialog';
 import { Filesystem, Directory } from '@capacitor/filesystem';
-import { Preferences } from '@capacitor/preferences';
 import { Network } from '@capacitor/network';
 import { App as CapacitorApp } from '@capacitor/app';
 import { MaterialCard } from "@/components/MaterialCard";
 import { useUsageLimit } from "@/hooks/useUsageLimit";
 import { useRevenueCat } from "@/hooks/useRevenueCat";
+import { useDailySpark } from "@/hooks/useDailySpark";  // 🎯 NEW: 严格日期验证的 Daily Spark Hook
 import { Paywall } from "@/components/Paywall";
 import { pickAudioFile } from "@/utils/fileHandler";
 import { audioConverter } from "@/services/audioConverter";
@@ -72,8 +72,8 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
   const [usedSeconds, setUsedSeconds] = useState(0);
   const [pbSubscriptionTier, setPbSubscriptionTier] = useState<'free' | 'monthly' | 'quarterly' | 'yearly'>('free');
 
-  // 🎯 存储今天选中的Daily Spark ID（用于精确匹配）
-  const [selectedDailySparkId, setSelectedDailySparkId] = useState<string | null>(null);
+  // 🎯 NEW: 使用严格日期验证的 Daily Spark Hook
+  const { material: dailySparkMaterial, isLoading: isDailySparkLoading } = useDailySpark();
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -174,54 +174,31 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
         // ⚡ 优化1：只获取1次用户进度（避免重复请求）
         const progressList = await fetchUserProgress();
 
-        // ⚡ 优化2：并行加载Daily Spark和Core Library（节省500ms）
-        const [dailySparkItems, coreLibResult] = await Promise.all([
-          materialService.loadDailySparkMaterials(progressList),
-          materialService.loadMaterialsPage(1, 15, progressList)  // 🔥 从20改为15，减少25%加载量
-        ]);
+        // 🎯 SIMPLIFIED: 只加载 Core Library（Daily Spark 由专用 Hook 管理）
+        const coreLibResult = await materialService.loadMaterialsPage(1, 15, progressList);
 
-        console.log('🔍 [Debug] Daily Spark items:', dailySparkItems.length);
         console.log('🔍 [Debug] Core Library items:', coreLibResult.items.length);
-        console.log('🔍 [Debug] Core Library result:', coreLibResult);
 
-        // 🔥 一次性更新Daily Spark和Core Library，避免中间状态
+        // 更新 Core Library 材料
         setAllMaterials(prev => {
-          console.log('🔍 [Debug] Previous materials:', prev.length);
-
-          // 🎯 原子性更新：直接构建最终状态（避免闪现）
           const final = [
-            // 1. 保留非 Daily Spark 的材料
-            ...prev.filter(m => m.location !== 'daily_spark'),
-            // 2. 添加新的 Daily Spark
-            ...dailySparkItems,
-            // 3. 合并 Core Library（去重）
-            ...coreLibResult.items.filter(item =>
-              !prev.some(p => p.id === item.id) && // 不在旧数据里
-              !dailySparkItems.some(d => d.id === item.id) // 也不在 Daily Spark 里
-            )
+            ...prev.filter(m => m.source === 'bundled'),  // 保留 bundled 材料
+            ...coreLibResult.items.filter(item => !prev.some(p => p.id === item.id))  // 合并新的 Core Library
           ];
 
-          console.log('🔍 [Debug] Final materials count:', final.length);
-
-          // 🔥 CRITICAL: 保存快照到缓存（下次启动用）
+          // 🔥 保存快照到缓存（已自动排除 Daily Spark）
           materialService.saveSnapshot(final);
 
           return final;
         });
 
-        // 保存今天选中的Daily Spark ID
-        if (dailySparkItems.length > 0) {
-          const { value: cachedId } = await Preferences.get({ key: 'daily_spark_id' });
-          setSelectedDailySparkId(cachedId);
-        }
         setHasMorePages(coreLibResult.hasMore);
         setCurrentPage(1);
 
-        // ✅ 只有当确实加载到了数据时，才结束Loading并标记为已加载
-        // 如果数据为空，可能是网络不稳定导致的部分失败，保持Loading等待Network Listener重试
-        if (coreLibResult.items.length > 0 || dailySparkItems.length > 0) {
+        // ✅ 只有当确实加载到了数据时，才结束Loading
+        if (coreLibResult.items.length > 0) {
           setIsInitialLoading(false);
-          hasLoadedRemoteDataRef.current = true; // 🎯 Critical: prevent network listener from triggering redundant recovery
+          hasLoadedRemoteDataRef.current = true;
         } else {
           console.warn('⚠️ Initial load returned empty data, maintaining loading state');
         }
@@ -303,10 +280,8 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
         try {
           console.log(`📡 Network recovery attempt ${attempt}/2...`);
           const progressList = await fetchUserProgress();
-          const [dailySparkItems, coreLibResult] = await Promise.all([
-            materialService.loadDailySparkMaterials(progressList),
-            materialService.loadMaterialsPage(1, 20, progressList)
-          ]);
+          // 🎯 SIMPLIFIED: 只恢复 Core Library（Daily Spark 由专用 Hook 管理）
+          const coreLibResult = await materialService.loadMaterialsPage(1, 20, progressList);
 
           // ✅ Success - update UI
           if (coreLibResult.items.length === 0) {
@@ -315,17 +290,13 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
           }
 
           setAllMaterials(prev => {
-            const withoutDailySpark = prev.filter(m => m.location !== 'daily_spark');
-            const withDailySpark = dailySparkItems.length > 0
-              ? materialService.mergeMaterials(withoutDailySpark, dailySparkItems)
-              : withoutDailySpark;
-            return materialService.mergeMaterials(withDailySpark, coreLibResult.items);
+            const final = [
+              ...prev.filter(m => m.source === 'bundled'),
+              ...coreLibResult.items.filter(item => !prev.some(p => p.id === item.id))
+            ];
+            return final;
           });
 
-          if (dailySparkItems.length > 0) {
-            const { value: cachedId } = await Preferences.get({ key: 'daily_spark_id' });
-            setSelectedDailySparkId(cachedId);
-          }
           setHasMorePages(coreLibResult.hasMore);
           setCurrentPage(1);
           hasLoadedRemoteDataRef.current = true; // 🎯 Mark remote data as successfully loaded
@@ -480,16 +451,8 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
     return timeB - timeA;
   };
 
-  // Derived Categorized Lists (Now Sorted!)
-  // 🎯 Daily Spark: loadDailySparkMaterials已经返回了今天选中的材料
-  // 重要：不使用筛选逻辑，不受activeFilter影响
-  const dailySparkMaterials = allMaterials
-    .filter((m: Material) => m.location === 'daily_spark');
-
-  // 🎯 精确匹配今天缓存的selectedId，避免显示错误的Daily Spark
-  const activeDailyMaterial = selectedDailySparkId
-    ? dailySparkMaterials.find(m => m.id === selectedDailySparkId) || dailySparkMaterials[0] || null
-    : dailySparkMaterials[0] || null;
+  // 🎯 Daily Spark 由专用 Hook 管理（自动进行日期验证）
+  // dailySparkMaterial 和 isDailySparkLoading 来自 useDailySpark hook
 
   const coreLibraryMaterials = allMaterials.filter((m: Material) => m.location === 'core_library');
 
@@ -1263,39 +1226,45 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
 
       <div className="pb-20">
         {/* Section 1: The Daily Spark */}
-        {dailySparkMaterials.length > 0 && (
-          <section className="px-6 pt-[calc(env(safe-area-inset-top)+1.5rem)] mb-1">
-            <div className="flex gap-2 mb-4 items-center animate-in slide-in-from-bottom-4 duration-500">
-              <Sparkles className="w-6 h-6 text-indigo-400" />
-              <h2 className="text-3xl font-medium text-white tracking-tight">Daily Spark</h2>
-              <button
-                onClick={onProfile}
-                className="ml-auto p-2 text-zinc-600 hover:text-white transition-colors"
-                aria-label="Settings"
-              >
-                <Menu className="w-6 h-6" />
-              </button>
-            </div>
+        {/* 🎯 Daily Spark Section - with strict date validation */}
+        <section className="px-6 pt-[calc(env(safe-area-inset-top)+1.5rem)] mb-1">
+          <div className="flex gap-2 mb-4 items-center animate-in slide-in-from-bottom-4 duration-500">
+            <Sparkles className="w-6 h-6 text-indigo-400" />
+            <h2 className="text-3xl font-medium text-white tracking-tight">Daily Spark</h2>
+            <button
+              onClick={onProfile}
+              className="ml-auto p-2 text-zinc-600 hover:text-white transition-colors"
+              aria-label="Settings"
+            >
+              <Menu className="w-6 h-6" />
+            </button>
+          </div>
 
-            {/* Unified Hero Card */}
-            <div className="animate-in zoom-in-95 duration-700 delay-100 fill-mode-both">
-              {activeDailyMaterial ? (
-                <MaterialCard
-                  material={activeDailyMaterial}
-                  isActive={true}
-                  variant="hero"
-                  onClick={() => handleCardClick(activeDailyMaterial)}
-                  onTogglePin={() => handleTogglePin(activeDailyMaterial.id, activeDailyMaterial.userMeta?.isPinned || false)}
-                  onToggleStar={() => handleToggleStar(activeDailyMaterial.id, activeDailyMaterial.userMeta?.isStarred || false)}
-                />
-              ) : (
-                <div className="aspect-[4/5] w-full rounded-2xl bg-zinc-800 animate-pulse border border-white/10 flex items-center justify-center scale-105 shadow-2xl">
-                  <Sparkles className="w-12 h-12 text-zinc-600/30" />
-                </div>
-              )}
-            </div>
-          </section>
-        )}
+          {/* Unified Hero Card */}
+          <div className="animate-in zoom-in-95 duration-700 delay-100 fill-mode-both">
+            {isDailySparkLoading ? (
+              // 🔥 骨架屏：加载中
+              <div className="aspect-[4/5] w-full rounded-2xl bg-zinc-800 animate-pulse border border-white/10 flex items-center justify-center scale-105 shadow-2xl">
+                <Sparkles className="w-12 h-12 text-zinc-600/30" />
+              </div>
+            ) : dailySparkMaterial ? (
+              // ✅ 真实数据：仅当有效且日期匹配时显示
+              <MaterialCard
+                material={dailySparkMaterial}
+                isActive={true}
+                variant="hero"
+                onClick={() => handleCardClick(dailySparkMaterial)}
+                onTogglePin={() => handleTogglePin(dailySparkMaterial.id, dailySparkMaterial.userMeta?.isPinned || false)}
+                onToggleStar={() => handleToggleStar(dailySparkMaterial.id, dailySparkMaterial.userMeta?.isStarred || false)}
+              />
+            ) : (
+              // ⚠️ Fallback：无数据
+              <div className="aspect-[4/5] w-full rounded-2xl bg-zinc-800 border border-white/10 flex items-center justify-center scale-105 shadow-2xl">
+                <Sparkles className="w-12 h-12 text-zinc-600/30" />
+              </div>
+            )}
+          </div>
+        </section>
 
         {/* Section 2: Core Library */}
         <section className="mt-[-0.25rem]">
@@ -1413,23 +1382,17 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
 
                         try {
                           const progressList = await fetchUserProgress();
-                          const [dailySparkItems, coreLibResult] = await Promise.all([
-                            materialService.loadDailySparkMaterials(progressList),
-                            materialService.loadMaterialsPage(1, 20, progressList)
-                          ]);
+                          // 🎯 SIMPLIFIED: 只重试 Core Library
+                          const coreLibResult = await materialService.loadMaterialsPage(1, 20, progressList);
 
                           setAllMaterials(prev => {
-                            const withoutDailySpark = prev.filter(m => m.location !== 'daily_spark');
-                            const withDailySpark = dailySparkItems.length > 0
-                              ? materialService.mergeMaterials(withoutDailySpark, dailySparkItems)
-                              : withoutDailySpark;
-                            return materialService.mergeMaterials(withDailySpark, coreLibResult.items);
+                            const final = [
+                              ...prev.filter(m => m.source === 'bundled'),
+                              ...coreLibResult.items.filter(item => !prev.some(p => p.id === item.id))
+                            ];
+                            return final;
                           });
 
-                          if (dailySparkItems.length > 0) {
-                            const { value: cachedId } = await Preferences.get({ key: 'daily_spark_id' });
-                            setSelectedDailySparkId(cachedId);
-                          }
                           setHasMorePages(coreLibResult.hasMore);
                           setCurrentPage(1);
                           setIsInitialLoading(false);

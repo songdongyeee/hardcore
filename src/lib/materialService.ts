@@ -100,22 +100,25 @@ export const materialService = {
 
             // 🔥 精简化：移除大字段（transcript和waveform_data）
             // 这些数据会在点击时按需加载
-            const lightweight = materials.map(m => ({
-                id: m.id,
-                source: m.source,
-                location: m.location,
-                title: m.title,
-                title_translate: m.title_translate,
-                subtitle: m.subtitle,
-                audioUrl: m.audioUrl,
-                coverUrl: m.coverUrl,
-                // 不保存 transcript (20-50KB/个)
-                // 不保存 waveform_data (10-30KB/个)
-                visibility: m.visibility,
-                createdAt: m.createdAt,
-                tags: m.tags,
-                userMeta: m.userMeta
-            }));
+            // 🎯 NEW: 排除 Daily Spark 材料，避免缓存过期数据导致内容闪烁
+            const lightweight = materials
+                .filter(m => m.location !== 'daily_spark')  // 🔥 排除 Daily Spark
+                .map(m => ({
+                    id: m.id,
+                    source: m.source,
+                    location: m.location,
+                    title: m.title,
+                    title_translate: m.title_translate,
+                    subtitle: m.subtitle,
+                    audioUrl: m.audioUrl,
+                    coverUrl: m.coverUrl,
+                    // 不保存 transcript (20-50KB/个)
+                    // 不保存 waveform_data (10-30KB/个)
+                    visibility: m.visibility,
+                    createdAt: m.createdAt,
+                    tags: m.tags,
+                    userMeta: m.userMeta
+                }));
 
             // 🔥 原子化写入：防止崩溃导致文件损坏
             // 1. 写入临时文件

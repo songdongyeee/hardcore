@@ -10,9 +10,14 @@ let isConfigured = false;
 const API_KEY = "appl_ItWPUWsRrylahhZdTrBpvJbEtIo";
 export const ENTITLEMENT_ID = "app_pro";
 
+import { Preferences } from '@capacitor/preferences'; // Cache Support
+
 // ✅ 同步RevenueCat ID到PocketBase
 async function syncRevenueCatIdToPocketBase(rcUserId: string) {
     try {
+        // 💾 Cache execution: Save valid RC ID for next cold start
+        await Preferences.set({ key: 'last_rc_id', value: rcUserId });
+
         if (!pb.authStore.isValid || !pb.authStore.model?.id) {
             console.log('[RC-PB Sync] PB not logged in, skip');
             return;
