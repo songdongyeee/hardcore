@@ -190,9 +190,11 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
 
         // 更新 Core Library 材料
         setAllMaterials(prev => {
+          // 🔥 FIX: 只移除 core_library 位置的材料，保留其他所有材料
+          const nonCoreLibrary = prev.filter(m => m.location !== 'core_library');
           const final = [
-            ...prev.filter(m => m.source === 'bundled'),  // 保留 bundled 材料
-            ...coreLibResult.items.filter(item => !prev.some(p => p.id === item.id))  // 合并新的 Core Library
+            ...nonCoreLibrary,
+            ...coreLibResult.items  // 添加新的 Core Library
           ];
 
           // 🔥 保存快照到缓存（已自动排除 Daily Spark）

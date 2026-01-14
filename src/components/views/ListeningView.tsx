@@ -14,8 +14,7 @@ interface ListeningViewProps {
   seek: (time: number) => void;
   transcript: TranscriptSegment[];
   waveformData?: number[][];
-  coverUrl?: string; // 🔥 新增
-  title?: string;    // 🔥 新增
+  coverUrl?: string;
 }
 
 export function ListeningView({
@@ -28,8 +27,7 @@ export function ListeningView({
   seek,
   transcript,
   waveformData,
-  coverUrl,
-  title
+  coverUrl
 }: ListeningViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollBoxRef = useRef<HTMLDivElement>(null);
@@ -190,7 +188,7 @@ export function ListeningView({
         </button>
         <div className="flex flex-col items-center max-w-[60%]">
           <span className="text-xs font-medium text-zinc-500 tracking-widest uppercase truncate w-full text-center">
-            {title ? title : 'Loading...'}
+            第一步
           </span>
           <span className="text-sm font-semibold text-white tracking-tight">盲听 反复听</span>
         </div>

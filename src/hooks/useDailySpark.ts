@@ -52,6 +52,26 @@ export function useDailySpark() {
             setIsLoading(true);
 
             // 4. 从服务器获取新数据
+            // ⚠️ TODO: 集成新的预计算 API
+            // 当前状态 (2026-01-14):
+            //   - ✅ 后端已部署: /api/daily-spark (Redis 预计算，<100ms)
+            //   - ❌ 前端未调用: 仍使用老方法 loadDailySparkMaterials() (3-5秒)
+            //   - 📝 原因: 等待后端验证通过后再切换
+            //
+            // 推荐改造 (带 Fallback):
+            // try {
+            //   const response = await pb.send('/api/daily-spark', {});
+            //   if (response?.id) {
+            //     setMaterial(response);
+            //     await saveDailySparkCache(response, targetDateStr);
+            //     return;
+            //   }
+            // } catch (apiError) {
+            //   console.warn('API failed, using fallback');
+            // }
+            // // Fallback to legacy method
+            //
+            // 收益: API 正常时 <100ms, 失败时自动降级到 3-5秒，零风险
             const freshMaterials = await materialService.loadDailySparkMaterials();
             const freshItem = freshMaterials.find(m => m.location === 'daily_spark');
 

@@ -24,7 +24,6 @@ function App() {
   const [activeView, setActiveView] = useState<ViewState>('home');
   const [currentSrc, setCurrentSrc] = useState<string>('');
   const [currentCoverUrl, setCurrentCoverUrl] = useState<string | undefined>(undefined);
-  const [currentTitle, setCurrentTitle] = useState<string | undefined>(undefined);
   const [currentTranscript, setCurrentTranscript] = useState<TranscriptSegment[]>(defaultTranscript);
   const [currentMaterialId, setCurrentMaterialId] = useState<string>(''); // NEW STATE
   const [currentWaveformData, setCurrentWaveformData] = useState<number[][] | undefined>(undefined);
@@ -225,7 +224,6 @@ function App() {
     if (materialId) {
       setCurrentMaterialId(materialId);
       setCurrentWaveformData(waveformData);
-      if (title) setCurrentTitle(title);
       if (coverUrl) setCurrentCoverUrl(coverUrl);
 
       // Analytics: View Material
@@ -391,7 +389,6 @@ function App() {
               transcript={currentTranscript}
               waveformData={currentWaveformData}
               coverUrl={currentCoverUrl} // 🔥 Pass down
-              title={currentTitle}       // 🔥 Pass down
             />
           )}
 

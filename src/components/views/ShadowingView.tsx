@@ -366,10 +366,11 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
     if (!fullPeaks || !duration || duration <= SEGMENT_DURATION) return;
 
     const checkSegmentBoundary = () => {
-      const media = sourceWs.current?.getMediaElement();
-      if (!media) return;
+      // 🔥 FIX: 使用全局音频时间，而不是 WaveSurfer 内部的相对时间
+      const audio = sourceAudioRef.current;
+      if (!audio || !sourceWs.current) return;
 
-      const currentTime = media.currentTime;
+      const currentTime = audio.currentTime; // 全局播放时间
       const segmentEnd = segmentStart + SEGMENT_DURATION;
       const bufferTime = 10; // Switch when 10s before edge
 
@@ -654,10 +655,8 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
         // Update WaveSurfer Visuals (Cursor)
         if (sourceWs.current) {
           const relTime = uiTime - segmentStart;
-          // 🔥 FIX: 即使超出范围也要更新，避免波形消失
-          if (relTime >= 0 && relTime <= SEGMENT_DURATION + 5) {
-            sourceWs.current.setTime(Math.min(relTime, SEGMENT_DURATION));
-          }
+          // 始终更新进度，不再限制范围
+          sourceWs.current.setTime(Math.max(0, Math.min(relTime, SEGMENT_DURATION)));
         }
         if (userWs.current) userWs.current.setTime(uiTime);
 
