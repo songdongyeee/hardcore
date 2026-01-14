@@ -45,7 +45,16 @@ const calculateNextResetDate = (
 };
 
 interface HomeViewProps {
-  onPlay: (audioUrl: string, targetView?: 'listening' | 'shadowing', transcript?: TranscriptSegment[], materialId?: string, waveformData?: number[][], title?: string, dataPromise?: Promise<any>) => void;
+  onPlay: (
+    audioUrl: string,
+    targetView?: 'listening' | 'shadowing',
+    transcript?: TranscriptSegment[],
+    materialId?: string,
+    waveformData?: number[][],
+    title?: string,
+    coverUrl?: string,
+    dataPromise?: Promise<any>
+  ) => void;
   onProfile: () => void;
   isActive?: boolean;
   isAuthCheckComplete: boolean; // 🛡️ Strict Auth Gate
@@ -651,11 +660,8 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
       dataPromise = getTranscriptById(material.id);
     }
 
-    // ⏱️ 80ms延迟后触发导航（给触觉反馈留时间）
-    await new Promise(resolve => setTimeout(resolve, 80));
-
-    // 🎬 触发页面切换并传递预加载Promise
-    console.log('[Hero] Triggering navigation after 80ms...');
+    // 🚀 立即触发导航 (0ms延迟响应)
+    console.log('[Hero] Triggering immediate navigation...');
     onPlay(
       finalAudioUrl,
       'listening',
@@ -663,7 +669,8 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
       material.id,
       material.waveform_data,  // 可能为空
       material.title,
-      dataPromise  // 预加载Promise（如果有）
+      material.coverUrl,      // 🔥 传送封面
+      dataPromise             // 预加载Promise
     );
   };
 
