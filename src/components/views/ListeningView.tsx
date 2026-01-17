@@ -182,7 +182,7 @@ export function ListeningView({
   return (
     <div className="absolute inset-0 bg-black z-30 flex flex-col h-full w-full">
       {/* Nav */}
-      <div className="px-6 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-6 flex justify-between items-center border-b border-zinc-900 bg-black/90 backdrop-blur-md sticky top-0 z-10 shrink-0">
+      <div className="px-6 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-6 flex justify-between items-center border-b border-zinc-900 bg-black/90 backdrop-blur-md sticky top-0 z-40 shrink-0">
         <button onClick={onBack} className="p-2 -ml-2 text-zinc-400 hover:text-white">
           <ChevronLeft className="w-6 h-6" />
         </button>
@@ -234,7 +234,7 @@ export function ListeningView({
                   className={cn(
                     "mb-10 leading-loose relative transition-all duration-300 rounded-lg p-2 -mx-2",
                     // Style changes for loop selection
-                    isSelected ? "bg-zinc-800/50 ring-1 ring-zinc-700" : "hover:bg-zinc-900/30"
+                    isSelected ? "bg-zinc-800/50 ring-1 ring-zinc-700 z-40" : "hover:bg-zinc-900/30"
                   )}
                   onClick={() => handleSentenceClick(idx, seg.start)}
                 >
@@ -296,7 +296,14 @@ export function ListeningView({
             })}
           </div>
         )}
+      
+      {/* 内容区模糊遮罩 - 只模糊文字，不影响导航栏和控制栏 */}
+      <div 
+        className="absolute inset-0 pointer-events-none"
+        style={{ backdropFilter: 'blur(4px)', zIndex: 30 }}
+      />
       </div>
+      
 
       {/* Controls */}
       <div className="p-6 pb-[calc(2rem+env(safe-area-inset-bottom))] bg-gradient-to-t from-black via-black to-transparent shrink-0">

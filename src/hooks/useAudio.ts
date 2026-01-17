@@ -14,7 +14,7 @@ export function useAudio(src: string, enabled: boolean = false) {
     // 🔥 性能优化：降低更新频率以减少手机发热
     // 从 60fps 降到 ~15fps（每66ms更新一次），足够流畅且省电
     let lastUpdateTime = 0;
-    const UPDATE_INTERVAL = 66; // 66ms ≈ 15fps
+    const UPDATE_INTERVAL = 100; // 100ms = 10fps (优化：减少WebView桥接开销)
 
     const updateTimeLoop = () => {
       if (audio && !audio.paused) {
@@ -23,8 +23,12 @@ export function useAudio(src: string, enabled: boolean = false) {
           setCurrentTime(audio.currentTime);
           lastUpdateTime = now;
         }
+        // ✅ 只在播放时继续RAF循环
+        rafRef.current = requestAnimationFrame(updateTimeLoop);
+      } else {
+        // ✅ 暂停时停止RAF，避免CPU空转
+        rafRef.current = null;
       }
-      rafRef.current = requestAnimationFrame(updateTimeLoop);
     };
 
     const updateDuration = () => setDuration(audio.duration);
