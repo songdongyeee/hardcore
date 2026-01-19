@@ -29,11 +29,12 @@ interface ShadowingViewProps {
   transcript: TranscriptSegment[]; // Added Prop
   materialId?: string; // Added Prop
   waveformData?: number[][]; // Waveform visualization data [[min, max], ...]
+  onRecordingComplete?: () => void; // 📊 Learning progress callback
 }
 
 type ShadowingStatus = 'idle' | 'preparing' | 'recording' | 'review';
 
-export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId, waveformData }: ShadowingViewProps) {
+export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId, waveformData, onRecordingComplete }: ShadowingViewProps) {
   // UNIQUE SESSION KEY PER AUDIO FILE
   const sessionKey = `shadowing_session_${audioSrc.replace(/[^a-z0-9]/gi, '_')}`;
 
@@ -716,6 +717,11 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
             analytics.track('recording_finished', {
               material_id: materialId
             });
+
+            // 📊 Notify parent to end phase and session (completed)
+            if (onRecordingComplete) {
+              onRecordingComplete();
+            }
           }
 
           const tempPath = `temp_session_${Date.now()}.aac`;

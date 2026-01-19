@@ -37,8 +37,61 @@ function App() {
   const [isAuthCheckComplete, setIsAuthCheckComplete] = useState(false);
   const hasLoggedRef = useRef(false); // 🔥 Prevent double login
 
+  // 📊 Learning Progress Time Tracking
+  const sessionStartTimeRef = useRef<number>(0);  // Material session start time
+  const phaseStartTimeRef = useRef<number>(0);    // Current phase start time
+  const currentPhaseRef = useRef<string>('');      // Current phase name
+  const visitedPhasesRef = useRef<Set<string>>(new Set());  // Visited phases
+  const furthestPhaseRef = useRef<string>('');     // Furthest phase reached
+
   const { isPlaying, currentTime, togglePlay, seek, audioRef, pause, play } = useAudio(currentSrc, activeView === 'listening');
   const { appUserID } = useRevenueCat();
+
+  // 📊 Helper: Calculate duration in seconds
+  const calculateDuration = (startTime: number): number => {
+    if (startTime === 0) return 0;
+    return Math.floor((Date.now() - startTime) / 1000);
+  };
+
+  // 📊 Helper: End current phase
+  const endCurrentPhase = (completed: boolean = false) => {
+    if (phaseStartTimeRef.current > 0 && currentPhaseRef.current && currentMaterialId) {
+      const duration = calculateDuration(phaseStartTimeRef.current);
+
+      analytics.track('phase_completed', {
+        material_id: currentMaterialId,
+        phase: currentPhaseRef.current,
+        duration_seconds: duration,
+        completed: completed,
+        timestamp: new Date().toISOString()
+      });
+
+      phaseStartTimeRef.current = 0;
+    }
+  };
+
+  // 📊 Helper: End material session
+  const endMaterialSession = (completedShadowing: boolean = false) => {
+    if (sessionStartTimeRef.current > 0 && currentMaterialId) {
+      endCurrentPhase(false); // First end current phase
+
+      const totalDuration = calculateDuration(sessionStartTimeRef.current);
+
+      analytics.track('material_session_end', {
+        material_id: currentMaterialId,
+        total_duration_seconds: totalDuration,
+        phases_visited: Array.from(visitedPhasesRef.current),
+        furthest_phase: furthestPhaseRef.current,
+        completed_shadowing: completedShadowing,
+        timestamp: new Date().toISOString()
+      });
+
+      // Reset
+      sessionStartTimeRef.current = 0;
+      visitedPhasesRef.current.clear();
+      furthestPhaseRef.current = '';
+    }
+  };
 
   // 1. 🔥 PARALLEL DATA LOADING (Independent of Auth)
   useEffect(() => {
@@ -226,6 +279,21 @@ function App() {
       setCurrentWaveformData(waveformData);
       if (coverUrl) setCurrentCoverUrl(coverUrl);
 
+      // 📊 Start new learning session
+      sessionStartTimeRef.current = Date.now();
+      phaseStartTimeRef.current = Date.now();
+      currentPhaseRef.current = 'listening';
+      visitedPhasesRef.current.clear();
+      visitedPhasesRef.current.add('listening');
+      furthestPhaseRef.current = 'listening';
+
+      // 📊 Track phase started
+      analytics.track('phase_started', {
+        material_id: materialId,
+        phase: 'listening',
+        timestamp: new Date().toISOString()
+      });
+
       // Analytics: View Material
       analytics.track('view_material', {
         material_id: materialId,
@@ -371,10 +439,28 @@ function App() {
             <ListeningView
               onBack={() => {
                 pause();
+                // 📊 End phase and session
+                endCurrentPhase(false);
+                endMaterialSession(false);
                 setActiveView('home');
               }}
               onNextPhase={() => {
                 pause();
+                // 📊 End Listening phase (completed)
+                endCurrentPhase(true);
+
+                // 📊 Start Analysis phase
+                phaseStartTimeRef.current = Date.now();
+                currentPhaseRef.current = 'analysis';
+                visitedPhasesRef.current.add('analysis');
+                furthestPhaseRef.current = 'analysis';
+
+                analytics.track('phase_started', {
+                  material_id: currentMaterialId,
+                  phase: 'analysis',
+                  timestamp: new Date().toISOString()
+                });
+
                 // 🔥 Trigger Phase 2 Progress (Entered Analysis)
                 if (currentMaterialId) {
                   updateUserProgress(currentMaterialId, { current_step: 2 });
@@ -394,9 +480,39 @@ function App() {
 
           {activeView === 'analysis' && (
             <AnalysisView
-              onBack={() => setActiveView('listening')}
+              onBack={() => {
+                // 📊 End Analysis phase (not completed)
+                endCurrentPhase(false);
+
+                // 📊 Restart Listening phase
+                phaseStartTimeRef.current = Date.now();
+                currentPhaseRef.current = 'listening';
+
+                analytics.track('phase_started', {
+                  material_id: currentMaterialId,
+                  phase: 'listening',
+                  timestamp: new Date().toISOString()
+                });
+
+                setActiveView('listening');
+              }}
               onNextPhase={() => {
                 pause();
+                // 📊 End Analysis phase (completed)
+                endCurrentPhase(true);
+
+                // 📊 Start Shadowing phase
+                phaseStartTimeRef.current = Date.now();
+                currentPhaseRef.current = 'shadowing';
+                visitedPhasesRef.current.add('shadowing');
+                furthestPhaseRef.current = 'shadowing';
+
+                analytics.track('phase_started', {
+                  material_id: currentMaterialId,
+                  phase: 'shadowing',
+                  timestamp: new Date().toISOString()
+                });
+
                 // 🔥 Trigger Phase 3 Progress (Entered Shadowing)
                 if (currentMaterialId) {
                   updateUserProgress(currentMaterialId, { current_step: 3 });
@@ -413,12 +529,27 @@ function App() {
 
           {activeView === 'shadowing' && (
             <ShadowingView
-              onBack={() => setActiveView('analysis')} // Back to Analysis (Top Left)
-              onHome={() => setActiveView('home')}     // Close to Home (Top Right)
+              onBack={() => {
+                // 📊 End Shadowing phase and session (not completed)
+                endCurrentPhase(false);
+                endMaterialSession(false);
+                setActiveView('analysis');
+              }} // Back to Analysis (Top Left)
+              onHome={() => {
+                // 📊 End Shadowing phase and session (not completed)
+                endCurrentPhase(false);
+                endMaterialSession(false);
+                setActiveView('home');
+              }}     // Close to Home (Top Right)
               audioSrc={currentSrc}
               transcript={currentTranscript}
               materialId={currentMaterialId} // NEW: Pass Material ID for Phase 3 Tracking
               waveformData={currentWaveformData}
+              onRecordingComplete={() => {
+                // 📊 End Shadowing phase and session (completed)
+                endCurrentPhase(true);
+                endMaterialSession(true);
+              }}
             />
           )}
 
