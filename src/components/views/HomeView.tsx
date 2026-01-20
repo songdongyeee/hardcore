@@ -1,10 +1,13 @@
 import { useState, useEffect, useRef } from "react";
+import * as React from "react";
 import { Library, Sparkles, Menu, Upload, Filter, BookOpen, X, Star, RefreshCw } from 'lucide-react';
 import { Dialog } from '@capacitor/dialog';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Network } from '@capacitor/network';
 import { App as CapacitorApp } from '@capacitor/app';
 import { MaterialCard } from "@/components/MaterialCard";
+import { CategoryDrawer } from "@/components/CategoryDrawer";  // 🔥 NEW: 材料分类抽屉
+
 import { useUsageLimit } from "@/hooks/useUsageLimit";
 import { useRevenueCat } from "@/hooks/useRevenueCat";
 import { useDailySpark } from "@/hooks/useDailySpark";  // 🎯 NEW: 严格日期验证的 Daily Spark Hook
@@ -44,6 +47,24 @@ const calculateNextResetDate = (
   return nextReset.toISOString();
 };
 
+/**
+ * 延迟显示骨架屏组件
+ * 只有超过300ms还在loading时才显示，避免快速加载时的闪烁
+ */
+// DelayedSkeleton - 暂时不使用，后续可能需要
+const DelayedSkeleton: React.FC = () => {
+  const [show, setShow] = React.useState(false);
+  React.useEffect(() => {
+    const timer = setTimeout(() => setShow(true), 300);
+    return () => clearTimeout(timer);
+  }, []);
+  return show ? (
+    <div className="aspect-[4/5] w-full rounded-2xl bg-zinc-800 animate-pulse border border-white/10 flex items-center justify-center scale-105 shadow-2xl">
+      <Sparkles className="w-12 h-12 text-zinc-600/30" />
+    </div>
+  ) : null;
+};
+
 interface HomeViewProps {
   onPlay: (
     audioUrl: string,
@@ -72,8 +93,14 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
   const [progressMessage, setProgressMessage] = useState('');
 
   // Refactored Filter State
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false); // Core Library Filtering State
   const [activeFilter, setActiveFilter] = useState<'all' | 'starred' | 'reading'>('all');
+
+  // 🔥 NEW: Category Drawer State
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [currentTopic, setCurrentTopic] = useState<string | null>(null);
+  const [currentCategory, setCurrentCategory] = useState<string | null>(null);
+
 
   // Instant Render: Initialize with bundled materials immediately
   const [allMaterials, setAllMaterials] = useState<Material[]>(() => materialService.getBundledOnly());
@@ -465,13 +492,21 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
   // 🎯 Daily Spark 由专用 Hook 管理（自动进行日期验证）
   // dailySparkMaterial 和 isDailySparkLoading 来自 useDailySpark hook
 
-  const coreLibraryMaterials = allMaterials.filter((m: Material) => m.location === 'core_library');
-
-
-
-  // Filter Logic for Core Library
-  const displayMaterials = coreLibraryMaterials
+  // Filter Logic
+  const displayMaterials = allMaterials
     .filter((m: Material) => {
+      // 1. Category/Location Filter
+      if (currentCategory) {
+        if (m.location !== currentCategory) return false;
+      } else {
+        // Default: Core Library (Daily Spark has its own section)
+        if (m.location !== 'core_library') return false;
+      }
+
+      // 2. Topic Filter
+      if (currentTopic && m.tags?.topic !== currentTopic) return false;
+
+      // 3. Status Filters
       if (activeFilter === 'starred') return m.userMeta?.isStarred;
       if (activeFilter === 'reading') return (m.userMeta?.currentStep || 0) > 0 && (m.userMeta?.currentStep || 0) < 4;
       return true;
@@ -1223,6 +1258,9 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
     }
   };
 
+  // Determine if we are in a filtered view (Topic or Category selected)
+  const isFiltered = currentCategory !== null || currentTopic !== null;
+
   return (
     <main
       className="flex-1 overflow-y-auto no-scrollbar scroll-smooth bg-black h-full"
@@ -1236,44 +1274,44 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
       <div className="pb-20">
         {/* Section 1: The Daily Spark */}
         {/* 🎯 Daily Spark Section - with strict date validation */}
-        <section className="px-6 pt-[calc(env(safe-area-inset-top)+1.5rem)] mb-1">
-          <div className="flex gap-2 mb-4 items-center animate-in slide-in-from-bottom-4 duration-500">
-            <Sparkles className="w-6 h-6 text-indigo-400" />
-            <h2 className="text-3xl font-medium text-white tracking-tight">Daily Spark</h2>
-            <button
-              onClick={onProfile}
-              className="ml-auto p-2 text-zinc-600 hover:text-white transition-colors"
-              aria-label="Settings"
-            >
-              <Menu className="w-6 h-6" />
-            </button>
-          </div>
+        {/* Hidden when filtered */}
+        {!isFiltered && (
+          <section className="px-6 pt-[calc(env(safe-area-inset-top)+1.5rem)] mb-1">
+            <div className="flex gap-2 mb-4 items-center animate-in slide-in-from-bottom-4 duration-500">
+              <Sparkles className="w-6 h-6 text-indigo-400" />
+              <h2 className="text-3xl font-medium text-white tracking-tight">Daily Spark</h2>
+              {/* Settings Button */}
+              <button
+                onClick={() => setIsDrawerOpen(true)}
+                className="ml-auto p-2 text-zinc-600 hover:text-white transition-colors"
+              >
+                <Menu className="w-6 h-6" />
+              </button>
+            </div>
 
-          {/* Unified Hero Card */}
-          <div className="animate-in zoom-in-95 duration-700 delay-100 fill-mode-both">
-            {isDailySparkLoading ? (
-              // 🔥 骨架屏：加载中
-              <div className="aspect-[4/5] w-full rounded-2xl bg-zinc-800 animate-pulse border border-white/10 flex items-center justify-center scale-105 shadow-2xl">
-                <Sparkles className="w-12 h-12 text-zinc-600/30" />
-              </div>
-            ) : dailySparkMaterial ? (
-              // ✅ 真实数据：仅当有效且日期匹配时显示
-              <MaterialCard
-                material={dailySparkMaterial}
-                isActive={true}
-                variant="hero"
-                onClick={() => handleCardClick(dailySparkMaterial)}
-                onTogglePin={() => handleTogglePin(dailySparkMaterial.id, dailySparkMaterial.userMeta?.isPinned || false)}
-                onToggleStar={() => handleToggleStar(dailySparkMaterial.id, dailySparkMaterial.userMeta?.isStarred || false)}
-              />
-            ) : (
-              // ⚠️ Fallback：无数据
-              <div className="aspect-[4/5] w-full rounded-2xl bg-zinc-800 border border-white/10 flex items-center justify-center scale-105 shadow-2xl">
-                <Sparkles className="w-12 h-12 text-zinc-600/30" />
-              </div>
-            )}
-          </div>
-        </section>
+            {/* Unified Hero Card */}
+            <div className="animate-in zoom-in-95 duration-700 delay-100 fill-mode-both">
+              {isDailySparkLoading ? (
+                <DelayedSkeleton />
+              ) : dailySparkMaterial ? (
+                // ✅ 真实数据：仅当有效且日期匹配时显示
+                <MaterialCard
+                  material={dailySparkMaterial}
+                  isActive={true}
+                  variant="hero"
+                  onClick={() => handleCardClick(dailySparkMaterial)}
+                  onTogglePin={() => handleTogglePin(dailySparkMaterial.id, dailySparkMaterial.userMeta?.isPinned || false)}
+                  onToggleStar={() => handleToggleStar(dailySparkMaterial.id, dailySparkMaterial.userMeta?.isStarred || false)}
+                />
+              ) : (
+                // ⚠️ Fallback：无数据
+                <div className="aspect-[4/5] w-full rounded-2xl bg-zinc-800 border border-white/10 flex items-center justify-center scale-105 shadow-2xl">
+                  <Sparkles className="w-12 h-12 text-zinc-600/30" />
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
         {/* Section 2: Core Library */}
         <section className="mt-[-0.25rem]">
@@ -1287,18 +1325,20 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
                   "font-medium text-white tracking-tight whitespace-nowrap",
                   isMenuOpen ? "text-xl" : "text-3xl"
                 )}>
-                  Core Library
+                  {currentCategory === 'daily_spark' ? 'Daily Spark' : 'Core Library'}
                 </h2>
               </div>
 
               <div className="flex gap-3 items-center">
                 {/* Upload / Import Button with Circular Progress */}
-                <button
-                  onClick={handleImportClick}
-                  className="w-11 h-11 bg-zinc-900 border border-zinc-800 rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:border-zinc-700 shadow-sm shrink-0 active:scale-95"
-                >
-                  <Upload className="w-5 h-5" />
-                </button>
+                {!isFiltered && (
+                  <button
+                    onClick={handleImportClick}
+                    className="w-11 h-11 bg-zinc-900 border border-zinc-800 rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:border-zinc-700 shadow-sm shrink-0 active:scale-95"
+                  >
+                    <Upload className="w-5 h-5" />
+                  </button>
+                )}
 
                 {/* Filter Group */}
                 <div
@@ -1337,6 +1377,17 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
                     </button>
                   </div>
                 </div>
+
+
+                {/* Filtered Mode: Menu Button at the end */}
+                {isFiltered && (
+                  <button
+                    onClick={() => setIsDrawerOpen(true)}
+                    className="w-11 h-11 bg-zinc-900 border border-zinc-800 rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:border-zinc-700 shadow-sm shrink-0 active:scale-95"
+                  >
+                    <Menu className="w-5 h-5" />
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -1424,60 +1475,66 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
           </div>
 
           {/* Partial Failure Retry Button - shows if we have some data (e.g. Daily Spark) but load failed */}
-          {loadFailed && displayMaterials.length > 0 && (
-            <div className="col-span-1 flex flex-col items-center justify-center py-8 gap-3">
-              <p className="text-zinc-500 text-sm">加载中...</p>
-              <button
-                onClick={async () => {
-                  setLoadFailed(false);
-                  setIsInitialLoading(true);
-                  // Reuse the same retry logic (could be extracted to a function)
-                  try {
-                    const progressList = await fetchUserProgress();
-                    const [dailySparkItems, coreLibResult] = await Promise.all([
-                      materialService.loadDailySparkMaterials(progressList),
-                      materialService.loadMaterialsPage(1, 20, progressList)
-                    ]);
+          {
+            loadFailed && displayMaterials.length > 0 && (
+              <div className="col-span-1 flex flex-col items-center justify-center py-8 gap-3">
+                <p className="text-zinc-500 text-sm">加载中...</p>
+                <button
+                  onClick={async () => {
+                    setLoadFailed(false);
+                    setIsInitialLoading(true);
+                    // Reuse the same retry logic (could be extracted to a function)
+                    try {
+                      const progressList = await fetchUserProgress();
+                      const [dailySparkItems, coreLibResult] = await Promise.all([
+                        materialService.loadDailySparkMaterials(progressList),
+                        materialService.loadMaterialsPage(1, 20, progressList)
+                      ]);
 
-                    setAllMaterials(prev => {
-                      const withoutDailySpark = prev.filter(m => m.location !== 'daily_spark');
-                      const withDailySpark = dailySparkItems.length > 0
-                        ? materialService.mergeMaterials(withoutDailySpark, dailySparkItems)
-                        : withoutDailySpark;
-                      return materialService.mergeMaterials(withDailySpark, coreLibResult.items);
-                    });
+                      setAllMaterials(prev => {
+                        const withoutDailySpark = prev.filter(m => m.location !== 'daily_spark');
+                        const withDailySpark = dailySparkItems.length > 0
+                          ? materialService.mergeMaterials(withoutDailySpark, dailySparkItems)
+                          : withoutDailySpark;
+                        return materialService.mergeMaterials(withDailySpark, coreLibResult.items);
+                      });
 
-                    setHasMorePages(coreLibResult.hasMore);
-                    setCurrentPage(1);
-                    setIsInitialLoading(false);
-                    // Check empty again
-                    if (coreLibResult.items.length === 0) setLoadFailed(true);
-                  } catch (error) {
-                    console.error('Manual retry failed:', error);
-                    setLoadFailed(true);
-                    setIsInitialLoading(false);
-                  }
-                }}
-                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors"
-              >
-                <RefreshCw className="w-4 h-4" />
-                <span>点击重试</span>
-              </button>
-            </div>
-          )}
+                      setHasMorePages(coreLibResult.hasMore);
+                      setCurrentPage(1);
+                      setIsInitialLoading(false);
+                      // Check empty again
+                      if (coreLibResult.items.length === 0) setLoadFailed(true);
+                    } catch (error) {
+                      console.error('Manual retry failed:', error);
+                      setLoadFailed(true);
+                      setIsInitialLoading(false);
+                    }
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  <span>点击重试</span>
+                </button>
+              </div>
+            )
+          }
 
           {/* Loading More Indicator */}
-          {isLoadingMore && (
-            <div className="col-span-1 flex justify-center py-8">
-              <div className="animate-spin h-8 w-8 border-3 border-blue-500 rounded-full border-t-transparent" />
-            </div>
-          )}
+          {
+            isLoadingMore && (
+              <div className="col-span-1 flex justify-center py-8">
+                <div className="animate-spin h-8 w-8 border-3 border-blue-500 rounded-full border-t-transparent" />
+              </div>
+            )
+          }
 
           {/* All Loaded Indicator */}
-          {!hasMorePages && displayMaterials.length > 0 && !isInitialLoading && (
-            <div className="col-span-1 text-center py-6 text-zinc-500 text-sm">
-            </div>
-          )}
+          {
+            !hasMorePages && displayMaterials.length > 0 && !isInitialLoading && (
+              <div className="col-span-1 text-center py-6 text-zinc-500 text-sm">
+              </div>
+            )
+          }
 
           {/* Bottom Feed Status */}
           <div className="mt-8 mb-20 flex flex-col items-center gap-3 opacity-50 animate-in fade-in duration-1000 delay-500">
@@ -1487,11 +1544,29 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
             </span>
             <div className="w-8 h-[1px] bg-zinc-800" />
           </div>
-        </section>
+        </section >
 
-      </div>
+      </div >
 
-      <Paywall
+      {/* 🔥 NEW: Category Drawer */}
+      < CategoryDrawer
+        isOpen={isDrawerOpen}
+        onClose={() => setIsDrawerOpen(false)
+        }
+        onTopicSelect={(category, topicName) => {
+          console.log(`📂 [Topic] Selected: ${category}/${topicName}`);
+          setCurrentCategory(category);
+          setCurrentTopic(topicName);
+          setIsDrawerOpen(false);
+        }}
+        currentTopic={currentTopic || undefined}
+        onSettingsClick={() => {
+          setIsDrawerOpen(false);
+          onProfile();  // 跳转到设置页
+        }}
+      />
+
+      < Paywall
         isOpen={showPaywall}
         onClose={() => setShowPaywall(false)}
         onSuccess={() => {
@@ -1525,6 +1600,6 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
           setTimeout(() => setUploadStatus('initial'), 300);
         }}
       />
-    </main>
+    </main >
   );
 }
