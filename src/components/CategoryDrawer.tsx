@@ -44,17 +44,36 @@ export function CategoryDrawer({
     const [topics, setTopics] = useState<Record<string, Topic[]>>({});
     const [isLoading, setIsLoading] = useState(true);
 
+    // 🚀 Prefetch: App启动/组件挂载时立即默默加载
+    useEffect(() => {
+        loadTopics({ isSilent: false }); // 首次加载（用户不可见，但如果打开得快可能看到Loading）
+    }, []);
+
+    // 🔄 Revalidate: 每次打开抽屉时静默刷新
     useEffect(() => {
         if (isOpen) {
-            loadTopics();
+            // 如果内存里已经有数据了，就不要显示Loading，悄悄更新即可
+            const hasData = Object.keys(topics).length > 0;
+            loadTopics({ isSilent: hasData });
         }
     }, [isOpen]);
 
-    const loadTopics = async () => {
-        setIsLoading(true);
-        const allTopics = await getAllTopics();
-        setTopics(allTopics);
-        setIsLoading(false);
+    const loadTopics = async (options: { isSilent: boolean } = { isSilent: false }) => {
+        // 只有非静默模式下（且依然需要Loading时）才转圈圈
+        if (!options.isSilent) {
+            setIsLoading(true);
+        }
+
+        try {
+            const allTopics = await getAllTopics();
+            setTopics(allTopics);
+        } catch (error) {
+            console.error('❌ [Drawer] Failed to load topics', error);
+        } finally {
+            if (!options.isSilent) {
+                setIsLoading(false);
+            }
+        }
     };
 
     // 🎯 Liquid Glass Drawer with Swipe-to-Close
