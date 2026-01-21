@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Settings, ArrowRight, ChevronRight, Sparkles, BookOpen, LayoutGrid } from 'lucide-react';
+import { Settings, ArrowRight, ChevronRight, Sparkles, BookOpen, LayoutGrid, Crown } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { getAllTopics, type Topic } from '@/lib/topicService';
@@ -16,6 +16,8 @@ interface CategoryDrawerProps {
     onTopicSelect: (category: string | null, topicName: string | null) => void;
     currentTopic?: string;
     onSettingsClick: () => void;
+    onUpgradeClick?: () => void; // Optional callback
+    subscriptionTier?: 'free' | 'monthly' | 'quarterly' | 'yearly';
 }
 
 // 🎯 Helper: Extract Emoji from string
@@ -39,7 +41,9 @@ export function CategoryDrawer({
     onClose,
     onTopicSelect,
     currentTopic,
-    onSettingsClick
+    onSettingsClick,
+    onUpgradeClick,
+    subscriptionTier = 'free'
 }: CategoryDrawerProps) {
     const [topics, setTopics] = useState<Record<string, Topic[]>>({});
     const [isLoading, setIsLoading] = useState(true);
@@ -75,6 +79,61 @@ export function CategoryDrawer({
             }
         }
     };
+
+    // 🎯 Logic for Dynamic Badge
+    const getBadgeConfig = () => {
+        // 🔥 Always open Paywall (Upgrade/Manage) regardless of tier
+        const commonAction = onUpgradeClick;
+
+        switch (subscriptionTier) {
+            case 'monthly':
+                return {
+                    text: '月度会员',
+                    bgGradient: 'from-indigo-500/20 to-blue-600/20',
+                    hoverGradient: 'hover:from-indigo-500/30 hover:to-blue-600/30',
+                    borderColor: 'border-indigo-500/20',
+                    iconColor: 'text-indigo-400',
+                    textColor: 'text-indigo-200/90',
+                    slideBg: 'bg-indigo-400/5 group-hover:bg-indigo-400/10',
+                    onClick: commonAction
+                };
+            case 'quarterly':
+                return {
+                    text: '季度会员',
+                    bgGradient: 'from-purple-500/20 to-pink-600/20',
+                    hoverGradient: 'hover:from-purple-500/30 hover:to-pink-600/30',
+                    borderColor: 'border-purple-500/20',
+                    iconColor: 'text-purple-400',
+                    textColor: 'text-purple-200/90',
+                    slideBg: 'bg-purple-400/5 group-hover:bg-purple-400/10',
+                    onClick: commonAction
+                };
+            case 'yearly':
+                return {
+                    text: '年度会员 · VIP',
+                    bgGradient: 'from-amber-500/20 to-orange-600/20',
+                    hoverGradient: 'hover:from-amber-500/30 hover:to-orange-600/30',
+                    borderColor: 'border-amber-500/20',
+                    iconColor: 'text-amber-400',
+                    textColor: 'text-amber-200/90',
+                    slideBg: 'bg-amber-400/5 group-hover:bg-amber-400/10',
+                    onClick: commonAction
+                };
+            default: // free
+                return {
+                    text: '升级Pro会员',
+                    bgGradient: 'from-amber-500/20 to-orange-600/20',
+                    hoverGradient: 'hover:from-amber-500/30 hover:to-orange-600/30',
+                    borderColor: 'border-amber-500/20',
+                    iconColor: 'text-amber-400',
+                    textColor: 'text-amber-200/90',
+                    slideBg: 'bg-amber-400/5 group-hover:bg-amber-400/10',
+                    onClick: commonAction
+                };
+        }
+    };
+
+    const badge = getBadgeConfig();
 
     // 🎯 Liquid Glass Drawer with Swipe-to-Close
     return (
@@ -207,17 +266,33 @@ export function CategoryDrawer({
                     </LiquidAccordion>
                 </div>
 
-                {/* Footer - Modified: Centered & Larger Settings Button */}
-                <div className="p-6 border-t border-white/5 bg-white/5 relative shrink-0">
+                {/* Footer - Modified: Side-by-side Pro & Settings (More Spacing, Narrower) */}
+                <div className="px-8 py-6 border-t border-white/5 bg-white/5 relative shrink-0">
                     <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent pointer-events-none"></div>
 
-                    <div className="flex justify-center relative z-10">
+                    <div className="flex gap-4 relative z-10 w-full">
+                        {/* Dynamic Badge Button (Compact) */}
+                        <button
+                            onClick={badge.onClick}
+                            className={cn(
+                                "flex-1 rounded-xl py-2.5 flex items-center justify-center gap-1.5 border shadow-lg backdrop-blur-md transition-all active:scale-95 group relative overflow-hidden",
+                                `bg-gradient-to-br ${badge.bgGradient} ${badge.hoverGradient} ${badge.borderColor}`
+                            )}
+                        >
+                            <div className={cn("absolute inset-0 transition-colors", badge.slideBg)}></div>
+                            <Crown className={cn("w-4 h-4 transition-colors", badge.iconColor)} fill="currentColor" fillOpacity={0.2} />
+                            <span className={cn("text-xs font-bold transition-colors group-hover:text-white", badge.textColor)}>
+                                {badge.text}
+                            </span>
+                        </button>
+
+                        {/* Settings Button - Standard Style (Compact) */}
                         <button
                             onClick={onSettingsClick}
-                            className="w-2/3 bg-black/40 hover:bg-white/10 rounded-2xl py-3.5 flex items-center justify-center gap-3 border border-white/5 shadow-2xl backdrop-blur-md transition-all active:scale-95 group"
+                            className="flex-1 bg-white/5 hover:bg-white/10 rounded-xl py-2.5 flex items-center justify-center gap-1.5 border border-white/20 shadow-lg backdrop-blur-md transition-all active:scale-95 group"
                         >
-                            <Settings className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
-                            <span className="text-sm font-medium text-zinc-400 group-hover:text-white transition-colors">Settings</span>
+                            <Settings className="w-4 h-4 text-zinc-400 group-hover:text-white transition-colors" />
+                            <span className="text-xs font-medium text-zinc-400 group-hover:text-white transition-colors">设置</span>
                         </button>
                     </div>
                 </div>

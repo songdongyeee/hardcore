@@ -1658,6 +1658,11 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
           setIsDrawerOpen(false);
           onProfile();  // 跳转到设置页
         }}
+        onUpgradeClick={() => {
+          setIsDrawerOpen(false);
+          setShowPaywall(true); // 打开 Paywall
+        }}
+        subscriptionTier={pbSubscriptionTier}
       />
 
 

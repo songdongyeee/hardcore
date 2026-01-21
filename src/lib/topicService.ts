@@ -35,7 +35,7 @@ export async function getTopicsByCategory(
     try {
         // 1. 从materials聚合topic（获取真实材料数量）
         const materials = await pb.collection('transcripts').getFullList({
-            filter: `location = "${category}"`,
+            filter: `location = "${category}" && visibility = "public"`,
             fields: 'topic',
             sort: '-created',
             requestKey: null // 🔥 禁用自动取消，防止 Promise.all 中的并行请求互相取消
@@ -162,7 +162,7 @@ export async function getMaterialsByTopic(
 ) {
     try {
         const result = await pb.collection('transcripts').getList(page, perPage, {
-            filter: `location = "${category}" && topic = "${topicName}"`,
+            filter: `location = "${category}" && topic = "${topicName}" && visibility = "public"`,
             sort: 'topicOrder,-created' // 先按topicOrder排序，再按创建时间
         });
 

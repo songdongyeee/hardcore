@@ -185,7 +185,9 @@ async function main() {
         formData.append('language', 'en');
         formData.append('waveform_data', JSON.stringify(waveform));
         formData.append('status', 'processing');
-        formData.append('visibility', 'public');
+        // 🔥 STATUS: 'private' means it won't be seen by users until you update it in PB
+        const VISIBILITY = 'private';
+        formData.append('visibility', VISIBILITY);
 
         try {
             const record = await pb.collection('transcripts').create(formData);
