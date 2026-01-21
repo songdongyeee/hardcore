@@ -37,7 +37,8 @@ export async function getTopicsByCategory(
         const materials = await pb.collection('transcripts').getFullList({
             filter: `location = "${category}"`,
             fields: 'topic',
-            sort: '-created'
+            sort: '-created',
+            requestKey: null // 🔥 禁用自动取消，防止 Promise.all 中的并行请求互相取消
         });
 
         // 2. 统计各topic的材料数量
@@ -52,7 +53,8 @@ export async function getTopicsByCategory(
         try {
             topicMetas = await pb.collection('topic_meta').getFullList<TopicMeta>({
                 filter: `category = "${category}"`,
-                sort: 'display_order'
+                sort: 'display_order',
+                requestKey: null // 🔥 禁用自动取消
             });
         } catch (e: any) {
             console.warn(`⚠️ [Topic] Failed to load topic_meta (using defaults): ${e.message}`);
@@ -98,8 +100,17 @@ export async function getTopicsByCategory(
         }
 
         // 6. 合并数据
-        const topics: Topic[] = Object.entries(topicCounts).map(([name, count]) => {
+        // 6. 合并数据 (Modified: Include topics from meta even if count is 0)
+        const allTopicNames = new Set([...Object.keys(topicCounts), ...metaMap.keys()]);
+
+        const topics: Topic[] = Array.from(allTopicNames).map(name => {
+            const count = topicCounts[name] || 0;
             const meta = metaMap.get(name);
+
+            // If topic has no materials, force explicit status or default to coming_soon if created in PB
+            // But usually we respect the meta status. 
+            // If it has no materials ONLY show it if it has meta (which implies it's a planned topic)
+
             return {
                 name,
                 category,

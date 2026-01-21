@@ -13,6 +13,7 @@ export interface MaterialCardProps {
     onTogglePin?: () => void;
     onToggleStar?: () => void;
     variant?: 'hero' | 'grid';
+    showDailySparkTags?: boolean; // 🎯 NEW: Control special Daily Spark tags
 }
 
 export const MaterialCard = React.memo(function MaterialCard({
@@ -23,7 +24,8 @@ export const MaterialCard = React.memo(function MaterialCard({
     onRename,
     onTogglePin,
     onToggleStar,
-    variant = 'hero'
+    variant = 'hero',
+    showDailySparkTags = false // Default to false
 }: MaterialCardProps) {
     const [swipeOffset, setSwipeOffset] = useState(0);
     const [isSwiping, setIsSwiping] = useState(false);
@@ -299,7 +301,7 @@ export const MaterialCard = React.memo(function MaterialCard({
                 <div className="absolute bottom-0 left-0 right-0 p-6 z-20">
                     {/* Standardized Tags Section */}
                     <div className="flex flex-wrap gap-2 mb-3">
-                        {material.location === 'daily_spark' ? (
+                        {material.location === 'daily_spark' && showDailySparkTags ? (
                             <>
                                 {/* Blue Tag: Daily Spark */}
                                 <span className="px-3 py-1 rounded-2xl bg-indigo-500/30 text-indigo-100 border border-indigo-400/40 text-[11px] font-bold tracking-wide">

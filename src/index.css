@@ -102,3 +102,70 @@
 .animate-slide-in {
   animation: slide-in-top 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+/* =========================================
+   LIQUID GLASS DRAWER STYLES
+   ========================================= */
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Liquid Glass Card Utilities */
+.glass-panel {
+    background: rgba(20, 20, 23, 0.6);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-card {
+    background: linear-gradient(145deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.01) 100%);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+}
+
+/* The NEW Liquid Glass Drawer Style */
+.liquid-drawer {
+    /* Complex gradient to simulate depth and liquid thickness */
+    background: linear-gradient(
+        165deg, 
+        rgba(255, 255, 255, 0.05) 0%, 
+        rgba(10, 10, 10, 0.8) 40%, 
+        rgba(5, 5, 5, 0.95) 100%
+    );
+    backdrop-filter: blur(40px) saturate(120%);
+    -webkit-backdrop-filter: blur(40px) saturate(120%);
+    
+    /* Glass edge effect */
+    border-left: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 
+        -20px 0 60px rgba(0, 0, 0, 0.6), /* Deep shadow behind */
+        inset 1px 0 0 rgba(255, 255, 255, 0.1), /* Inner left highlight */
+        inset 0 1px 0 rgba(255, 255, 255, 0.05); /* Top lip highlight */
+}
+
+.glass-button {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.glass-button:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.2);
+    box-shadow: 0 0 15px rgba(255,255,255,0.05);
+}
+
+/* Smooth Accordion Transition */
+.accordion-content {
+    transition: max-height 0.4s cubic-bezier(0.33, 1, 0.68, 1), opacity 0.4s ease;
+    max-height: 1000px;
+    opacity: 1;
+    overflow: hidden;
+}
+.accordion-content.collapsed {
+    max-height: 0;
+    opacity: 0;
+}
+
+.rotate-icon { transition: transform 0.3s ease; }

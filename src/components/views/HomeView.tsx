@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import * as React from "react";
-import { Library, Sparkles, Menu, Upload, Filter, BookOpen, X, Star, RefreshCw } from 'lucide-react';
+import { Library, Sparkles, Upload, Filter, BookOpen, X, Star, RefreshCw } from 'lucide-react';
 import { Dialog } from '@capacitor/dialog';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Network } from '@capacitor/network';
@@ -111,6 +111,13 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
   // 🎯 NEW: 使用严格日期验证的 Daily Spark Hook
   const { material: dailySparkMaterial, isLoading: isDailySparkLoading } = useDailySpark();
 
+  // 🎯 NEW: Daily Spark 全量材料列表（用于 topic 筛选）
+  const [dailySparkMaterials, setDailySparkMaterials] = useState<Material[]>([]);
+  const [_isDailySparkListLoading, setIsDailySparkListLoading] = useState(false);
+  // 🎯 NEW: Daily Spark 独立分页状态
+  const [dailySparkPage, setDailySparkPage] = useState(1);
+  const [dailySparkHasMore, setDailySparkHasMore] = useState(true);
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [hasMorePages, setHasMorePages] = useState(true);
@@ -137,6 +144,11 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
 
   // 🎯 缓存加载标志位 - 用于区分首次安装和重开应用
   const hasCacheLoadedRef = useRef(false);
+
+  // 🕵️ DEBUG: Trace State Updates
+  useEffect(() => {
+    console.log('🔄 [HomeView State Update] Category:', currentCategory, 'Topic:', currentTopic);
+  }, [currentCategory, currentTopic]);
 
   useEffect(() => {
     const initData = async () => {
@@ -492,8 +504,36 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
   // 🎯 Daily Spark 由专用 Hook 管理（自动进行日期验证）
   // dailySparkMaterial 和 isDailySparkLoading 来自 useDailySpark hook
 
-  // Filter Logic
-  const displayMaterials = allMaterials
+  // 🎯 NEW: 当选择 Daily Spark category 时，加载全量 Daily Spark 材料
+  useEffect(() => {
+    if (currentCategory === 'daily_spark') {
+      const loadDailySparkList = async () => {
+        setIsDailySparkListLoading(true);
+        // Reset pagination
+        setDailySparkPage(1);
+        setDailySparkHasMore(true);
+
+        try {
+          // 🎯 加载第一页 (20条)
+          const { items, hasMore } = await materialService.loadMaterialsPage(1, 20, undefined, 'daily_spark');
+          setDailySparkMaterials(items);
+          setDailySparkHasMore(hasMore);
+          console.log(`✅ [Daily Spark] Loaded page 1 (${items.length} items)`);
+
+          // Prefetch covers
+          setTimeout(() => prefetchCovers(items, 20), 1000);
+        } catch (error) {
+          console.error('Failed to load Daily Spark materials:', error);
+        } finally {
+          setIsDailySparkListLoading(false);
+        }
+      };
+      loadDailySparkList();
+    }
+  }, [currentCategory]);
+
+  // Filter Logic - 根据 currentCategory 选择数据源
+  const displayMaterials = (currentCategory === 'daily_spark' ? dailySparkMaterials : allMaterials)
     .filter((m: Material) => {
       // 1. Category/Location Filter
       if (currentCategory) {
@@ -533,18 +573,37 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
     }
   };
 
-  // 加载更多（分页）
+
+
+  // 加载更多（分页）- 🎯 支持双模式
   const loadMore = async () => {
-    if (!hasMorePages || isLoadingMore) return;
+    const isDailySpark = currentCategory === 'daily_spark';
+
+    // Check correct pagination state
+    if (isDailySpark) {
+      if (!dailySparkHasMore || isLoadingMore) return;
+    } else {
+      if (!hasMorePages || isLoadingMore) return;
+    }
 
     setIsLoadingMore(true);
-    const nextPage = currentPage + 1;
+
+    // Determine next page
+    const nextPage = isDailySpark ? dailySparkPage + 1 : currentPage + 1;
+    const location = isDailySpark ? 'daily_spark' : undefined;
 
     try {
-      const { items, hasMore } = await materialService.loadMaterialsPage(nextPage, 20);
-      setAllMaterials(prev => materialService.mergeMaterials(prev, items));
-      setHasMorePages(hasMore);
-      setCurrentPage(nextPage);
+      const { items, hasMore } = await materialService.loadMaterialsPage(nextPage, 20, undefined, location);
+
+      if (isDailySpark) {
+        setDailySparkMaterials(prev => materialService.mergeMaterials(prev, items));
+        setDailySparkHasMore(hasMore);
+        setDailySparkPage(nextPage);
+      } else {
+        setAllMaterials(prev => materialService.mergeMaterials(prev, items));
+        setHasMorePages(hasMore);
+        setCurrentPage(nextPage);
+      }
 
       // 后台缓存新加载的封面
       setTimeout(() => prefetchCovers(items, 20), 1000);
@@ -1283,9 +1342,13 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
               {/* Settings Button */}
               <button
                 onClick={() => setIsDrawerOpen(true)}
-                className="ml-auto p-2 text-zinc-600 hover:text-white transition-colors"
+                className="ml-auto w-10 h-10 rounded-full bg-zinc-800/80 backdrop-blur-md border border-zinc-700/50 flex items-center justify-center text-zinc-100 hover:bg-zinc-700 transition-all active:scale-95 shadow-sm"
               >
-                <Menu className="w-6 h-6" />
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+                  <line x1="4" x2="20" y1="6" y2="6" />
+                  <line x1="4" x2="20" y1="12" y2="12" />
+                  <line x1="4" x2="20" y1="18" y2="18" />
+                </svg>
               </button>
             </div>
 
@@ -1299,6 +1362,7 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
                   material={dailySparkMaterial}
                   isActive={true}
                   variant="hero"
+                  showDailySparkTags={true} // 🎯 明确要求显示为“每日短句”
                   onClick={() => handleCardClick(dailySparkMaterial)}
                   onTogglePin={() => handleTogglePin(dailySparkMaterial.id, dailySparkMaterial.userMeta?.isPinned || false)}
                   onToggleStar={() => handleToggleStar(dailySparkMaterial.id, dailySparkMaterial.userMeta?.isStarred || false)}
@@ -1319,8 +1383,25 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
           <div className="sticky top-0 z-30 transition-all duration-300">
             <div className="absolute inset-0 bg-black/80 backdrop-blur-xl border-b border-white/5"></div>
             <div className="relative px-6 flex items-center justify-between mt-[-env(safe-area-inset-top)] pt-[calc(env(safe-area-inset-top)+0.4rem)] pb-2.5">
-              <div className="flex items-center gap-3 overflow-hidden">
-                <Library className={cn("shrink-0 text-emerald-400", isMenuOpen ? "w-6 h-6" : "w-7 h-7")} />
+              <div
+                key={`header-${currentCategory}`} /* 🔑 Force re-render on category change */
+                className="flex items-center gap-3 min-w-0" /* 🔥 Fix: Removed overflow-hidden, added min-w-0 */
+              >
+                {/* 🔥 Dynamic Icon: Sparkles for Daily Spark, Library for Core Library */}
+                {
+                  (currentCategory === 'daily_spark') ? (
+                    <Sparkles className={cn("shrink-0 text-indigo-400", isMenuOpen ? "w-6 h-6" : "w-7 h-7")} />
+                  ) : (
+                    <Library className={cn("shrink-0 text-emerald-400", isMenuOpen ? "w-6 h-6" : "w-7 h-7")} />
+                  )
+                }
+
+                {/* 🕵️ Render Log */}
+                {(() => {
+                  console.log('🎨 [HomeView Render] Header Title for:', currentCategory);
+                  return null;
+                })()}
+
                 <h2 className={cn(
                   "font-medium text-white tracking-tight whitespace-nowrap",
                   isMenuOpen ? "text-xl" : "text-3xl"
@@ -1329,10 +1410,11 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
                 </h2>
               </div>
 
-              <div className="flex gap-3 items-center">
-                {/* Upload / Import Button with Circular Progress */}
+              <div key={`header-buttons-${isFiltered ? 'filtered' : 'normal'}`} className="flex gap-3 items-center">
+                {/* Upload Button - 只在非筛选模式显示 */}
                 {!isFiltered && (
                   <button
+                    key="upload-btn"
                     onClick={handleImportClick}
                     className="w-11 h-11 bg-zinc-900 border border-zinc-800 rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:border-zinc-700 shadow-sm shrink-0 active:scale-95"
                   >
@@ -1340,8 +1422,9 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
                   </button>
                 )}
 
-                {/* Filter Group */}
+                {/* Filter Group - 始终显示，可展开 */}
                 <div
+                  key="filter-group"
                   className={cn(
                     "group flex flex-row-reverse items-center p-1 gap-1 h-11 bg-zinc-900 border border-zinc-800 rounded-full overflow-hidden shadow-sm",
                     isMenuOpen ? "w-[140px] border-zinc-600" : "w-11 hover:border-zinc-700"
@@ -1378,14 +1461,19 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
                   </div>
                 </div>
 
-
-                {/* Filtered Mode: Menu Button at the end */}
+                {/* Menu Button - 只在筛选模式显示（固定的抽屉按钮）*/}
                 {isFiltered && (
                   <button
+                    key="drawer-btn"
                     onClick={() => setIsDrawerOpen(true)}
-                    className="w-11 h-11 bg-zinc-900 border border-zinc-800 rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:border-zinc-700 shadow-sm shrink-0 active:scale-95"
+                    className="w-11 h-11 bg-zinc-800 border border-zinc-700 rounded-full flex items-center justify-center text-zinc-200 hover:text-white hover:border-zinc-600 shadow-sm shrink-0 active:scale-95 transition-colors"
                   >
-                    <Menu className="w-5 h-5" />
+                    {/* 内联 SVG Menu 图标 - 三条线 */}
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="4" x2="20" y1="12" y2="12"></line>
+                      <line x1="4" x2="20" y1="6" y2="6"></line>
+                      <line x1="4" x2="20" y1="18" y2="18"></line>
+                    </svg>
                   </button>
                 )}
               </div>
@@ -1549,12 +1637,11 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
       </div >
 
       {/* 🔥 NEW: Category Drawer */}
-      < CategoryDrawer
+      <CategoryDrawer
         isOpen={isDrawerOpen}
-        onClose={() => setIsDrawerOpen(false)
-        }
+        onClose={() => setIsDrawerOpen(false)}
         onTopicSelect={(category, topicName) => {
-          console.log(`📂 [Topic] Selected: ${category}/${topicName}`);
+          console.log(`📂 [TopicRecieved] HomeView received: category=${category}, topic=${topicName}`);
           setCurrentCategory(category);
           setCurrentTopic(topicName);
           setIsDrawerOpen(false);
@@ -1566,14 +1653,17 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
         }}
       />
 
-      < Paywall
+
+
+      {/* Paywall Overlay */}
+      <Paywall
         isOpen={showPaywall}
         onClose={() => setShowPaywall(false)}
         onSuccess={() => {
           // Reload page to refresh all subscription states
           window.location.reload();
         }}
-        source="clicked_locked_card"
+        source="limit_reached"
       />
 
       <UploadModal

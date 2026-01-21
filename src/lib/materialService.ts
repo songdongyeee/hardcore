@@ -726,7 +726,8 @@ export const materialService = {
     async loadMaterialsPage(
         page: number,
         perPage: number = 20,
-        progressList?: any[]
+        progressList?: any[],
+        location?: 'daily_spark' | 'core_library'  // 🎯 NEW: 可选的 location 过滤
     ): Promise<{
         items: Material[];
         totalPages: number;
@@ -739,9 +740,15 @@ export const materialService = {
 
             const userId = pb.authStore.model?.id;
 
+            // 🎯 构建过滤条件
+            let filter = `(visibility = "public" || owner = "${userId}") && (status = "done" || status = "completed")`;
+            if (location) {
+                filter += ` && location = "${location}"`;
+            }
+
             // 🎯 使用 getList 代替 getFullList
             const result = await pb.collection('transcripts').getList(page, perPage, {
-                filter: `(visibility = "public" || owner = "${userId}") && (status = "done" || status = "completed")`,
+                filter: filter,
                 sort: '-created',
             });
 
