@@ -300,9 +300,8 @@ function TopicItem({ topic, isActive, onClick, defaultIcon }: TopicItemProps) {
                 </span>
             </div>
 
-            {/* Count / Locked Indicator */}
             {isLocked ? (
-                <span className="text-[10px] text-zinc-600 border border-zinc-800 px-1.5 py-0.5 rounded">
+                <span className="text-[10px] font-medium text-zinc-400 bg-zinc-800/50 border border-zinc-700/50 px-2 py-0.5 rounded-md">
                     {topic.comingSoonLabel || 'Soon'}
                 </span>
             ) : (
