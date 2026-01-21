@@ -149,6 +149,7 @@ export function CategoryDrawer({
                                     isActive={currentTopic === topic.name}
                                     onClick={() => {
                                         console.log(`🖱️ [Drawer] Selected Topic: daily_spark/${topic.name}`);
+                                        Haptics.impact({ style: ImpactStyle.Medium }).catch(() => { });
                                         onTopicSelect('daily_spark', topic.name);
                                         onClose();
                                     }}
@@ -176,6 +177,7 @@ export function CategoryDrawer({
                                     topic={topic}
                                     isActive={currentTopic === topic.name}
                                     onClick={() => {
+                                        Haptics.impact({ style: ImpactStyle.Medium }).catch(() => { });
                                         onTopicSelect('core_library', topic.name);
                                         onClose();
                                     }}

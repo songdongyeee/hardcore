@@ -5,6 +5,7 @@ import { Dialog } from '@capacitor/dialog';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Network } from '@capacitor/network';
 import { App as CapacitorApp } from '@capacitor/app';
+import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { MaterialCard } from "@/components/MaterialCard";
 import { CategoryDrawer } from "@/components/CategoryDrawer";  // 🔥 NEW: 材料分类抽屉
 
@@ -1341,7 +1342,10 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
               <h2 className="text-3xl font-medium text-white tracking-tight">Daily Spark</h2>
               {/* Settings Button */}
               <button
-                onClick={() => setIsDrawerOpen(true)}
+                onClick={() => {
+                  Haptics.impact({ style: ImpactStyle.Medium }).catch(() => { });
+                  setIsDrawerOpen(true);
+                }}
                 className="ml-auto w-10 h-10 rounded-full bg-zinc-800/80 backdrop-blur-md border border-zinc-700/50 flex items-center justify-center text-zinc-100 hover:bg-zinc-700 transition-all active:scale-95 shadow-sm"
               >
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
@@ -1465,7 +1469,10 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
                 {isFiltered && (
                   <button
                     key="drawer-btn"
-                    onClick={() => setIsDrawerOpen(true)}
+                    onClick={() => {
+                      Haptics.impact({ style: ImpactStyle.Medium }).catch(() => { });
+                      setIsDrawerOpen(true);
+                    }}
                     className="w-11 h-11 bg-zinc-800 border border-zinc-700 rounded-full flex items-center justify-center text-zinc-200 hover:text-white hover:border-zinc-600 shadow-sm shrink-0 active:scale-95 transition-colors"
                   >
                     {/* 内联 SVG Menu 图标 - 三条线 */}
