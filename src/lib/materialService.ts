@@ -351,7 +351,7 @@ export const materialService = {
                 }
 
                 remoteMaterials = await Promise.all(records.map(async record => {
-                    const progress = progressMap.get(record.id);
+
                     const normalizedDate = record.created.replace(' ', 'T');
 
                     // 🔒 CRITICAL: Check local files FIRST to avoid server requests
@@ -391,13 +391,14 @@ export const materialService = {
                             difficulty: record.difficulty || 'L1',
                             duration: record.duration || '00:00'
                         },
-                        userMeta: progress || {
+                        userMeta: progressMap.get(record.id) || {
                             isStarred: false,
                             isPinned: false,
                             currentStep: 0,
-                            isOffline: !!localAudio, // Mark as offline if local file exists
+                            isOffline: !!localAudio,
                             updatedAt: normalizedDate
-                        }
+                        },
+                        customOrder: record.custom_order || 0, // 🔥 NEW: Map custom_order from PB
                     };
                 }));
             }
@@ -809,7 +810,8 @@ export const materialService = {
                             currentStep: 0,
                             isOffline: !!localAudio,
                             updatedAt: normalizedDate
-                        }
+                        },
+                        customOrder: record.custom_order || 0, // 🔥 NEW: Map custom_order from PB
                     };
                 })
             );
@@ -990,7 +992,8 @@ export const materialService = {
                     currentStep: 0,
                     isOffline: !!localAudio,
                     updatedAt: normalizedDate
-                }
+                },
+                customOrder: record.custom_order || 0, // 🔥 NEW: Map custom_order from PB
             };
         } catch (error) {
             console.error('Failed to load single material:', error);

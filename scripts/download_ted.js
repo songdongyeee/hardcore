@@ -12,6 +12,8 @@
 import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { Readable } from 'stream';
+import { finished } from 'stream/promises';
 
 // 配置
 const CONFIG = {
@@ -22,7 +24,8 @@ const CONFIG = {
         '--audio-format', 'm4a',
         '--audio-quality', '0', // 0 为最高质量
         '--output', '%(title)s.%(ext)s',
-        '--no-playlist'
+        '--no-playlist',
+        '--cookies-from-browser', 'chrome'
     ]
 };
 
@@ -67,6 +70,62 @@ async function downloadAudio(url, outputDir) {
 
         console.log(`✅ 下载完成`);
         return { success: true, url };
+    } catch (error) {
+        console.error(`❌ 下载失败: ${url}`);
+        console.error(`   错误信息: ${error.message}`);
+        return { success: false, url, error: error.message };
+    }
+}
+
+/**
+ * KMF 音频下载 (针对 toefl.kmf.com)
+ */
+async function downloadKmfAudio(url, outputDir) {
+    try {
+        console.log(`\n正在处理 (KMF): ${url}`);
+
+        // 1. 获取页面内容
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+        const html = await response.text();
+
+        // 2. 提取信息
+        // 尝试从 title 标签提取
+        const titleMatch = html.match(/<title>(.*?)<\/title>/);
+        let title = titleMatch ? titleMatch[1].split('-')[0].trim() : '';
+        if (!title) {
+            // Backup: try h3 generic match or simple unknown
+            title = 'kmf_audio_' + Date.now();
+        }
+
+        // 查找音频链接 (寻找 mp3/m4a)
+        // 浏览器发现的链接类似: https://img.kmf.com/toefl/listening/audio/63d3d5d6d0b52b9d2a923c930d30c16e.mp3
+        const audioMatch = html.match(/https?:\/\/[^"']+\.(mp3|m4a)/i);
+
+        if (!audioMatch) {
+            throw new Error('未找到音频链接');
+        }
+
+        const audioUrl = audioMatch[0];
+        const ext = audioUrl.split('.').pop();
+        // 如果标题包含非法字符，清理一下
+        const safeTitle = title.replace(/[<>:"/\\|?*]/g, '_');
+        const filename = `${safeTitle}.${ext}`;
+        const outputPath = path.join(outputDir, filename);
+
+        console.log(`   标题: ${safeTitle}`);
+        console.log(`   音频: ${audioUrl}`);
+
+        // 3. 下载文件
+        const audioRes = await fetch(audioUrl);
+        if (!audioRes.ok) throw new Error(`Audio Download Error: ${audioRes.status}`);
+
+        const fileStream = fs.createWriteStream(outputPath);
+        await finished(Readable.fromWeb(audioRes.body).pipe(fileStream));
+
+        console.log(`✅ 下载完成`);
+        return { success: true, url };
+
     } catch (error) {
         console.error(`❌ 下载失败: ${url}`);
         console.error(`   错误信息: ${error.message}`);
@@ -120,7 +179,12 @@ async function main() {
 
     const results = [];
     for (const url of urls) {
-        const result = await downloadAudio(url, CONFIG.outputDir);
+        let result;
+        if (url.includes('kmf.com')) {
+            result = await downloadKmfAudio(url, CONFIG.outputDir);
+        } else {
+            result = await downloadAudio(url, CONFIG.outputDir);
+        }
         results.push(result);
     }
 

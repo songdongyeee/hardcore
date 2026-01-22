@@ -21,6 +21,7 @@ export interface Material {
         difficulty?: Difficulty;
         duration: string;
     };
+    customOrder?: number; // 🔥 NEW: Admin custom order (higher = top)
     waveform_data?: number[][]; // Waveform visualization data [[min, max], ...]
     userMeta?: UserProgress;
     isNew?: boolean; // Trigger slide-in animation for newly uploaded materials

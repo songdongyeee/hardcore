@@ -23,11 +23,36 @@ const RAW_DATA_INPUT: any[] = [
 // Key 必须和文件名(不含扩展名)一致
 // ==========================================
 const MANUAL_CONFIG: Record<string, Partial<Material>> = {
-    // 示例: 为某个文件配置封面
-    // "Business_L3_Title": {
-    //    coverUrl: "/images/custom.webp",
-    //    tags: { topic: "Leadership", difficulty: "L3", duration: "05:32" }
-    // }
+    // ============================================================
+    // 💡 配置模版 
+    // 使用方法：复制下方这个对象，将 Key 修改为您的文件名(不含后缀)
+    // ============================================================
+    "TEMPLATE_Example_File": {
+        // 🔥 1. 排序优先级 (数字越大越靠前，置顶请设为 100+)
+        customOrder: 100,
+
+        // 📝 2. 标题信息 (如果不填则自动使用文件名)
+        title: "主标题 (例如: Business English L1)",
+        title_translate: "中文标题 (可选)",
+        subtitle: "副标题 (可选)",
+
+        // 🖼️ 3. 封面图片 (请将图片放入 public/images/ 目录)
+        coverUrl: "/images/default_cover.webp",
+
+        // 📂 4. 分类归属 (daily_spark 或 core_library)
+        // 注意：如果不填，默认会根据 RAW_DATA 的 folder 字段自动判定
+        location: "core_library",
+
+        // 🏷️ 5. 标签分类
+        tags: {
+            topic: "Daily Life",     // 主题: Business, Daily Life, Academic, etc.
+            difficulty: "L2",        // 难度: L1 (简单), L2 (中等), L3 (困难)
+            duration: "05:00"        // (可选) 强制覆盖音频时长
+        }
+    },
+
+    // 👇 在此处粘贴您的配置 👇
+
 };
 
 

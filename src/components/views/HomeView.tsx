@@ -484,19 +484,21 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
     const aPinned = a.userMeta?.isPinned ? 1 : 0;
     const bPinned = b.userMeta?.isPinned ? 1 : 0;
 
-    // 1. Priority: Pinned status
+    // 1. Priority: Pinned status (Absolute Top)
     if (aPinned !== bPinned) {
       return bPinned - aPinned;
     }
 
-    // 2. Tie-breaker for pinned: Newest pinned first
-    if (aPinned && bPinned) {
-      const timeA = new Date(a.userMeta?.updatedAt || 0).getTime();
-      const timeB = new Date(b.userMeta?.updatedAt || 0).getTime();
-      return timeB - timeA;
+    // 2. Priority: Admin Custom Order (High Priority)
+    // Larger number = Higher position (Top)
+    const orderA = a.customOrder || 0;
+    const orderB = b.customOrder || 0;
+
+    if (orderA !== orderB) {
+      return orderB - orderA; // Descending: 100, 99, ... 0
     }
 
-    // 3. Normal items: Newest created first
+    // 3. Normal items: Newest created first (Default Fallback)
     const timeA = new Date(a.createdAt || 0).getTime();
     const timeB = new Date(b.createdAt || 0).getTime();
     return timeB - timeA;
