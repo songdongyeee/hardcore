@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import * as React from "react";
-import { Library, Sparkles, Upload, Filter, BookOpen, X, Star, RefreshCw } from 'lucide-react';
+import { Library, Sparkles, Upload, Filter, BookOpen, X, Star, RefreshCw, ArrowUp } from 'lucide-react';
 import { Dialog } from '@capacitor/dialog';
 import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Preferences } from '@capacitor/preferences';
 import { Network } from '@capacitor/network';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
@@ -132,6 +133,21 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
   const isRecoveringRef = useRef(false); // 🔒 Mutex lock for network recovery
   const hasInitializedRef = useRef(false); // 🎯 Ensure initData runs only once
 
+  // 🎯 Scroll Control & Top Tap
+  const mainRef = useRef<HTMLElement>(null);
+  const lastTapRef = useRef(0);
+  const handleTopDoubleClick = () => {
+    const now = Date.now();
+    if (now - lastTapRef.current < 300) {
+      // Double tap
+      Haptics.impact({ style: ImpactStyle.Light }).catch(() => { });
+      mainRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    lastTapRef.current = now;
+  };
+
+  const [showScrollTop, setShowScrollTop] = useState(false);
+
   const { isVip } = useRevenueCat();
   const { } = useUsageLimit(isVip);
 
@@ -155,6 +171,21 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
     const initData = async () => {
       // 🚀 阶段 1: 尝试加载缓存（不等待 Auth）
       if (!hasCacheLoadedRef.current) {
+        // 🔥 CACHE BUSTER: Force clear cache for version upgrade (Fixing .m4a -> .mp3)
+        const CACHE_VERSION_KEY = 'cache_version_v2';
+        const { value: currentVersion } = await Preferences.get({ key: CACHE_VERSION_KEY });
+
+        if (currentVersion !== '1') {
+          console.log('🧹 [Cache Buster] Clearing old cache for upgrade...');
+          await Filesystem.deleteFile({
+            path: 'cache/materials.json',
+            directory: Directory.Documents
+          }).catch(() => { });
+          await Preferences.remove({ key: 'materials_snapshot_v1' }); // Clear legacy
+          await Preferences.set({ key: CACHE_VERSION_KEY, value: '1' });
+          console.log('✅ [Cache Buster] Cache cleared. Will reload fresh data.');
+        }
+
         const snapshot = await materialService.getCachedSnapshot();
         if (snapshot && snapshot.length > 0) {
           hasCacheLoadedRef.current = true;
@@ -462,7 +493,12 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
 
     const refreshOnActivation = async () => {
       try {
-        console.log('[HomeView] View activated, refreshing subscription status...');
+        console.log('[HomeView] View activated, refreshing status...');
+
+        // 1. Refresh User Tier
+        // Add a small random delay to prevent race conditions with profile updates from other views
+        await new Promise(r => setTimeout(r, 100));
+
         const user = await pb.collection('users').getOne(pb.authStore.model!.id);
         const tier = user.subscription_tier || 'free';
         const used = user.used_seconds || 0;
@@ -470,7 +506,44 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
         pb.authStore.save(pb.authStore.token, user);
         setPbSubscriptionTier(tier);
         setUsedSeconds(used);
-        console.log('[HomeView] Subscription refreshed on activation. Tier:', tier);
+
+        // 2. 🔥 REFRESH PROGRESS (Fix for step bar not updating)
+        // Fetch latest progress from DB and merge into local state
+        const progressList = await fetchUserProgress();
+
+        // Create lookup map
+        const progressMap = new Map();
+        progressList.forEach(p => progressMap.set(p.material_id, p));
+
+        // Helper to update material list
+        const updateMaterialList = (list: Material[]) => {
+          return list.map(m => {
+            const prog = progressMap.get(m.id);
+            if (prog) {
+              // Merge existing userMeta with fresh data from DB
+              return {
+                ...m,
+                userMeta: {
+                  ...m.userMeta,
+                  currentStep: prog.current_step || 0,
+                  isStarred: prog.is_starred || false,
+                  isPinned: prog.is_pinned || false,
+                  // Preserve offline status
+                  isOffline: m.userMeta?.isOffline || false
+                }
+              };
+            }
+            return m;
+          });
+        };
+
+        // Update both lists
+        setAllMaterials(prev => updateMaterialList(prev));
+        if (dailySparkMaterials.length > 0) {
+          setDailySparkMaterials(prev => updateMaterialList(prev));
+        }
+
+        console.log(`[HomeView] Refreshed status. Tier: ${tier}, Progress items: ${progressList.length}`);
       } catch (e) {
         console.warn('Failed to refresh on activation:', e);
       }
@@ -517,14 +590,19 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
         setDailySparkHasMore(true);
 
         try {
-          // 🎯 加载第一页 (20条)
-          const { items, hasMore } = await materialService.loadMaterialsPage(1, 20, undefined, 'daily_spark');
-          setDailySparkMaterials(items);
+          // 🎯 加载第一页 (15条)
+          const { items, hasMore } = await materialService.loadMaterialsPage(1, 15, undefined, 'daily_spark');
+
+          // 🔥 FIX: 合并内置的 Daily Spark 材料 (防止过滤时消失)
+          const bundled = materialService.getBundledOnly().filter(m => m.location === 'daily_spark');
+          const combined = materialService.mergeMaterials(items, bundled);
+
+          setDailySparkMaterials(combined);
           setDailySparkHasMore(hasMore);
-          console.log(`✅ [Daily Spark] Loaded page 1 (${items.length} items)`);
+          console.log(`✅ [Daily Spark] Loaded page 1 (${items.length} remote + ${bundled.length} bundled items)`);
 
           // Prefetch covers
-          setTimeout(() => prefetchCovers(items, 20), 1000);
+          setTimeout(() => prefetchCovers(items, 15), 1000);
         } catch (error) {
           console.error('Failed to load Daily Spark materials:', error);
         } finally {
@@ -596,7 +674,13 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
     const location = isDailySpark ? 'daily_spark' : undefined;
 
     try {
-      const { items, hasMore } = await materialService.loadMaterialsPage(nextPage, 20, undefined, location);
+      const { items, hasMore } = await materialService.loadMaterialsPage(
+        nextPage,
+        15,
+        undefined,
+        location,
+        (!isDailySpark && currentTopic) ? currentTopic : undefined // 🎯 NEW: Pass topic for Core Library
+      );
 
       if (isDailySpark) {
         setDailySparkMaterials(prev => materialService.mergeMaterials(prev, items));
@@ -609,13 +693,63 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
       }
 
       // 后台缓存新加载的封面
-      setTimeout(() => prefetchCovers(items, 20), 1000);
+      setTimeout(() => prefetchCovers(items, 15), 1000);
     } catch (error) {
       console.error('Failed to load more:', error);
     } finally {
       setIsLoadingMore(false);
     }
   };
+
+  // 🎯 Filter Data Loader (Core Library with Topic)
+  // 当 Topic 变化时，后端重新加载 (解决分页导致的数据丢失问题)
+  useEffect(() => {
+    // 忽略 Daily Spark 模式（它有自己的 Effect）
+    if (currentCategory === 'daily_spark') return;
+
+    // 仅当已经初始化过远程数据，或者明确选择了 Topic 时才触发
+    // (防止与 initData 冲突，initData 会处理初始加载)
+    if (!hasLoadedRemoteDataRef.current && !currentTopic) return;
+
+    const loadFilteredCoreLibrary = async () => {
+      setIsInitialLoading(true);
+      setLoadFailed(false);
+      try {
+        console.log(`🔍 [HomeView] Reloading Core Library for Topic: ${currentTopic || 'ALL'}`);
+
+        // 1. Load from Backend (Filtered by Topic)
+        const result = await materialService.loadMaterialsPage(
+          1,
+          15,
+          undefined,
+          'core_library',
+          currentTopic || undefined
+        );
+
+        // 2. Load/Filter Bundled (Local)
+        const bundled = materialService.getBundledOnly().filter(m => {
+          const loc = m.location || 'core_library';
+          if (loc !== 'core_library') return false;
+          if (currentTopic && m.tags?.topic !== currentTopic) return false;
+          return true;
+        });
+
+        // 3. Reset list with new data
+        // 注意：这里是重置(Reset)而不是追加，因为过滤条件变了
+        setAllMaterials(materialService.mergeMaterials(result.items, bundled));
+        setHasMorePages(result.hasMore);
+        setCurrentPage(1);
+
+      } catch (e) {
+        console.error("Filter load failed", e);
+        setLoadFailed(true);
+      } finally {
+        setIsInitialLoading(false);
+      }
+    };
+
+    loadFilteredCoreLibrary();
+  }, [currentCategory, currentTopic]); // 依赖 category 和 topic 变化
 
   // 封面图预缓存
   const prefetchCovers = async (materials: Material[], count: number = 20) => {
@@ -641,6 +775,9 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
   // 滚动监听
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+
+    // Show/Hide ScrollTop Button
+    setShowScrollTop(scrollTop > 200);
 
     // 距离底部 300px 时触发加载
     if (scrollHeight - scrollTop - clientHeight < 300) {
@@ -1325,9 +1462,16 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
 
   return (
     <main
+      ref={mainRef}
       className="flex-1 overflow-y-auto no-scrollbar scroll-smooth bg-black h-full"
       onScroll={handleScroll}
     >
+      {/* 🎯 Invisible Top Touch Area for Scroll-to-Top (Double Tap) */}
+      {/* Avoid covering implementation buttons by limiting height to status bar area (~32px) */}
+      <div
+        className="fixed top-0 left-0 right-0 h-8 z-[100]"
+        onClick={handleTopDoubleClick}
+      />
       <style>{`
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
@@ -1364,8 +1508,21 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
                 <DelayedSkeleton />
               ) : dailySparkMaterial ? (
                 // ✅ 真实数据：仅当有效且日期匹配时显示
+                // 🔄 SYNC FIX: 智能合并状态，防止步骤条闪烁
+                // 场景: allMaterials 中可能是旧数据(Step 0)，而 dailySparkMaterial 是新数据(Step > 0)
+                // 策略: 谁的 step 大用谁
                 <MaterialCard
-                  material={dailySparkMaterial}
+                  material={(() => {
+                    const fromList = allMaterials.find(m => m.id === dailySparkMaterial.id);
+                    if (!fromList) return dailySparkMaterial;
+
+                    const stepList = fromList.userMeta?.currentStep || 0;
+                    const stepHook = dailySparkMaterial.userMeta?.currentStep || 0;
+
+                    // 如果列表里的进度也是0，或者比Hook的小，就优先用Hook的（因为它刚加载了最新的）
+                    // 除非列表里的更新时间明显更新
+                    return stepHook > stepList ? dailySparkMaterial : fromList;
+                  })()}
                   isActive={true}
                   variant="hero"
                   showDailySparkTags={true} // 🎯 明确要求显示为“每日短句”
@@ -1540,7 +1697,7 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
                         try {
                           const progressList = await fetchUserProgress();
                           // 🎯 SIMPLIFIED: 只重试 Core Library
-                          const coreLibResult = await materialService.loadMaterialsPage(1, 20, progressList);
+                          const coreLibResult = await materialService.loadMaterialsPage(1, 15, progressList);
 
                           setAllMaterials(prev => {
                             const final = [
@@ -1585,7 +1742,7 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
                       const progressList = await fetchUserProgress();
                       const [dailySparkItems, coreLibResult] = await Promise.all([
                         materialService.loadDailySparkMaterials(progressList),
-                        materialService.loadMaterialsPage(1, 20, progressList)
+                        materialService.loadMaterialsPage(1, 15, progressList)
                       ]);
 
                       setAllMaterials(prev => {
@@ -1668,6 +1825,26 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
       />
 
 
+
+      {/* Scroll to Top FAB (Glassmorphism) */}
+      <button
+        onClick={() => {
+          // ⚡️ UI Priority: Scroll first!
+          mainRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+          // 📳 Feedback Later: Haptics in next tick to avoid bridge lag on first click
+          setTimeout(() => Haptics.impact({ style: ImpactStyle.Light }).catch(() => { }), 0);
+        }}
+        className={cn(
+          "fixed bottom-16 left-1/2 -translate-x-1/2 z-40 p-3 rounded-full",
+          "bg-zinc-900/50 backdrop-blur-md border border-white/10 shadow-2xl shadow-black/50",
+          "text-zinc-200 transition-all duration-500 ease-out",
+          showScrollTop && isActive
+            ? "opacity-100 translate-y-0 scale-100"
+            : "opacity-0 translate-y-8 scale-90 pointer-events-none"
+        )}
+      >
+        <ArrowUp className="w-5 h-5" />
+      </button>
 
       {/* Paywall Overlay */}
       <Paywall

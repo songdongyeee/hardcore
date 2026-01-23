@@ -270,7 +270,12 @@ export async function getUserTranscripts(): Promise<any[]> {
 }
 
 export async function updateUserProgress(materialId: string, data: { is_starred?: boolean, is_pinned?: boolean, current_step?: number }) {
-    if (!pb.authStore.isValid) return;
+    console.log(`[Progress Update] Called for material: ${materialId}, data:`, data, `Auth valid: ${pb.authStore.isValid}`);
+
+    if (!pb.authStore.isValid) {
+        console.warn(`[Progress Update] ⚠️ Skipped - auth not valid for material: ${materialId}`);
+        return;
+    }
     try {
         // 1. Check if record exists
         const userId = pb.authStore.model?.id;
@@ -291,14 +296,17 @@ export async function updateUserProgress(materialId: string, data: { is_starred?
             }
 
             await pb.collection('user_progress').update(record.id, data);
+            console.log(`[Progress Update] ✅ Updated existing record for ${materialId}:`, data);
         } catch (e) {
             // Create new - 这是首次访问这个材料
             const rawId = materialId.startsWith('user-') ? materialId.replace('user-', '') : materialId;
+            console.log(`[Progress Update] Creating new record for ${materialId}`);
             await pb.collection('user_progress').create({
                 user: userId,
                 material_id: rawId,
                 ...data
             });
+            console.log(`[Progress Update] ✅ Created new record for ${materialId}:`, data);
 
             // 🔥 FIX: 异步计数 - 使用fire-and-forget模式确保绝不阻塞progress创建和播放
             if (data.current_step === 1) {

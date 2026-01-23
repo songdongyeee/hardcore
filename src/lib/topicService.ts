@@ -1,4 +1,5 @@
 import { pb } from './api';
+import { BUNDLED_MATERIALS } from '@/data/bundled_materials';
 
 // ==================== 类型定义 ====================
 
@@ -36,14 +37,30 @@ export async function getTopicsByCategory(
         // 1. 从materials聚合topic（获取真实材料数量）
         const materials = await pb.collection('transcripts').getFullList({
             filter: `location = "${category}" && visibility = "public"`,
-            fields: 'topic',
+            fields: 'id,topic', // 只需要id和topic
             sort: '-created',
             requestKey: null // 🔥 禁用自动取消，防止 Promise.all 中的并行请求互相取消
         });
 
+        // 🔥 MERGE: 合并内置材料（确保计数正确）
+        const bundled = BUNDLED_MATERIALS.filter(m => m.location === category);
+
+        // 创建去重Map (优先使用在线材料)
+        const allMaterialsMap = new Map();
+
+        // 先添加内置的
+        bundled.forEach(m => {
+            allMaterialsMap.set(m.id, { topic: m.tags?.topic || 'General' });
+        });
+
+        // 再覆盖在线的
+        materials.forEach((m: any) => {
+            allMaterialsMap.set(m.id, { topic: m.topic });
+        });
+
         // 2. 统计各topic的材料数量
         const topicCounts: Record<string, number> = {};
-        materials.forEach((m: any) => {
+        allMaterialsMap.forEach((m) => {
             const topic = m.topic || 'General';
             topicCounts[topic] = (topicCounts[topic] || 0) + 1;
         });
@@ -66,7 +83,7 @@ export async function getTopicsByCategory(
         topicMetas.forEach(meta => metaMap.set(meta.topic_name, meta));
 
         console.log(`🔍 [Topic Debug] Category: ${category}`);
-        console.log(`   - Found ${materials.length} materials -> ${Object.keys(topicCounts).length} unique topics`);
+        console.log(`   - Found ${allMaterialsMap.size} total materials -> ${Object.keys(topicCounts).length} unique topics`);
         console.log(`   - Found ${topicMetas.length} meta records in PB`);
 
         // 打印不匹配的项

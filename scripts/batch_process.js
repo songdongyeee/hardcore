@@ -14,22 +14,88 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Helper to generate waveform peaks locally using ffmpeg
-async function getWaveformData(filePath, durationSeconds) {
-    return new Promise((resolve) => {
-        // We extract RMS amplitude levels. 
-        // 10 peaks per second is enough for our UI consistency.
-        const targetPPS = 10;
-        const totalPeaks = Math.max(Math.floor(durationSeconds * targetPPS), 100); // At least 100 peaks
+// Helper to generate waveform peaks locally using ffmpeg (Consistent with waveform-worker.js)
+async function getWaveformData(audioPath, durationSeconds) {
+    return new Promise((resolve, reject) => {
+        // Peaks per second (PPS) determines resolution. 
+        // App typically renders ~30-50 peaks per second for smooth scrolling.
+        // Worker uses 30.
+        const peaksPerSec = 30;
+        const totalPeaks = Math.max(Math.floor(durationSeconds * peaksPerSec), 100);
 
-        // Generate representative peaks
-        // In a real implementation, you'd use ffmpeg to extract actual audio peaks
-        // For now, we generate random but realistic-looking peaks
-        const peaks = [];
-        for (let i = 0; i < totalPeaks; i++) {
-            const val = Math.floor(Math.random() * 150) + 50;
-            peaks.push([0, val]);
-        }
-        resolve(peaks);
+        console.log(`   🌊 Generating ${totalPeaks} peaks using FFmpeg...`);
+
+        // Use FFmpeg to extract PCM data (same logic as worker)
+        const ffmpegCmd = `ffmpeg -i "${audioPath}" -f s16le -acodec pcm_s16le -ar 44100 -ac 1 - 2>/dev/null`;
+        const ffmpeg = spawn('sh', ['-c', ffmpegCmd]);
+
+        const chunks = [];
+
+        ffmpeg.stdout.on('data', (chunk) => {
+            chunks.push(chunk);
+        });
+
+        ffmpeg.on('close', (code) => {
+            if (code !== 0) {
+                // If ffmpeg fails, fallback to simple generation or reject
+                console.warn(`   ⚠️ FFmpeg failed (code ${code}), falling back to mock.`);
+                // Fallback logic could go here, but for now let's just resolve empty or mock
+                const mock = [];
+                for (let i = 0; i < totalPeaks; i++) mock.push([0, Math.floor(Math.random() * 100)]);
+                return resolve(mock);
+            }
+
+            try {
+                const pcmBuffer = Buffer.concat(chunks);
+                const samples = [];
+                for (let i = 0; i < pcmBuffer.length - 1; i += 2) {
+                    const low = pcmBuffer[i];
+                    const high = pcmBuffer[i + 1];
+                    const sample = (high << 8) | low;
+                    const signedSample = sample > 32767 ? sample - 65536 : sample;
+                    // Normalize to -1.0 to 1.0
+                    samples.push(signedSample / 32768.0);
+                }
+
+                // Downsample to peaks
+                const blockSize = Math.floor(samples.length / totalPeaks);
+                const rawPeaks = [];
+
+                for (let i = 0; i < totalPeaks; i++) {
+                    let max = 0;
+                    for (let j = 0; j < blockSize; j++) {
+                        const idx = (i * blockSize) + j;
+                        if (idx < samples.length) {
+                            const absSample = Math.abs(samples[idx]);
+                            if (absSample > max) max = absSample;
+                        }
+                    }
+                    rawPeaks.push(max);
+                }
+
+                // Global Normalization (0-255 range, same as app expects)
+                const globalMax = Math.max(...rawPeaks);
+                const peaks = rawPeaks.map(peak => {
+                    if (globalMax === 0) return [0, 0];
+                    const normalized = (peak / globalMax) * 255;
+                    // Noise gate: < 3 => 0
+                    const final = normalized < 3 ? 0 : Math.round(normalized);
+                    return [0, final]; // Format [min, max] but min is typically 0 for visualization
+                });
+
+                console.log(`   ✅ Generated ${peaks.length} normalized peaks`);
+                resolve(peaks);
+
+            } catch (err) {
+                console.error("Error parsing PCM:", err);
+                resolve([]);
+            }
+        });
+
+        ffmpeg.on('error', (err) => {
+            console.error("FFmpeg spawn error:", err);
+            resolve([]);
+        });
     });
 }
 
@@ -40,7 +106,7 @@ async function main() {
 
     console.log("🔑 Logging in...");
     const email = '993789049@qq.com';
-    const password = 'XXX';
+    const password = 'Zhouji107178';
 
     let loggedIn = false;
 
@@ -107,6 +173,7 @@ async function main() {
         if (fs.existsSync(subDir)) {
             const files = fs.readdirSync(subDir)
                 .filter(f => f.endsWith('.m4a') || f.endsWith('.mp3'))
+
                 .map(f => ({
                     name: f,
                     path: path.join(subDir, f),
@@ -134,8 +201,10 @@ async function main() {
 
         // Extract precise duration using music-metadata
         let duration = "00:00";
+        let metadata = null;
+
         try {
-            const metadata = await parseFile(filePath);
+            metadata = await parseFile(filePath);
             const totalSeconds = Math.floor(metadata.format.duration || 0);
             const mins = Math.floor(totalSeconds / 60);
             const secs = totalSeconds % 60;
@@ -150,7 +219,7 @@ async function main() {
 
         // Generate Waveform before upload
         console.log(`   🌊 Generating Waveform...`);
-        const totalSeconds = Math.floor(metadata.format.duration || 60); // Fallback to 60s
+        const totalSeconds = metadata?.format?.duration ? Math.floor(metadata.format.duration) : 60; // Fallback to 60s
         const waveform = await getWaveformData(filePath, totalSeconds);
 
         // Parse filename metadata (similar to App logic)

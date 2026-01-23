@@ -20,7 +20,7 @@ const SETTINGS_KEY = 'shadowing_settings_v1';
 const WAVE_HEIGHT = 160;
 const PX_PER_SEC = 100;  // High quality (segmented rendering keeps canvas small)
 const SEGMENT_DURATION = 60; // Render 60 seconds at a time
-const PEAKS_PER_SEC = 10; // Backend generates 10 peaks/second
+const PEAKS_PER_SEC = 30; // Backend generates 30 peaks/second (consistent with batch_process.js)
 
 interface ShadowingViewProps {
   onBack: () => void;

@@ -1,28 +1,19 @@
 import type { Material } from "./types";
 import type { TranscriptSegment } from "./transcript";
 
+import { GENERATED_BATCH_DATA } from './generated_bundled_data';
+
 // ==========================================
 // 1. 把从脚本生成的 raw data 粘贴到这里
+// (Updated: Now importing from generated_bundled_data.ts)
 // ==========================================
-const RAW_DATA_INPUT: any[] = [
-    // 示例格式:
-    // {
-    //   fileName: "Business_L3_Title.m4a", 
-    //   folder: "daily_spark",
-    //   duration: "05:32",
-    //   transcriptRaw: { ... }
-    // },
-
-    // 👇 在下面粘贴脚本生成的对象 👇
-
-
-];
+export const RAW_DATA_INPUT: any[] = GENERATED_BATCH_DATA;
 
 // ==========================================
 // 2. 内置材料的手动配置 (封面图、分类等)
 // Key 必须和文件名(不含扩展名)一致
 // ==========================================
-const MANUAL_CONFIG: Record<string, Partial<Material>> = {
+export const MANUAL_CONFIG: Record<string, Partial<Material>> = {
     // ============================================================
     // 💡 配置模版 
     // 使用方法：复制下方这个对象，将 Key 修改为您的文件名(不含后缀)
@@ -52,6 +43,17 @@ const MANUAL_CONFIG: Record<string, Partial<Material>> = {
     },
 
     // 👇 在此处粘贴您的配置 👇
+    "ShangWenJie_CGTN": {
+        customOrder: 999,
+        location: 'daily_spark',
+        title: "CGTN interviews Laure Shang Ep.1",
+        title_translate: "尚雯婕CGTN专访",
+        tags: {
+            topic: "尚雯婕CGTN专访",
+            difficulty: "L2",
+            duration: "00:41"
+        }
+    },
 
 };
 
@@ -182,10 +184,17 @@ const GENERATED_MATERIALS: Material[] = RAW_DATA_INPUT.map((item, index) => {
     const folder = item.folder || 'misc';
     const supportedLocation = folder === 'daily_spark' ? 'daily_spark' : 'core_library';
 
+    // 🔥 FIX: Spread manual config FIRST, then override with computed/required fields
+    // This ensures manual config takes precedence while allowing override of critical fields
     return {
+        ...manual, // Spread manual config first (includes title, subtitle, customOrder, etc.)
+
+        // Override with required/computed fields that should never be from manual config
         id: `bundled-${nameNoExt}`,
         source: 'bundled',
-        location: supportedLocation,
+        location: manual.location || supportedLocation, // Allow manual override but provide fallback
+
+        // Only use generated title/subtitle if manual doesn't specify them
         title: manual.title || title,
         subtitle: manual.subtitle || '',
 
@@ -193,13 +202,15 @@ const GENERATED_MATERIALS: Material[] = RAW_DATA_INPUT.map((item, index) => {
         coverUrl: manual.coverUrl || `/images/${nameNoExt}.webp`,
 
         transcript: transcript,
-        waveform_data: item.waveformData, // 从脚本生成的原材料中读取波形数据
-        tags: manual.tags || {
+        waveform_data: item.waveformData,
+
+        // Tags: merge manual tags with generated fallbacks
+        tags: {
             topic: topic,
             difficulty: finalDifficulty,
-            duration: duration
-        },
-        ...manual
+            duration: duration,
+            ...manual.tags  // Manual tags override defaults
+        }
     };
 });
 

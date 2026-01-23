@@ -259,7 +259,7 @@ export const MaterialCard = React.memo(function MaterialCard({
                         imageLoaded ? "opacity-100" : "opacity-0",
                         isGrid
                             ? "grayscale-0 group-hover:scale-105 transition-all duration-700"
-                            : (isActive ? "grayscale-0" : "opacity-60 grayscale")
+                            : (isActive ? "grayscale-0 group-hover:scale-105 transition-all duration-700" : "opacity-60 grayscale")
                     )}
                     alt={material.title}
                     draggable={false}
@@ -378,7 +378,7 @@ export const MaterialCard = React.memo(function MaterialCard({
 
                     <h2 className={cn(
                         "text-white tracking-tight leading-7 line-clamp-2 mb-2 font-medium",
-                        isGrid ? "text-xl" : "text-2xl"
+                        isGrid ? "text-xl" : "text-2xl"  // Hero (Daily Spark) is larger, grid cards smaller
                     )}>
                         {material.title}
                     </h2>

@@ -213,7 +213,12 @@ export function CategoryDrawer({
                     {/* DAILY SPARK SECTION */}
                     <LiquidAccordion
                         title="Daily Spark"
-                        icon={<Sparkles strokeWidth={1.5} size={16} />}
+                        icon={
+                            <div className="flex items-center gap-1.5">
+                                <Sparkles strokeWidth={1.5} size={14} />
+                                <span className="text-[10px] font-bold tracking-wide opacity-90">切片</span>
+                            </div>
+                        }
                         iconColorClass="text-indigo-400"
                         defaultOpen={true}
                     >
@@ -242,7 +247,12 @@ export function CategoryDrawer({
                     {/* CORE LIBRARY SECTION */}
                     <LiquidAccordion
                         title="Core Library"
-                        icon={<BookOpen strokeWidth={1.5} size={16} />}
+                        icon={
+                            <div className="flex items-center gap-1.5">
+                                <BookOpen strokeWidth={1.5} size={14} />
+                                <span className="text-[10px] font-bold tracking-wide opacity-90">整篇</span>
+                            </div>
+                        }
                         iconColorClass="text-emerald-400"
                         defaultOpen={true}
                     >
@@ -305,7 +315,7 @@ export function CategoryDrawer({
 // --- Sub Components ---
 
 interface LiquidAccordionProps {
-    title: string;
+    title: React.ReactNode; // 🎯 Changed from string to ReactNode to support badges
     icon: React.ReactNode;
     iconColorClass: string;
     children: React.ReactNode;
@@ -323,7 +333,7 @@ function LiquidAccordion({ title, icon, iconColorClass, children, defaultOpen = 
             >
                 <div className="flex items-center gap-3">
                     <div className={cn(
-                        "w-8 h-8 rounded-lg flex items-center justify-center bg-white/5 border border-white/5 shadow-inner",
+                        "h-8 min-w-[2rem] px-2.5 rounded-lg flex items-center justify-center bg-white/5 border border-white/5 shadow-inner transition-all", // 🎯 Changed: Flexible width for icon+badge
                         iconColorClass
                     )}>
                         {icon}

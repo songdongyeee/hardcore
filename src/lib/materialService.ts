@@ -296,7 +296,8 @@ export const materialService = {
         return BUNDLED_MATERIALS.map(m => ({
             ...m,
             createdAt: (m as any).createdAt || '2020-01-01T00:00:00Z',
-            userMeta: { isStarred: false, isPinned: false, currentStep: 0, isOffline: false, updatedAt: '2020-01-01T00:00:00Z' }
+            // Default to step 0 (same as online materials) - will update to step 1 when user enters listening
+            userMeta: { isStarred: false, isPinned: false, currentStep: 0, isOffline: true, updatedAt: '2020-01-01T00:00:00Z' }
         }));
     },
 
@@ -726,9 +727,10 @@ export const materialService = {
      */
     async loadMaterialsPage(
         page: number,
-        perPage: number = 20,
+        perPage: number = 15, // 🔥 FIX: 统一默认分页为 15，防止分页间隙导致数据丢失
         progressList?: any[],
-        location?: 'daily_spark' | 'core_library'  // 🎯 NEW: 可选的 location 过滤
+        location?: 'daily_spark' | 'core_library',
+        topic?: string
     ): Promise<{
         items: Material[];
         totalPages: number;
@@ -746,11 +748,16 @@ export const materialService = {
             if (location) {
                 filter += ` && location = "${location}"`;
             }
+            if (topic) {
+                filter += ` && topic = "${topic}"`; // 🔥 后端过滤 Topic
+            }
 
             // 🎯 使用 getList 代替 getFullList
+            // 🔥 REVERT: 用户要求回退到按创建时间和手工排序
+            // Sort by custom_order (desc) then created (desc)
             const result = await pb.collection('transcripts').getList(page, perPage, {
                 filter: filter,
-                sort: '-created',
+                sort: '-custom_order,-created',
             });
 
             // 获取用户进度 - 使用传入的或重新获取
