@@ -20,7 +20,7 @@ export function Paywall({ isOpen, onClose, onSuccess, source }: PaywallProps) {
     const [loading, setLoading] = useState(false);
     const [selectedPackage, setSelectedPackage] = useState<PurchasesPackage | null>(null);
     const [isVisible, setIsVisible] = useState(false);
-    const [pbSubscriptionTier, setPbSubscriptionTier] = useState<'free' | 'monthly' | 'quarterly' | 'yearly'>('free');
+    const [pbSubscriptionTier, setPbSubscriptionTier] = useState<'free' | 'monthly' | 'quarterly' | 'yearly' | 'lifetime'>('free');
 
     // Handle visibility for transition
     useEffect(() => {
@@ -50,25 +50,27 @@ export function Paywall({ isOpen, onClose, onSuccess, source }: PaywallProps) {
 
     // Find packages
     const monthlyPackage = currentOffering?.availablePackages.find(p => p.identifier === 'monthly') || currentOffering?.monthly;
-    const quarterlyPackage = currentOffering?.availablePackages.find(p => p.identifier === 'three_month' || p.identifier === 'quarterly') || currentOffering?.threeMonth;
     const annualPackage = currentOffering?.availablePackages.find(p => p.identifier === 'annual' || p.identifier === 'yearly') || currentOffering?.annual;
+    const lifetimePackage = currentOffering?.availablePackages.find(p => p.identifier === 'lifetime') || currentOffering?.lifetime;
 
     // Filter packages based on current tier (only show upgrades)
     // Use PocketBase tier for stability
     const currentTier = pbSubscriptionTier;
     const shouldShowMonthly = currentTier === 'free';
-    const shouldShowQuarterly = currentTier === 'free' || currentTier === 'monthly';
-    const shouldShowAnnual = currentTier !== 'yearly';
+    const shouldShowAnnual = currentTier !== 'yearly' && currentTier !== 'lifetime';
+    const shouldShowLifetime = currentTier !== 'lifetime';
     const isYearlyMember = currentTier === 'yearly';
 
     // Set default selection when offering loads
     useEffect(() => {
-        if (annualPackage) {
+        if (lifetimePackage) {
+            setSelectedPackage(lifetimePackage);
+        } else if (annualPackage) {
             setSelectedPackage(annualPackage);
         } else if (monthlyPackage) {
             setSelectedPackage(monthlyPackage);
         }
-    }, [currentOffering, annualPackage, monthlyPackage]);
+    }, [currentOffering, lifetimePackage, annualPackage, monthlyPackage]);
 
     if (!isVisible && !isOpen) return null;
 
@@ -93,7 +95,7 @@ export function Paywall({ isOpen, onClose, onSuccess, source }: PaywallProps) {
                     const freshCustomerInfo = result.customerInfo;
 
                     // Extract tier from fresh customerInfo
-                    let tier: 'free' | 'monthly' | 'quarterly' | 'yearly' = 'free';
+                    let tier: 'free' | 'monthly' | 'quarterly' | 'yearly' | 'lifetime' = 'free';
                     let expirationDate: string | null = null;
 
                     if (freshCustomerInfo.entitlements?.active[ENTITLEMENT_ID]) {
@@ -104,6 +106,7 @@ export function Paywall({ isOpen, onClose, onSuccess, source }: PaywallProps) {
                         if (productId.includes('monthly')) tier = 'monthly';
                         else if (productId.includes('quarterly') || productId.includes('quarter')) tier = 'quarterly';
                         else if (productId.includes('yearly') || productId.includes('annual')) tier = 'yearly';
+                        else if (productId.includes('lifetime')) tier = 'lifetime';
 
                         expirationDate = entitlement.expirationDate || null;
                     }
@@ -273,13 +276,15 @@ export function Paywall({ isOpen, onClose, onSuccess, source }: PaywallProps) {
                             </label>
                         )}
 
-                        {/* Option 2: Quarterly */}
-                        {shouldShowQuarterly && quarterlyPackage && (
+
+
+                        {/* Option 2: Annual (Matched to Monthly style - downgrade visual priority) */}
+                        {shouldShowAnnual && annualPackage && (
                             <label
-                                onClick={() => setSelectedPackage(quarterlyPackage)}
+                                onClick={() => setSelectedPackage(annualPackage)}
                                 className={cn(
                                     "group relative flex items-center justify-between p-4 rounded-xl border cursor-pointer transition-all",
-                                    selectedPackage?.identifier === quarterlyPackage.identifier
+                                    selectedPackage?.identifier === annualPackage.identifier
                                         ? "border-indigo-500/50 bg-indigo-500/5 shadow-[0_0_20px_-5px_rgba(99,102,241,0.15)]"
                                         : "border-white/5 bg-white/[0.02] hover:bg-white/[0.04]"
                                 )}
@@ -287,105 +292,128 @@ export function Paywall({ isOpen, onClose, onSuccess, source }: PaywallProps) {
                                 <div className="flex items-center gap-4">
                                     <div className={cn(
                                         "w-5 h-5 rounded-full border flex items-center justify-center transition-colors",
-                                        selectedPackage?.identifier === quarterlyPackage.identifier
+                                        selectedPackage?.identifier === annualPackage.identifier
                                             ? "bg-indigo-500 border-indigo-500"
                                             : "border-zinc-600 group-hover:border-zinc-400"
                                     )}>
-                                        {selectedPackage?.identifier === quarterlyPackage.identifier && <Check className="w-3 h-3 text-white stroke-[3]" />}
+                                        {selectedPackage?.identifier === annualPackage.identifier && <Check className="w-3 h-3 text-white stroke-[3]" />}
                                     </div>
                                     <div className="flex flex-col">
-                                        <span className="text-base font-medium text-white">季度会员</span>
-                                        <span className="text-xs text-zinc-500" style={{ color: selectedPackage?.identifier === quarterlyPackage.identifier ? '#a5b4fc' : undefined }}>180分钟上传额度 · 单次最大1GB</span>
+                                        <span className="text-base font-bold text-white">年度会员</span>
+                                        <span className="text-xs text-zinc-500">1200分钟上传额度 · 不限文件大小</span>
                                     </div>
                                 </div>
                                 <div className="text-right">
-                                    <span className="block text-base font-medium text-white">{quarterlyPackage.product.priceString}</span>
-                                    <span className="block text-xs text-zinc-500">/季</span>
+                                    <span className="block text-lg font-bold text-white">{annualPackage.product.priceString}</span>
+                                    <span className="block text-xs text-zinc-500 uppercase">
+                                        /年
+                                    </span>
                                 </div>
                             </label>
                         )}
 
-                        {/* Option 3: Yearly (RECOMMENDED) */}
-                        {shouldShowAnnual && annualPackage && (
+
+                        {/* Option 3: Lifetime (New Hero) */}
+                        {shouldShowLifetime && lifetimePackage && (
                             <label
-                                onClick={() => setSelectedPackage(annualPackage)}
+                                onClick={() => setSelectedPackage(lifetimePackage)}
                                 className={cn(
-                                    "relative flex items-center justify-between p-4 rounded-xl border-2 transition-all cursor-pointer active:scale-[0.99]",
-                                    selectedPackage?.identifier === annualPackage.identifier
+                                    "relative flex items-center justify-between p-4 rounded-xl border-2 transition-all cursor-pointer active:scale-[0.99] mt-4",
+                                    selectedPackage?.identifier === lifetimePackage.identifier
                                         ? "border-indigo-500 bg-indigo-500/10 shadow-[0_0_25px_-5px_rgba(99,102,241,0.25)] scale-[1.02] z-10"
                                         : "border-indigo-500/30 bg-indigo-500/5 hover:bg-indigo-500/10"
                                 )}
                             >
-                                {/* Best Value Badge */}
+                                {/* Founder Price Badge */}
                                 <div className="absolute -top-3 right-4 bg-indigo-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full tracking-wider uppercase shadow-lg z-20">
-                                    首推 · 省钱超值
+                                    创始价🔥
                                 </div>
 
                                 <div className="flex items-center gap-4">
                                     <div className={cn(
                                         "w-5 h-5 rounded-full flex items-center justify-center shadow-md transition-colors",
-                                        selectedPackage?.identifier === annualPackage.identifier
+                                        selectedPackage?.identifier === lifetimePackage.identifier
                                             ? "bg-indigo-500"
                                             : "bg-indigo-500/20"
                                     )}>
                                         <Check className={cn(
                                             "w-3 h-3 text-white stroke-[3]",
-                                            selectedPackage?.identifier === annualPackage.identifier ? "opacity-100" : "opacity-0"
+                                            selectedPackage?.identifier === lifetimePackage.identifier ? "opacity-100" : "opacity-0"
                                         )} />
                                     </div>
-                                    <div className="flex flex-col">
-                                        <span className="text-base font-bold text-white">年度会员</span>
-                                        <span className="text-xs font-medium text-indigo-300/80">1200分钟上传额度 · 不限文件大小 🔥</span>
+                                    <div className="flex flex-col min-w-0 mr-2">
+                                        <span className="text-base font-bold text-white">终身会员</span>
+                                        <span className="text-xs leading-tight font-medium text-indigo-300/80 whitespace-normal break-words mt-0.5 block">
+                                            不限额度大小，材料更新到大规模后将涨价
+                                        </span>
                                     </div>
                                 </div>
-                                <div className="text-right">
-                                    <span className="block text-lg font-bold text-white">{annualPackage.product.priceString}</span>
+                                <div className="text-right shrink-0">
+                                    <span className="block text-lg font-bold text-white">{lifetimePackage.product.priceString}</span>
                                     <span className="block text-[10px] font-medium text-indigo-300/80 uppercase">
-                                        {annualPackage.product.price / 12 < 10
-                                            ? `仅需 ${annualPackage.product.priceString.replace(/[0-9.,\s]/g, '')}${(annualPackage.product.price / 12).toFixed(2)}/月`
-                                            : "物超所值"}
-                                    </span >
-                                </div >
-                            </label >
+                                        一次性付费
+                                    </span>
+                                </div>
+                            </label>
                         )}
                     </div>
-                </div>
 
-                {/* Footer / CTA */}
-                <div className="p-6 pt-4 bg-gradient-to-t from-[#0A0A0A] to-[#0A0A0A]/0 shrink-0">
-                    <button
-                        onClick={handleSubscribe}
-                        disabled={loading || !selectedPackage || !isReady}
-                        className="w-full py-4 bg-white text-black font-bold text-lg rounded-full hover:bg-zinc-200 transition-all shadow-lg active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-50"
-                    >
-                        {loading
-                            ? <Loader2 className="w-6 h-6 animate-spin text-zinc-900" />
-                            : (
-                                <>
-                                    立即开通会员
-                                    <ArrowRight className="w-5 h-5" />
-                                </>
-                            )
-                        }
-                    </button>
-                    <p className="text-center text-xs text-zinc-400 mt-4 leading-relaxed px-4 font-normal">
-                        确认购买即表示您同意我们的
-                        <span
-                            onClick={() => Browser.open({ url: 'https://zjcnex.top/terms.html' })}
-                            className="mx-1 text-zinc-300 underline decoration-zinc-600 cursor-pointer hover:text-white"
+                    {/* Footer / CTA - Moved INSIDE scroll view */}
+                    <div className="pt-2 pb-8">
+                        <button
+                            onClick={handleSubscribe}
+                            disabled={loading || !selectedPackage || !isReady}
+                            className="w-full py-4 bg-white text-black font-bold text-lg rounded-full hover:bg-zinc-200 transition-all shadow-lg active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-50"
                         >
-                            用户服务协议
-                        </span>
-                        与
-                        <span
-                            onClick={() => Browser.open({ url: 'https://zjcnex.top/privacy.html' })}
-                            className="mx-1 text-zinc-300 underline decoration-zinc-600 cursor-pointer hover:text-white"
-                        >
-                            隐私政策
-                        </span>。
-                    </p>
+                            {loading
+                                ? <Loader2 className="w-6 h-6 animate-spin text-zinc-900" />
+                                : (
+                                    <>
+                                        立即开通会员
+                                        <ArrowRight className="w-5 h-5" />
+                                    </>
+                                )
+                            }
+                        </button>
+                        <p className="text-center text-xs text-zinc-400 mt-4 leading-relaxed px-4 font-normal">
+                            确认购买即表示您同意我们的
+                            <span
+                                onClick={() => Browser.open({ url: 'https://zjcnex.top/terms.html' })}
+                                className="mx-1 text-zinc-300 underline decoration-zinc-600 cursor-pointer hover:text-white"
+                            >
+                                用户服务协议
+                            </span>
+                            与
+                            <span
+                                onClick={() => Browser.open({ url: 'https://zjcnex.top/privacy.html' })}
+                                className="mx-1 text-zinc-300 underline decoration-zinc-600 cursor-pointer hover:text-white"
+                            >
+                                隐私政策
+                            </span>。
+                        </p>
+
+                        {/* Mandatory Apple Subscription Terms */}
+                        <div className="mt-8 px-2 space-y-2 opacity-60">
+                            <h4 className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold text-center mb-2">订阅服务说明</h4>
+                            <p className="text-[10px] leading-relaxed text-zinc-500 text-justify">
+                                1. 订阅服务：月度会员（1个月）、年度会员（1年）、终身会员（永久）。
+                            </p>
+                            <p className="text-[10px] leading-relaxed text-zinc-500 text-justify">
+                                2. 订阅价格：以应用内显示的实际价格为准。
+                            </p>
+                            <p className="text-[10px] leading-relaxed text-zinc-500 text-justify">
+                                3. 付款：用户确认购买并付款后计入 iTunes 账户。
+                            </p>
+                            <p className="text-[10px] leading-relaxed text-zinc-500 text-justify">
+                                4. 自动续费：苹果 iTunes 账户会在到期前 24 小时内扣费，扣费成功后订阅周期顺延一个订阅周期。
+                            </p>
+                            <p className="text-[10px] leading-relaxed text-zinc-500 text-justify">
+                                5. 关闭服务：如需取消续订，请在当前订阅周期到期前 24 小时以前，手动在“设置 - Apple ID - 订阅”中关闭自动续费功能。
+                            </p>
+                        </div>
+                    </div>
                 </div>
             </div>
-        </div>
+        </div >
     );
 }

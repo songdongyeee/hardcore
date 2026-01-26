@@ -1792,6 +1792,9 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
 
           {/* Bottom Feed Status */}
           <div className="mt-8 mb-20 flex flex-col items-center gap-3 opacity-50 animate-in fade-in duration-1000 delay-500">
+            <span className="text-xs text-zinc-500/80 mb-1">
+              正在努力加载...
+            </span>
             <div className="w-8 h-[1px] bg-zinc-800" />
             <span className="text-[10px] text-zinc-500 font-medium tracking-[0.25em] px-4">
               材料每日更新中
