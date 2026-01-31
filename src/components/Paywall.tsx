@@ -59,7 +59,7 @@ export function Paywall({ isOpen, onClose, onSuccess, source }: PaywallProps) {
     const shouldShowMonthly = currentTier === 'free';
     const shouldShowAnnual = currentTier !== 'yearly' && currentTier !== 'lifetime';
     const shouldShowLifetime = currentTier !== 'lifetime';
-    const isYearlyMember = currentTier === 'yearly';
+    const isVipMember = currentTier === 'yearly' || currentTier === 'lifetime';
 
     // Set default selection when offering loads
     useEffect(() => {
@@ -215,15 +215,17 @@ export function Paywall({ isOpen, onClose, onSuccess, source }: PaywallProps) {
 
                     {/* Pricing Selection */}
                     <div className="space-y-3 mb-6">
-                        {/* Special Message for Yearly Members */}
-                        {isYearlyMember && (
+                        {/* Special Message for VIP Members (Yearly & Lifetime) */}
+                        {isVipMember && (
                             <div className="p-6 rounded-xl bg-gradient-to-br from-indigo-500/10 to-purple-500/10 border border-indigo-500/30">
                                 <div className="flex items-start gap-4">
                                     <div className="bg-indigo-500/20 p-3 rounded-full shrink-0">
                                         <Zap className="w-6 h-6 text-indigo-400" />
                                     </div>
                                     <div className="flex-1 space-y-3">
-                                        <h3 className="text-lg font-semibold text-white">您已是年度会员</h3>
+                                        <h3 className="text-lg font-semibold text-white">
+                                            {currentTier === 'lifetime' ? '您已是终身会员' : '您已是年度会员'}
+                                        </h3>
                                         <p className="text-sm text-zinc-300 leading-relaxed">
                                             额度不够用？作为我们的高级用户，您可以直接通过以下方式联系开发者为您提额：
                                         </p>
@@ -350,7 +352,7 @@ export function Paywall({ isOpen, onClose, onSuccess, source }: PaywallProps) {
                                 </div>
                                 <div className="text-right shrink-0">
                                     <span className="block text-lg font-bold text-white">{lifetimePackage.product.priceString}</span>
-                                    <span className="block text-[10px] font-medium text-indigo-300/80 uppercase">
+                                    <span className="block text-xs font-medium text-indigo-300/80 uppercase">
                                         一次性付费
                                     </span>
                                 </div>
@@ -360,21 +362,23 @@ export function Paywall({ isOpen, onClose, onSuccess, source }: PaywallProps) {
 
                     {/* Footer / CTA - Moved INSIDE scroll view */}
                     <div className="pt-2 pb-8">
-                        <button
-                            onClick={handleSubscribe}
-                            disabled={loading || !selectedPackage || !isReady}
-                            className="w-full py-4 bg-white text-black font-bold text-lg rounded-full hover:bg-zinc-200 transition-all shadow-lg active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-50"
-                        >
-                            {loading
-                                ? <Loader2 className="w-6 h-6 animate-spin text-zinc-900" />
-                                : (
-                                    <>
-                                        立即开通会员
-                                        <ArrowRight className="w-5 h-5" />
-                                    </>
-                                )
-                            }
-                        </button>
+                        {currentTier !== 'lifetime' && (
+                            <button
+                                onClick={handleSubscribe}
+                                disabled={loading || !selectedPackage || !isReady}
+                                className="w-full py-4 bg-white text-black font-bold text-lg rounded-full hover:bg-zinc-200 transition-all shadow-lg active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-50"
+                            >
+                                {loading
+                                    ? <Loader2 className="w-6 h-6 animate-spin text-zinc-900" />
+                                    : (
+                                        <>
+                                            立即开通会员
+                                            <ArrowRight className="w-5 h-5" />
+                                        </>
+                                    )
+                                }
+                            </button>
+                        )}
                         <p className="text-center text-xs text-zinc-400 mt-4 leading-relaxed px-4 font-normal">
                             确认购买即表示您同意我们的
                             <span

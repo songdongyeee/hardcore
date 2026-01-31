@@ -1,7 +1,9 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { materialService } from '@/lib/materialService';
+import { pb } from '@/lib/api';
 import type { Material } from '@/data/types';
 import { Preferences } from '@capacitor/preferences';
+import { Network } from '@capacitor/network';
 
 /**
  * Daily Spark Hook - 方案3：确定性实时选择
@@ -29,69 +31,30 @@ export function useDailySpark() {
     const [readHistory, setReadHistory] = useState<string[]>([]);
     const [isLoadingHistory, setIsLoadingHistory] = useState(true);
 
-    // 3️⃣ 加载已读历史 + 缓存快照 + 在线材料 + 用户进度
-    useEffect(() => {
-        loadReadHistory();
-        loadCachedMaterials();
-        loadRemoteMaterials(); // 🆕 后台加载服务器材料
-        loadUserProgress(); // 🔥 NEW: 加载用户进度，确保步骤条正确显示
-    }, []);
+    // 🔥 NEW: Store authoritative user progress to prevent overwrite by stale cache
+    const progressRef = useRef<Map<string, any>>(new Map());
 
-    // 4️⃣ 确定性选择算法（核心逻辑 + 当日锁定）
-    const material = useMemo(() => {
-        const businessDate = getBeijingBusinessDate();
-        const candidates = allMaterials.filter(m => m.location === 'daily_spark');
+    // Helper: Apply known progress to materials
+    const applyProgress = (materials: Material[]) => {
+        if (progressRef.current.size === 0) return materials;
 
-        if (candidates.length === 0) {
-            console.warn('⚠️ [Daily Spark] No daily_spark materials available');
-            return null;
-        }
-
-        // 🔒 关键优化：检查今日是否已锁定选择
-        const lockedDate = sessionStorage.getItem('daily_spark_locked_date');
-        const lockedId = sessionStorage.getItem('daily_spark_locked_id');
-
-        if (lockedDate === businessDate && lockedId) {
-            // 今天已选择，直接返回锁定的材料（即使材料池扩展也不变）
-            const locked = candidates.find(m => m.id === lockedId);
-            if (locked) {
-                console.log(`🔒 [Daily Spark] Using locked selection: ${lockedId}`);
-                return locked;
+        return materials.map(m => {
+            const prog = progressRef.current.get(m.id);
+            if (prog) {
+                return {
+                    ...m,
+                    userMeta: {
+                        currentStep: prog.current_step || 0,
+                        isStarred: prog.is_starred || false,
+                        isPinned: prog.is_pinned || false,
+                        isOffline: m.userMeta?.isOffline || false,
+                        updatedAt: prog.updated || m.userMeta?.updatedAt || new Date().toISOString()
+                    }
+                };
             }
-            // 如果锁定的材料不在候选列表中（极端情况），重新选择
-            console.warn('⚠️ [Daily Spark] Locked material not found, reselecting...');
-        }
-
-        // 过滤掉已读的
-        const unread = candidates.filter(m => !readHistory.includes(m.id));
-
-        if (unread.length === 0) {
-            console.log('🔄 [Daily Spark] All materials read, restarting rotation');
-            // 全读完了，重新开始
-            const selected = selectByDateHash(businessDate, candidates);
-
-            // 锁定选择
-            if (selected) {
-                sessionStorage.setItem('daily_spark_locked_date', businessDate);
-                sessionStorage.setItem('daily_spark_locked_id', selected.id);
-                console.log(`🔒 [Daily Spark] Locked selection: ${selected.id}`);
-            }
-
-            return selected;
-        }
-
-        // 基于日期确定性选择
-        const selected = selectByDateHash(businessDate, unread);
-
-        // 🔒 锁定今日选择（防止材料池扩展导致切换）
-        if (selected) {
-            sessionStorage.setItem('daily_spark_locked_date', businessDate);
-            sessionStorage.setItem('daily_spark_locked_id', selected.id);
-            console.log(`✅ [Daily Spark] Selected and locked for ${businessDate}:`, selected.id);
-        }
-
-        return selected;
-    }, [allMaterials, readHistory]);
+            return m;
+        });
+    };
 
     /**
      * 加载已读历史
@@ -100,10 +63,8 @@ export function useDailySpark() {
         try {
             const { value } = await Preferences.get({ key: 'daily_spark_read_history' });
             const history = value ? JSON.parse(value) : [];
-            console.log(`📚 [Daily Spark] Loaded read history: ${history.length} items`);
             setReadHistory(history);
         } catch (e) {
-            console.error('[Daily Spark] Failed to load read history:', e);
             setReadHistory([]);
         } finally {
             setIsLoadingHistory(false);
@@ -118,8 +79,11 @@ export function useDailySpark() {
             const cached = await materialService.getCachedSnapshot();
             if (cached && cached.length > 0) {
                 console.log(`📦 [Daily Spark] Updated from cache: ${cached.length} materials`);
-                // 🔥 FIX: 使用 mergeMaterials 合并，避免覆盖内置材料
-                setAllMaterials(prev => materialService.mergeMaterials(prev, cached));
+                // 🔥 FIX: Apply progressRef after merge
+                setAllMaterials(prev => {
+                    const merged = materialService.mergeMaterials(prev, cached);
+                    return applyProgress(merged);
+                });
             }
         } catch (e) {
             console.error('[Daily Spark] Failed to load cache:', e);
@@ -137,29 +101,11 @@ export function useDailySpark() {
             if (progressList && progressList.length > 0) {
                 console.log(`📊 [Daily Spark] Fetched ${progressList.length} user progress records`);
 
-                // 创建进度映射表
-                const progressMap = new Map();
-                progressList.forEach((p: any) => progressMap.set(p.material_id, p));
+                // Update authoritative ref
+                progressList.forEach((p: any) => progressRef.current.set(p.material_id, p));
 
-                // 更新 allMaterials 中的 userMeta
-                setAllMaterials(prev => prev.map(m => {
-                    const prog = progressMap.get(m.id);
-                    if (prog) {
-                        return {
-                            ...m,
-                            userMeta: {
-                                currentStep: prog.current_step || 0,
-                                isStarred: prog.is_starred || false,
-                                isPinned: prog.is_pinned || false,
-                                isOffline: m.userMeta?.isOffline || false,
-                                updatedAt: prog.updated || m.userMeta?.updatedAt || new Date().toISOString()
-                            }
-                        };
-                    }
-                    return m;
-                }));
-
-                console.log('✅ [Daily Spark] User progress merged into materials');
+                // Force update state
+                setAllMaterials(prev => applyProgress(prev));
             }
         } catch (e) {
             console.warn('[Daily Spark] Failed to load user progress:', e);
@@ -171,18 +117,16 @@ export function useDailySpark() {
      */
     const loadRemoteMaterials = async () => {
         try {
-            console.log('📡 [Daily Spark] Loading remote materials...');
             const remote = await materialService.loadDailySparkMaterials();
 
             if (remote && remote.length > 0) {
                 setAllMaterials(prev => {
                     const merged = materialService.mergeMaterials(prev, remote);
-                    console.log(`✅ [Daily Spark] Material pool expanded: ${prev.length} → ${merged.length}`);
-                    return merged;
+                    return applyProgress(merged);
                 });
             }
         } catch (e) {
-            console.warn('[Daily Spark] Failed to load remote materials, using bundled only:', e);
+            console.warn('[Daily Spark] Failed to load remote materials:', e);
         }
     };
 
@@ -200,15 +144,123 @@ export function useDailySpark() {
                 key: 'daily_spark_read_history',
                 value: JSON.stringify(newHistory)
             });
-            console.log(`✅ [Daily Spark] Marked ${materialId} as read`);
         } catch (e) {
             console.error('[Daily Spark] Failed to save read history:', e);
         }
     };
 
+    // 4️⃣ 确定性选择算法（核心逻辑 + 当日锁定）
+    const material = useMemo(() => {
+        const businessDate = getBeijingBusinessDate();
+        const candidates = allMaterials.filter(m => m.location === 'daily_spark');
+
+        // ... (rest of logic same until return) ...
+        if (candidates.length === 0) {
+            console.warn('⚠️ [Daily Spark] No daily_spark materials available');
+            return null;
+        }
+
+        // 🔒 关键优化：检查今日是否已锁定选择
+        const lockedDate = sessionStorage.getItem('daily_spark_locked_date');
+        const lockedId = sessionStorage.getItem('daily_spark_locked_id');
+
+        if (lockedDate === businessDate && lockedId) {
+            const locked = candidates.find(m => m.id === lockedId);
+            if (locked) {
+                return locked;
+            }
+        }
+
+        const unread = candidates.filter(m => !readHistory.includes(m.id));
+
+        if (unread.length === 0) {
+            const selected = selectByDateHash(businessDate, candidates);
+            if (selected) {
+                sessionStorage.setItem('daily_spark_locked_date', businessDate);
+                sessionStorage.setItem('daily_spark_locked_id', selected.id);
+            }
+            return selected;
+        }
+
+        const selected = selectByDateHash(businessDate, unread);
+        if (selected) {
+            sessionStorage.setItem('daily_spark_locked_date', businessDate);
+            sessionStorage.setItem('daily_spark_locked_id', selected.id);
+        }
+        return selected;
+
+    }, [allMaterials, readHistory]);
+
+    // 3️⃣ 加载已读历史 + 缓存快照 + 在线材料 + 用户进度
+    // 🔄 监听 Auth 状态：当用户登录/Token恢复时，重新加载进度
+    // 🔄 监听 Network 状态：网络恢复时重试
+    useEffect(() => {
+        loadReadHistory();
+        loadCachedMaterials();
+        loadRemoteMaterials();
+        loadUserProgress();
+
+        // Network Listener
+        let networkListener: any;
+        const setupListener = async () => {
+            networkListener = await Network.addListener('networkStatusChange', status => {
+                if (status.connected) {
+                    console.log('📡 [Daily Spark] Network connected, retrying progress load...');
+                    loadUserProgress();
+                    loadRemoteMaterials();
+                }
+            });
+        };
+        setupListener();
+
+        return () => {
+            if (networkListener) networkListener.remove();
+        };
+    }, [pb.authStore.isValid, pb.authStore.model?.id]);
+
+    // 5️⃣ 自愈机制：如果确定了今天要显示的材料，但进度为0，尝试一次“点对点”的精准修复
+    useEffect(() => {
+        if (!material || !pb.authStore.isValid || !pb.authStore.model?.id) return;
+
+        // 如果当前显示的进度是0 (未读)，但用户可能实际上读过 (比如缓存覆盖了)
+        // 我们发起一次独立的、针对该ID的查询
+        if (material.userMeta?.currentStep === 0) {
+            const materialId = material.id;
+            const userId = pb.authStore.model.id;
+
+            // 延迟一点点执行，避开高并发启动期
+            const timer = setTimeout(async () => {
+                try {
+                    console.log(`🩺 [Self-Healing] Checking progress for ${materialId}...`);
+                    // 精准查询：只查这一条
+                    const record = await pb.collection('user_progress').getFirstListItem(`user="${userId}" && material_id="${materialId}"`);
+
+                    if (record && record.current_step > 0) {
+                        console.log(`💊 [Self-Healing] Found missing progress! ${record.current_step} steps. Applying fix...`);
+
+                        // 1. 更新权威Ref
+                        progressRef.current.set(materialId, record);
+
+                        // 2. 强制刷新UI
+                        setAllMaterials(prev => applyProgress(prev));
+                    } else {
+                        console.log('🩺 [Self-Healing] Confirmed progress is effectively 0.');
+                    }
+                } catch (e: any) {
+                    // 404 is expected if truly new
+                    if (e.status !== 404) {
+                        console.warn('⚠️ [Self-Healing] Check failed:', e);
+                    }
+                }
+            }, 500); // 500ms delay
+
+            return () => clearTimeout(timer);
+        }
+    }, [material?.id, material?.userMeta?.currentStep]); // 监听ID和进度变化
+
     return {
         material,
-        isLoading: isLoadingHistory, // 只有首次加载历史时才loading
+        isLoading: isLoadingHistory,
         markAsRead,
         readHistory
     };

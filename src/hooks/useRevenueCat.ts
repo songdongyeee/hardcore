@@ -41,7 +41,7 @@ export function useRevenueCat() {
     const [customerInfo, setCustomerInfo] = useState<any>(null);
     const [isReady, setIsReady] = useState(false);
     const [isVip, setIsVip] = useState(false);
-    const [subscriptionTier, setSubscriptionTier] = useState<'free' | 'monthly' | 'quarterly' | 'yearly'>('free');
+    const [subscriptionTier, setSubscriptionTier] = useState<'free' | 'monthly' | 'quarterly' | 'yearly' | 'lifetime'>('free');
 
     useEffect(() => {
         let customerInfoListener: any = null;
@@ -123,16 +123,17 @@ export function useRevenueCat() {
     }, []);
 
     // Helper function to detect subscription tier from customerInfo
-    const getSubscriptionTier = (info: any): 'free' | 'monthly' | 'quarterly' | 'yearly' => {
+    const getSubscriptionTier = (info: any): 'free' | 'monthly' | 'quarterly' | 'yearly' | 'lifetime' => {
         if (!info?.entitlements?.active[ENTITLEMENT_ID]) return 'free';
 
         const entitlement = info.entitlements.active[ENTITLEMENT_ID];
         const productId = entitlement.productIdentifier?.toLowerCase() || '';
 
-        // Map product IDs to tiers (Monthly, hardcore_quarterly, hardcore_yearly)
+        // Map product IDs to tiers (Monthly, hardcore_quarterly, hardcore_yearly, lifetime)
         if (productId.includes('monthly')) return 'monthly';
         if (productId.includes('quarterly') || productId.includes('quarter')) return 'quarterly';
         if (productId.includes('yearly') || productId.includes('annual')) return 'yearly';
+        if (productId.includes('lifetime')) return 'lifetime';
 
         return 'free'; // fallback
     };

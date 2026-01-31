@@ -108,7 +108,7 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
   const [allMaterials, setAllMaterials] = useState<Material[]>(() => materialService.getBundledOnly());
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [usedSeconds, setUsedSeconds] = useState(0);
-  const [pbSubscriptionTier, setPbSubscriptionTier] = useState<'free' | 'monthly' | 'quarterly' | 'yearly'>('free');
+  const [pbSubscriptionTier, setPbSubscriptionTier] = useState<'free' | 'monthly' | 'quarterly' | 'yearly' | 'lifetime'>('free');
 
   // 🎯 NEW: 使用严格日期验证的 Daily Spark Hook
   const { material: dailySparkMaterial, isLoading: isDailySparkLoading } = useDailySpark();
@@ -590,16 +590,42 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
         setDailySparkHasMore(true);
 
         try {
-          // 🎯 加载第一页 (15条)
-          const { items, hasMore } = await materialService.loadMaterialsPage(1, 15, undefined, 'daily_spark');
+          // 1️⃣ Fetch latest progress to ensure list reflects current state
+          const progressList = await fetchUserProgress();
+
+          // 🎯 加载第一页 (15条) - Pass progressList
+          const { items, hasMore } = await materialService.loadMaterialsPage(1, 15, progressList, 'daily_spark');
 
           // 🔥 FIX: 合并内置的 Daily Spark 材料 (防止过滤时消失)
+          // ⚠️ IMPORTANT: items (Remote/High Priority) MUST be the second argument to overwrite bundled (Local/Low Priority)
           const bundled = materialService.getBundledOnly().filter(m => m.location === 'daily_spark');
-          const combined = materialService.mergeMaterials(items, bundled);
+
+          // 🔥 CRITICAL FIX: Manually apply progress to bundled materials
+          // Because bundled items might not be in the remote 'items' list (if filtering/paging differs),
+          // so they would otherwise stay at Step 0.
+          const bundledWithProgress = bundled.map(m => {
+            const prog = progressList.find((p: any) => p.material_id === m.id);
+            if (prog) {
+              return {
+                ...m,
+                userMeta: {
+                  ...m.userMeta,
+                  currentStep: prog.current_step || 0,
+                  isStarred: prog.is_starred || false,
+                  isPinned: prog.is_pinned || false,
+                  isOffline: m.userMeta?.isOffline || false,
+                  updatedAt: prog.updated || m.userMeta?.updatedAt
+                }
+              };
+            }
+            return m;
+          });
+
+          const combined = materialService.mergeMaterials(bundledWithProgress, items);
 
           setDailySparkMaterials(combined);
           setDailySparkHasMore(hasMore);
-          console.log(`✅ [Daily Spark] Loaded page 1 (${items.length} remote + ${bundled.length} bundled items)`);
+          console.log(`✅ [Daily Spark] Loaded page 1 (${items.length} remote + ${bundled.length} bundled items) with progress applied`);
 
           // Prefetch covers
           setTimeout(() => prefetchCovers(items, 15), 1000);
@@ -1807,6 +1833,7 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
 
       {/* 🔥 NEW: Category Drawer */}
       <CategoryDrawer
+        subscriptionTier={pbSubscriptionTier as any}
         isOpen={isDrawerOpen}
         onClose={() => setIsDrawerOpen(false)}
         onTopicSelect={(category, topicName) => {
@@ -1824,7 +1851,6 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
           setIsDrawerOpen(false);
           setShowPaywall(true); // 打开 Paywall
         }}
-        subscriptionTier={pbSubscriptionTier}
       />
 
 

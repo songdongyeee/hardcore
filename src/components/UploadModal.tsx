@@ -10,7 +10,7 @@ interface UploadModalProps {
     onImport: (language: string) => void;
     onUpgrade?: () => void;
     usedSeconds?: number; // How many seconds the user has already used
-    subscriptionTier?: 'free' | 'monthly' | 'quarterly' | 'yearly'; // User's subscription tier
+    subscriptionTier?: 'free' | 'monthly' | 'quarterly' | 'yearly' | 'lifetime'; // User's subscription tier
     fileName?: string;
     progressMessage?: string; // Current stage message
     errorMessage?: string;
@@ -53,7 +53,8 @@ export function UploadModal({
         free: 60,           // 60 seconds
         monthly: 1800,      // 30 minutes
         quarterly: 10800,   // 180 minutes
-        yearly: 72000       // 1200 minutes
+        yearly: 72000,      // 1200 minutes
+        lifetime: 120000    // 2000 minutes (Dark Limit)
     };
     const TOTAL_QUOTA = QUOTA_MAP[subscriptionTier];
     const remainingSeconds = Math.max(0, TOTAL_QUOTA - usedSeconds);
@@ -157,7 +158,7 @@ export function UploadModal({
                                                         {subscriptionTier === 'free' && '单次上传文件大小50M以内。'}
                                                         {subscriptionTier === 'monthly' && '单次上传文件大小500M以内。'}
                                                         {subscriptionTier === 'quarterly' && '单次上传文件大小1GB以内。'}
-                                                        {subscriptionTier === 'yearly' && '单次上传文件不限大小。'}
+                                                        {(subscriptionTier === 'yearly' || subscriptionTier === 'lifetime') && '单次上传文件不限大小。'}
                                                     </>
                                                 )
                                             }
@@ -288,7 +289,7 @@ export function UploadModal({
 
                             {/* Show upgrade button if error is about file size limit */}
                             <div className="flex gap-3 mt-2">
-                                {errorMessage?.includes('文件大小') && errorMessage?.includes('限制') && subscriptionTier !== 'yearly' && onUpgrade && (
+                                {errorMessage?.includes('文件大小') && errorMessage?.includes('限制') && subscriptionTier !== 'yearly' && subscriptionTier !== 'lifetime' && onUpgrade && (
                                     <button
                                         onClick={() => {
                                             onClose();

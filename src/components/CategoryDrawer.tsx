@@ -17,7 +17,7 @@ interface CategoryDrawerProps {
     currentTopic?: string;
     onSettingsClick: () => void;
     onUpgradeClick?: () => void; // Optional callback
-    subscriptionTier?: 'free' | 'monthly' | 'quarterly' | 'yearly';
+    subscriptionTier?: 'free' | 'monthly' | 'quarterly' | 'yearly' | 'lifetime';
 }
 
 // 🎯 Helper: Extract Emoji from string
@@ -117,6 +117,17 @@ export function CategoryDrawer({
                     iconColor: 'text-amber-400',
                     textColor: 'text-amber-200/90',
                     slideBg: 'bg-amber-400/5 group-hover:bg-amber-400/10',
+                    onClick: commonAction
+                };
+            case 'lifetime':
+                return {
+                    text: '终身会员 · Pro',
+                    bgGradient: 'from-indigo-500/20 to-purple-600/20',
+                    hoverGradient: 'hover:from-indigo-500/30 hover:to-purple-600/30',
+                    borderColor: 'border-indigo-500/50',
+                    iconColor: 'text-indigo-400',
+                    textColor: 'text-indigo-200/90',
+                    slideBg: 'bg-indigo-400/5 group-hover:bg-indigo-400/10',
                     onClick: commonAction
                 };
             default: // free
