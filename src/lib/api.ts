@@ -372,9 +372,20 @@ export async function deleteUserData() {
 export async function fetchSystemConfig(key: string) {
     try {
         const record = await pb.collection('system_config').getFirstListItem(`key="${key}"`);
+
+        // 🛡️ Auto-parse if it's a string looking like JSON (Array or Object)
+        if (typeof record.value === 'string' && (record.value.startsWith('[') || record.value.startsWith('{'))) {
+            try {
+                return JSON.parse(record.value);
+            } catch (e) {
+                // Return raw string if parse fails
+                return record.value;
+            }
+        }
+
         return record.value;
     } catch (e) {
-        console.warn(`Failed to fetch system config for key: ${key}`, e);
+        // console.warn(`Failed to fetch system config for key: ${key}`, e); // Silence 404s
         return null;
     }
 }

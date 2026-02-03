@@ -1,4 +1,4 @@
-import { pb, fetchUserProgress } from "./api";
+import { pb, fetchUserProgress, fetchSystemConfig } from "./api";
 import { BUNDLED_MATERIALS } from "@/data/bundled_materials";
 import type { Material, UserProgress } from "@/data/types";
 import { Preferences } from '@capacitor/preferences';
@@ -305,6 +305,7 @@ export const materialService = {
      * Loads all materials (Bundled + Remote) and merges with user progress
      */
     async loadAllMaterials(): Promise<Material[]> {
+        console.log('🚀 [MaterialService] loadAllMaterials STARTED');
         try {
             // 1. Fetch user progress from PB
             const progressList = await fetchUserProgress();
@@ -322,19 +323,24 @@ export const materialService = {
             console.log(`[MaterialService] Progress map size: ${progressMap.size}`);
 
 
-            // 2. Fetch System Config (Blacklist)
+            // 2. Fetch System Config (Blacklist & Hidden Topics)
             let hiddenMaterials: string[] = [];
+            let hiddenTopics: string[] = [];
             try {
-                // We import fetchSystemConfig dynamically or add it to imports if possible, 
-                // but to avoid circular deps if api.ts imports types which materialService uses...
-                // Ideally simpler:
-                const { fetchSystemConfig } = await import('./api');
-                const config = await fetchSystemConfig('hidden_materials');
-                if (Array.isArray(config)) {
-                    hiddenMaterials = config;
-                }
+                // Parallel fetch for speed
+                console.log('🔄 [MaterialService] Fetching system config...');
+                const [materialsConfig, topicsConfig] = await Promise.all([
+                    fetchSystemConfig('hidden_materials'),
+                    fetchSystemConfig('hidden_topics')
+                ]);
+
+                if (Array.isArray(materialsConfig)) hiddenMaterials = materialsConfig;
+                if (Array.isArray(topicsConfig)) hiddenTopics = topicsConfig;
+
+                console.log('🔍 [MaterialService] Loaded Config:', { hiddenMaterials, hiddenTopics });
+
             } catch (e) {
-                console.warn('Failed to load system config', e);
+                console.error('Failed to load system config', e);
             }
 
             // 3. Load Remote Materials from 'transcripts'
@@ -342,10 +348,19 @@ export const materialService = {
             if (pb.authStore.isValid) {
                 const userId = pb.authStore.model?.id;
                 // Fetch public OR owned by current user
-                const records = await pb.collection('transcripts').getFullList({
+                // Fetch public OR owned by current user
+                let records = await pb.collection('transcripts').getFullList({
                     filter: `(visibility = "public" || owner = "${userId}") && (status = "done" || status = "completed" || status = "ready" || status = "")`,
                     sort: '-created',
                 });
+
+                // 🔥 Filter out hidden topics immediately
+                if (hiddenTopics.length > 0) {
+                    const originalCount = records.length;
+                    records = records.filter(r => !hiddenTopics.includes(r.topic));
+                    console.log(`[MaterialService] Filtered hidden topics: ${originalCount} -> ${records.length}`);
+                }
+
                 console.log(`[MaterialService] Fetched ${records.length} records from PocketBase`);
                 if (records.length > 0) {
                     console.log('[MaterialService] Sample record:', records[0]);
@@ -405,7 +420,10 @@ export const materialService = {
             }
 
             // 4. Merge with Bundled (Filter out hidden ones)
-            const activeBundled = BUNDLED_MATERIALS.filter(m => !hiddenMaterials.includes(m.id));
+            const activeBundled = BUNDLED_MATERIALS.filter(m =>
+                !hiddenMaterials.includes(m.id) &&
+                !hiddenTopics.includes(m.tags?.topic || 'General')
+            );
 
             const allMaterials: Material[] = await Promise.all([
                 ...activeBundled.map(async m => {
@@ -752,6 +770,20 @@ export const materialService = {
                 filter += ` && topic = "${topic}"`; // 🔥 后端过滤 Topic
             }
 
+            // 🔥 Backend Filter for Hidden Topics
+            let hiddenTopics: string[] = [];
+            try {
+                // Static import now available
+                const config = await fetchSystemConfig('hidden_topics');
+                if (Array.isArray(config)) {
+                    hiddenTopics = config;
+                    // Append negative filters: && topic != "BBC" && topic != "TED"
+                    hiddenTopics.forEach(t => {
+                        filter += ` && topic != "${t}"`;
+                    });
+                }
+            } catch (e) { }
+
             // 🎯 使用 getList 代替 getFullList
             // 🔥 REVERT: 用户要求回退到按创建时间和手工排序
             // Sort by custom_order (desc) then created (desc)
@@ -798,12 +830,13 @@ export const materialService = {
                         title: record.title || record.audio,
                         title_translate: record.title_translate,
                         subtitle: record.subtitle || new Date(normalizedDate).toLocaleDateString(),
+                        // Use local path if exists, otherwise server URL
                         audioUrl: localAudio || pb.files.getUrl(record, record.audio),
                         coverUrl: localCover || (record.cover ? pb.files.getUrl(record, record.cover) : '/images/default_cover.png'),
                         transcript: transcript || [],
                         waveform_data: typeof record.waveform_data === 'string'
-                            ? JSON.parse(record.waveform_data)
-                            : record.waveform_data,
+                            ? JSON.parse(record.waveform_data) // Parse JSON string
+                            : record.waveform_data, // Use as is if already object
                         visibility: record.visibility,
                         createdAt: normalizedDate,
                         tags: {
@@ -818,16 +851,20 @@ export const materialService = {
                             isOffline: !!localAudio,
                             updatedAt: normalizedDate
                         },
-                        customOrder: record.custom_order || 0, // 🔥 NEW: Map custom_order from PB
+                        customOrder: record.custom_order || 0,
                     };
                 })
             );
 
+            // 🔥 Client-Side Safety Net Filter
+            const visibleItems = items.filter(item => !hiddenTopics.includes(item.tags?.topic || 'General'));
+
             return {
-                items,
+                items: visibleItems,
                 totalPages: result.totalPages,
-                hasMore: page < result.totalPages
+                hasMore: result.page < result.totalPages
             };
+
         } catch (error) {
             console.error('Failed to load materials page:', error);
             // ⚠️ Propagate error so UI knows it failed (instead of returning empty list)

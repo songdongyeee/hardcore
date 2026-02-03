@@ -1,4 +1,4 @@
-import { pb } from './api';
+import { pb, fetchSystemConfig } from './api';
 import { BUNDLED_MATERIALS } from '@/data/bundled_materials';
 
 // ==================== 类型定义 ====================
@@ -120,6 +120,16 @@ export async function getTopicsByCategory(
         // 6. 合并数据 (Modified: Include topics from meta even if count is 0)
         const allTopicNames = new Set([...Object.keys(topicCounts), ...metaMap.keys()]);
 
+        // 0. 🔥 Fetch Hidden Topics Config
+        let hiddenTopics: string[] = [];
+        try {
+            // Static import
+            const config = await fetchSystemConfig('hidden_topics');
+            if (Array.isArray(config)) {
+                hiddenTopics = config;
+            }
+        } catch (e) { }
+
         const topics: Topic[] = Array.from(allTopicNames).map(name => {
             const count = topicCounts[name] || 0;
             const meta = metaMap.get(name);
@@ -138,7 +148,9 @@ export async function getTopicsByCategory(
                 coverUrl: meta?.cover ? pb.files.getUrl(meta, meta.cover) : undefined,
                 description: meta?.description
             };
-        });
+        })
+            // 🔥 FILTER: Remove hidden topics
+            .filter(t => !hiddenTopics.includes(t.name));
 
         // 7. 按order排序，order 相同的按名称排序
         topics.sort((a, b) => {
