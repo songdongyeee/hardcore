@@ -26,6 +26,7 @@ function App() {
   const [currentCoverUrl, setCurrentCoverUrl] = useState<string | undefined>(undefined);
   const [currentTranscript, setCurrentTranscript] = useState<TranscriptSegment[]>(defaultTranscript);
   const [currentMaterialId, setCurrentMaterialId] = useState<string>(''); // NEW STATE
+  const [currentMaterialTitle, setCurrentMaterialTitle] = useState<string>(''); // NEW STATE for Analytics
   const [currentWaveformData, setCurrentWaveformData] = useState<number[][] | undefined>(undefined);
 
   // Ref to prevent double-click/event bubbling
@@ -60,6 +61,7 @@ function App() {
 
       analytics.track('phase_completed', {
         material_id: currentMaterialId,
+        material_title: currentMaterialTitle,
         phase: currentPhaseRef.current,
         duration_seconds: duration,
         completed: completed,
@@ -79,6 +81,7 @@ function App() {
 
       analytics.track('material_session_end', {
         material_id: currentMaterialId,
+        material_title: currentMaterialTitle,
         total_duration_seconds: totalDuration,
         phases_visited: Array.from(visitedPhasesRef.current),
         furthest_phase: furthestPhaseRef.current,
@@ -276,6 +279,7 @@ function App() {
     // Set Material ID and Trigger Progress
     if (materialId) {
       setCurrentMaterialId(materialId);
+      setCurrentMaterialTitle(title || 'Unknown');
       setCurrentWaveformData(waveformData);
       if (coverUrl) setCurrentCoverUrl(coverUrl);
 
@@ -290,6 +294,7 @@ function App() {
       // 📊 Track phase started
       analytics.track('phase_started', {
         material_id: materialId,
+        material_title: title || 'Unknown',
         phase: 'listening',
         timestamp: new Date().toISOString()
       });
@@ -457,6 +462,7 @@ function App() {
 
                 analytics.track('phase_started', {
                   material_id: currentMaterialId,
+                  material_title: currentMaterialTitle,
                   phase: 'analysis',
                   timestamp: new Date().toISOString()
                 });
@@ -490,6 +496,7 @@ function App() {
 
                 analytics.track('phase_started', {
                   material_id: currentMaterialId,
+                  material_title: currentMaterialTitle,
                   phase: 'listening',
                   timestamp: new Date().toISOString()
                 });
@@ -509,6 +516,7 @@ function App() {
 
                 analytics.track('phase_started', {
                   material_id: currentMaterialId,
+                  material_title: currentMaterialTitle,
                   phase: 'shadowing',
                   timestamp: new Date().toISOString()
                 });

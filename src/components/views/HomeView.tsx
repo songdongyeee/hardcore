@@ -28,7 +28,7 @@ import type { TranscriptSegment } from "@/data/transcript";
 // Helper function to calculate next quota reset date based on subscription tier
 // Calculate next reset date based on user's subscription cycle, not natural month/year
 const calculateNextResetDate = (
-  tier: 'monthly' | 'quarterly' | 'yearly',
+  tier: 'monthly' | 'quarterly' | 'yearly' | 'lifetime',
   currentResetDate: string  // User's current quota_reset_date
 ): string => {
   const baseDate = new Date(currentResetDate);
@@ -43,6 +43,10 @@ const calculateNextResetDate = (
       break;
     case 'yearly':
       nextReset.setFullYear(nextReset.getFullYear() + 1);  // Add 1 year from current reset date
+      break;
+    case 'lifetime':
+      // Lifetime members never reset quota, set to far future
+      nextReset.setFullYear(nextReset.getFullYear() + 100);
       break;
   }
 
@@ -1007,7 +1011,7 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
 
       // 🎯 Tiered Membership Quota System
       // Fetch user's subscription info
-      let subscriptionTier: 'free' | 'monthly' | 'quarterly' | 'yearly' = 'free';
+      let subscriptionTier: 'free' | 'monthly' | 'quarterly' | 'yearly' | 'lifetime' = 'free';
       let quotaUsedSeconds = 0;
       let quotaResetDate: string | null = null;
 
@@ -1039,22 +1043,30 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
         free: 50 * 1024 * 1024,      // 50MB
         monthly: 500 * 1024 * 1024,  // 500MB
         quarterly: 1024 * 1024 * 1024, // 1GB
-        yearly: 2 * 1024 * 1024 * 1024  // 2GB (Soft limit)
+        yearly: 2 * 1024 * 1024 * 1024,  // 2GB (Soft limit)
+        lifetime: 2 * 1024 * 1024 * 1024  // 2GB (same as yearly)
       };
 
       const maxFileSize = FILE_SIZE_LIMITS[subscriptionTier];
       const fileSizeMB = Math.round(file.size / (1024 * 1024));
 
-      // Hard limit check (except yearly)
+      // Hard limit check (except yearly and lifetime)
       if (file.size > maxFileSize) {
         const limitMB = Math.round(maxFileSize / (1024 * 1024));
-        setErrorMessage(`文件大小 ${fileSizeMB}MB 超过${subscriptionTier === 'free' ? '免费用户' : '您的套餐'}限制（${limitMB}MB）`);
+        let message = "";
+        if (subscriptionTier === 'free') {
+          message = `文件大小 ${fileSizeMB}MB 超过免费用户限制（${limitMB}MB）`;
+        } else {
+          // monthly, quarterly
+          message = `文件大小 ${fileSizeMB}MB 超过您的套餐限制（${limitMB}MB）`;
+        }
+        setErrorMessage(message);
         setUploadStatus('error');
         return;
       }
 
-      // Soft warning for yearly users with files > 2GB
-      if (subscriptionTier === 'yearly' && file.size > 2 * 1024 * 1024 * 1024) {
+      // Soft warning for yearly and lifetime users with files > 2GB
+      if ((subscriptionTier === 'yearly' || subscriptionTier === 'lifetime') && file.size > 2 * 1024 * 1024 * 1024) {
         setErrorMessage(`文件过大（${fileSizeMB}MB），等待时间过长，建议拆分上传`);
         setUploadStatus('error');
         return;
@@ -1065,7 +1077,8 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
         free: 60,           // 60 seconds lifetime
         monthly: 1800,      // 30 minutes per month
         quarterly: 10800,   // 180 minutes per quarter
-        yearly: 72000       // 1200 minutes per year
+        yearly: 72000,      // 1200 minutes per year
+        lifetime: 120000    // 2000 minutes (dark limit)
       };
 
       const totalQuota = QUOTA_MAP[subscriptionTier];
@@ -1073,11 +1086,24 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
 
       // If quota exhausted, show paywall
       if (remainingQuota <= 0) {
-        setErrorMessage(subscriptionTier === 'free'
-          ? "免费额度已用完，请升级会员解锁更多额度"
-          : "本周期额度已用完，请等待下次重置或升级套餐");
+        let message = "";
+        let shouldShowPaywall = false;
+
+        if (subscriptionTier === 'free') {
+          message = "免费额度已用完，请升级会员解锁更多额度";
+          shouldShowPaywall = true;
+        } else if (subscriptionTier === 'lifetime') {
+          message = "您的额度暂时超出阿里云提供上限 可联系开发者为您提额";
+          shouldShowPaywall = false;
+        } else {
+          // monthly, yearly
+          message = "本周期额度已用完，请等待下次重置或升级套餐";
+          shouldShowPaywall = false;
+        }
+
+        setErrorMessage(message);
         setUploadStatus('error');
-        setShowPaywall(true);
+        setShowPaywall(shouldShowPaywall);
         return;
       }
 

@@ -1179,7 +1179,7 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
                     const tier = user?.subscription_tier || 'free';
                     console.log('[ShadowingView] Clicked Save. User:', user?.id, 'Tier:', tier);
 
-                    const isPaidUser = tier === 'monthly' || tier === 'quarterly' || tier === 'yearly';
+                    const isPaidUser = tier !== 'free';
 
                     if (!isPaidUser) {
                       console.log('[ShadowingView] Access Denied. Showing Paywall.');
