@@ -1,0 +1,1050 @@
+{
+  "transcripts": [
+    {
+      "channel_id": 0,
+      "text": "Thank you. I'm honored to be with you today for your commencement from one of the finest universities in the world. Truth be told, I never graduated from college and this is the closest I've ever gotten to a college graduation. Today, I want to tell you three stories from my life. That's it. No big deal. Just three stories. The first story is about connecting the dots. I dropped out of Reed College after the first six months, but then stayed around as a drop-in for another 18 months or so before I really quit. So why'd I drop out? It started before I was born. My biological mother was a young unwed graduate student and she decided to put me up for adoption. She felt very strongly that I should be adopted by college graduates, so everything was all set for me to be adopted at birth by a lawyer and his wife.",
+      "sentences": [
+        {
+          "begin_time": 0,
+          "end_time": 1080,
+          "text": "Thank you.",
+          "sentence_id": 1,
+          "words": [
+            {
+              "begin_time": 0,
+              "end_time": 860,
+              "text": "Thank",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 860,
+              "end_time": 1080,
+              "text": "you.",
+              "punctuation": ""
+            }
+          ]
+        },
+        {
+          "begin_time": 6519,
+          "end_time": 11320,
+          "text": "I'm honored to be with you today for your commencement from one of the finest universities in the world.",
+          "sentence_id": 2,
+          "words": [
+            {
+              "begin_time": 6519,
+              "end_time": 7079,
+              "text": "I'm",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 7079,
+              "end_time": 7640,
+              "text": "honored",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 7640,
+              "end_time": 7860,
+              "text": "to",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 7860,
+              "end_time": 7980,
+              "text": "be",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 7980,
+              "end_time": 8160,
+              "text": "with",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 8160,
+              "end_time": 8260,
+              "text": "you",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 8260,
+              "end_time": 8520,
+              "text": "today",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 8520,
+              "end_time": 8720,
+              "text": "for",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 8720,
+              "end_time": 8840,
+              "text": "your",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 8840,
+              "end_time": 9220,
+              "text": "commencement",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 9220,
+              "end_time": 9540,
+              "text": "from",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 9540,
+              "end_time": 9680,
+              "text": "one",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 9680,
+              "end_time": 9780,
+              "text": "of",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 9780,
+              "end_time": 9920,
+              "text": "the",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 9920,
+              "end_time": 10160,
+              "text": "finest",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 10160,
+              "end_time": 10760,
+              "text": "universities",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 10760,
+              "end_time": 11020,
+              "text": "in",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 11020,
+              "end_time": 11120,
+              "text": "the",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 11120,
+              "end_time": 11320,
+              "text": "world.",
+              "punctuation": ""
+            }
+          ]
+        },
+        {
+          "begin_time": 14960,
+          "end_time": 24620,
+          "text": "Truth be told, I never graduated from college and this is the closest I've ever gotten to a college graduation.",
+          "sentence_id": 3,
+          "words": [
+            {
+              "begin_time": 14960,
+              "end_time": 15520,
+              "text": "Truth",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 15520,
+              "end_time": 15860,
+              "text": "be",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 15860,
+              "end_time": 16239,
+              "text": "told,",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 17660,
+              "end_time": 18000,
+              "text": "I",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 18000,
+              "end_time": 18380,
+              "text": "never",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 18380,
+              "end_time": 18840,
+              "text": "graduated",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 18840,
+              "end_time": 19040,
+              "text": "from",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 19040,
+              "end_time": 19480,
+              "text": "college",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 19480,
+              "end_time": 20920,
+              "text": "and",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 20920,
+              "end_time": 21940,
+              "text": "this",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 21940,
+              "end_time": 22100,
+              "text": "is",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 22100,
+              "end_time": 22200,
+              "text": "the",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 22200,
+              "end_time": 22600,
+              "text": "closest",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 22600,
+              "end_time": 23040,
+              "text": "I've",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 23040,
+              "end_time": 23160,
+              "text": "ever",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 23160,
+              "end_time": 23440,
+              "text": "gotten",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 23440,
+              "end_time": 23640,
+              "text": "to",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 23640,
+              "end_time": 23780,
+              "text": "a",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 23780,
+              "end_time": 24000,
+              "text": "college",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 24000,
+              "end_time": 24620,
+              "text": "graduation.",
+              "punctuation": ""
+            }
+          ]
+        },
+        {
+          "begin_time": 27120,
+          "end_time": 30040,
+          "text": "Today, I want to tell you three stories from my life.",
+          "sentence_id": 4,
+          "words": [
+            {
+              "begin_time": 27120,
+              "end_time": 27600,
+              "text": "Today,",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 27960,
+              "end_time": 28260,
+              "text": "I",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 28260,
+              "end_time": 28400,
+              "text": "want",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 28400,
+              "end_time": 28520,
+              "text": "to",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 28520,
+              "end_time": 28640,
+              "text": "tell",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 28640,
+              "end_time": 28800,
+              "text": "you",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 28800,
+              "end_time": 29020,
+              "text": "three",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 29020,
+              "end_time": 29360,
+              "text": "stories",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 29360,
+              "end_time": 29540,
+              "text": "from",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 29540,
+              "end_time": 29700,
+              "text": "my",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 29700,
+              "end_time": 30040,
+              "text": "life.",
+              "punctuation": ""
+            }
+          ]
+        },
+        {
+          "begin_time": 30600,
+          "end_time": 33480,
+          "text": "That's it. No big deal. Just three stories.",
+          "sentence_id": 5,
+          "words": [
+            {
+              "begin_time": 30600,
+              "end_time": 30900,
+              "text": "That's",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 30900,
+              "end_time": 31020,
+              "text": "it.",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 31420,
+              "end_time": 31520,
+              "text": "No",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 31520,
+              "end_time": 31680,
+              "text": "big",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 31680,
+              "end_time": 31920,
+              "text": "deal.",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 32500,
+              "end_time": 32840,
+              "text": "Just",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 32840,
+              "end_time": 33100,
+              "text": "three",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 33100,
+              "end_time": 33480,
+              "text": "stories.",
+              "punctuation": ""
+            }
+          ]
+        },
+        {
+          "begin_time": 34880,
+          "end_time": 38040,
+          "text": "The first story is about connecting the dots.",
+          "sentence_id": 6,
+          "words": [
+            {
+              "begin_time": 34880,
+              "end_time": 35360,
+              "text": "The",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 35360,
+              "end_time": 35580,
+              "text": "first",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 35580,
+              "end_time": 35980,
+              "text": "story",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 35980,
+              "end_time": 36980,
+              "text": "is",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 36980,
+              "end_time": 37160,
+              "text": "about",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 37160,
+              "end_time": 37560,
+              "text": "connecting",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 37560,
+              "end_time": 37740,
+              "text": "the",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 37740,
+              "end_time": 38040,
+              "text": "dots.",
+              "punctuation": ""
+            }
+          ]
+        },
+        {
+          "begin_time": 39920,
+          "end_time": 42980,
+          "text": "I dropped out of Reed College after the first six months,",
+          "sentence_id": 7,
+          "words": [
+            {
+              "begin_time": 39920,
+              "end_time": 40400,
+              "text": "I",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 40400,
+              "end_time": 40620,
+              "text": "dropped",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 40620,
+              "end_time": 40820,
+              "text": "out",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 40820,
+              "end_time": 40940,
+              "text": "of",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 40940,
+              "end_time": 41040,
+              "text": "Reed",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 41040,
+              "end_time": 41580,
+              "text": "College",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 41580,
+              "end_time": 42120,
+              "text": "after",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 42120,
+              "end_time": 42240,
+              "text": "the",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 42240,
+              "end_time": 42460,
+              "text": "first",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 42460,
+              "end_time": 42660,
+              "text": "six",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 42660,
+              "end_time": 42980,
+              "text": "months,",
+              "punctuation": ""
+            }
+          ]
+        },
+        {
+          "begin_time": 43280,
+          "end_time": 47260,
+          "text": "but then stayed around as a drop-in for another 18 months or so before I really quit.",
+          "sentence_id": 8,
+          "words": [
+            {
+              "begin_time": 43280,
+              "end_time": 43460,
+              "text": "but",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 43460,
+              "end_time": 43600,
+              "text": "then",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 43600,
+              "end_time": 43840,
+              "text": "stayed",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 43840,
+              "end_time": 44120,
+              "text": "around",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 44120,
+              "end_time": 44300,
+              "text": "as",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 44300,
+              "end_time": 44420,
+              "text": "a",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 44420,
+              "end_time": 44620,
+              "text": "drop",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 44620,
+              "end_time": 44840,
+              "text": "-in",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 44840,
+              "end_time": 45020,
+              "text": "for",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 45020,
+              "end_time": 45180,
+              "text": "another",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 45180,
+              "end_time": 45620,
+              "text": "18",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 45620,
+              "end_time": 45880,
+              "text": "months",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 45880,
+              "end_time": 46080,
+              "text": "or",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 46080,
+              "end_time": 46320,
+              "text": "so",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 46320,
+              "end_time": 46580,
+              "text": "before",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 46580,
+              "end_time": 46760,
+              "text": "I",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 46760,
+              "end_time": 46960,
+              "text": "really",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 46960,
+              "end_time": 47260,
+              "text": "quit.",
+              "punctuation": ""
+            }
+          ]
+        },
+        {
+          "begin_time": 48520,
+          "end_time": 49720,
+          "text": "So why'd I drop out?",
+          "sentence_id": 9,
+          "words": [
+            {
+              "begin_time": 48520,
+              "end_time": 48880,
+              "text": "So",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 48880,
+              "end_time": 49140,
+              "text": "why'd",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 49140,
+              "end_time": 49240,
+              "text": "I",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 49240,
+              "end_time": 49420,
+              "text": "drop",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 49420,
+              "end_time": 49720,
+              "text": "out?",
+              "punctuation": ""
+            }
+          ]
+        },
+        {
+          "begin_time": 50940,
+          "end_time": 53000,
+          "text": "It started before I was born.",
+          "sentence_id": 10,
+          "words": [
+            {
+              "begin_time": 50940,
+              "end_time": 51500,
+              "text": "It",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 51500,
+              "end_time": 52060,
+              "text": "started",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 52060,
+              "end_time": 52400,
+              "text": "before",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 52400,
+              "end_time": 52560,
+              "text": "I",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 52560,
+              "end_time": 52660,
+              "text": "was",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 52660,
+              "end_time": 53000,
+              "text": "born.",
+              "punctuation": ""
+            }
+          ]
+        },
+        {
+          "begin_time": 54320,
+          "end_time": 60260,
+          "text": "My biological mother was a young unwed graduate student and she decided to put me up for adoption.",
+          "sentence_id": 11,
+          "words": [
+            {
+              "begin_time": 54320,
+              "end_time": 54740,
+              "text": "My",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 54740,
+              "end_time": 55220,
+              "text": "biological",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 55220,
+              "end_time": 55660,
+              "text": "mother",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 55660,
+              "end_time": 56420,
+              "text": "was",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 56420,
+              "end_time": 56540,
+              "text": "a",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 56540,
+              "end_time": 56820,
+              "text": "young",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 56820,
+              "end_time": 57320,
+              "text": "unwed",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 57320,
+              "end_time": 57700,
+              "text": "graduate",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 57700,
+              "end_time": 58120,
+              "text": "student",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 58120,
+              "end_time": 58720,
+              "text": "and",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 58720,
+              "end_time": 58840,
+              "text": "she",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 58840,
+              "end_time": 59220,
+              "text": "decided",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 59220,
+              "end_time": 59400,
+              "text": "to",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 59400,
+              "end_time": 59520,
+              "text": "put",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 59520,
+              "end_time": 59640,
+              "text": "me",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 59640,
+              "end_time": 59760,
+              "text": "up",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 59760,
+              "end_time": 59880,
+              "text": "for",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 59880,
+              "end_time": 60260,
+              "text": "adoption.",
+              "punctuation": ""
+            }
+          ]
+        },
+        {
+          "begin_time": 61340,
+          "end_time": 64980,
+          "text": "She felt very strongly that I should be adopted by college graduates,",
+          "sentence_id": 12,
+          "words": [
+            {
+              "begin_time": 61340,
+              "end_time": 61820,
+              "text": "She",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 61820,
+              "end_time": 62100,
+              "text": "felt",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 62100,
+              "end_time": 62440,
+              "text": "very",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 62440,
+              "end_time": 62880,
+              "text": "strongly",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 62880,
+              "end_time": 63120,
+              "text": "that",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 63120,
+              "end_time": 63220,
+              "text": "I",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 63220,
+              "end_time": 63360,
+              "text": "should",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 63360,
+              "end_time": 63480,
+              "text": "be",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 63480,
+              "end_time": 63840,
+              "text": "adopted",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 63840,
+              "end_time": 64080,
+              "text": "by",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 64080,
+              "end_time": 64459,
+              "text": "college",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 64459,
+              "end_time": 64980,
+              "text": "graduates,",
+              "punctuation": ""
+            }
+          ]
+        },
+        {
+          "begin_time": 65239,
+          "end_time": 69700,
+          "text": "so everything was all set for me to be adopted at birth by a lawyer and his wife.",
+          "sentence_id": 13,
+          "words": [
+            {
+              "begin_time": 65239,
+              "end_time": 65640,
+              "text": "so",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 65640,
+              "end_time": 65860,
+              "text": "everything",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 65860,
+              "end_time": 66120,
+              "text": "was",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 66120,
+              "end_time": 66260,
+              "text": "all",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 66260,
+              "end_time": 66580,
+              "text": "set",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 66580,
+              "end_time": 67260,
+              "text": "for",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 67260,
+              "end_time": 67380,
+              "text": "me",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 67380,
+              "end_time": 67460,
+              "text": "to",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 67460,
+              "end_time": 67560,
+              "text": "be",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 67560,
+              "end_time": 67920,
+              "text": "adopted",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 67920,
+              "end_time": 68080,
+              "text": "at",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 68080,
+              "end_time": 68320,
+              "text": "birth",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 68320,
+              "end_time": 68600,
+              "text": "by",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 68600,
+              "end_time": 68700,
+              "text": "a",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 68700,
+              "end_time": 68980,
+              "text": "lawyer",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 68980,
+              "end_time": 69360,
+              "text": "and",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 69360,
+              "end_time": 69480,
+              "text": "his",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 69480,
+              "end_time": 69700,
+              "text": "wife.",
+              "punctuation": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -114,11 +114,15 @@ export function ProfileView({ onBack }: ProfileViewProps) {
                             <span className="inline-block mt-2 px-3 py-1 bg-purple-500/20 text-purple-400 text-xs font-bold rounded-full border border-purple-500/50 hover:bg-purple-500/30 transition-colors">
                                 季度会员
                             </span>
-                        ) : (
+                        ) : pbSubscriptionTier === 'yearly' ? (
                             <span className="inline-block mt-2 px-3 py-1 bg-amber-500/20 text-amber-500 text-xs font-bold rounded-full border border-amber-500/50 hover:bg-amber-500/30 transition-colors">
                                 年度会员 · VIP
                             </span>
-                        )}
+                        ) : pbSubscriptionTier === 'lifetime' ? (
+                            <span className="inline-block mt-2 px-3 py-1 bg-indigo-500/20 text-indigo-400 text-xs font-bold rounded-full border border-indigo-500/50 hover:bg-indigo-500/30 transition-colors">
+                                终身会员 · Pro
+                            </span>
+                        ) : null}
                     </div>
                 </div>
 

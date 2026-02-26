@@ -126,5 +126,6 @@ android/.gradle/
 
 # Project specific
 downloads/
+pb_hooks/api_key.txt
 
 yt-dlp

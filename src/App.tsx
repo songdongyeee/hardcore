@@ -10,9 +10,8 @@ import { AnalysisView } from "@/components/views/AnalysisView";
 import { ShadowingView } from "@/components/views/ShadowingView";
 import { ProfileView } from "@/components/views/ProfileView";
 
-import { getLatestTranscript, getCachedTranscript, saveTranscriptToCache, silentLogin, updateUserProgress, getTranscriptById } from "@/lib/api";
+import { pb, getLatestTranscript, getCachedTranscript, saveTranscriptToCache, silentLogin, updateUserProgress, getTranscriptById } from "@/lib/api";
 import { useRevenueCat } from "@/hooks/useRevenueCat";
-import { Device } from "@capacitor/device";
 import { analytics } from "@/lib/analytics";
 
 import { App as CapacitorApp } from '@capacitor/app';
@@ -36,6 +35,7 @@ function App() {
 
   // 🛡️ Strict Auth Gate: Block HomeView execution until auth check is done (success or fail)
   const [isAuthCheckComplete, setIsAuthCheckComplete] = useState(false);
+  const [authReadyVersion, setAuthReadyVersion] = useState(0);
   const hasLoggedRef = useRef(false); // 🔥 Prevent double login
 
   // 📊 Learning Progress Time Tracking
@@ -126,9 +126,16 @@ function App() {
     loadData();
   }, []);
 
-  // 2. 🔐 SMART AUTH STRATEGY (Cache -> RC Wait -> Device Fallback)
-  // This effect orchestrates the login race.
+  // 2. 🔐 SMART AUTH STRATEGY (Cache RC ID -> wait for live RC ID)
   useEffect(() => {
+    let timeoutId: number | null = null;
+
+    const markLoginSuccess = () => {
+      hasLoggedRef.current = true;
+      setIsAuthCheckComplete(true);
+      setAuthReadyVersion(v => v + 1);
+    };
+
     async function initAuth() {
       if (hasLoggedRef.current) return;
 
@@ -137,40 +144,28 @@ function App() {
         const { value: cachedId } = await Preferences.get({ key: 'last_rc_id' });
         if (cachedId) {
           console.log('💾 Auth Cache Hit:', cachedId);
-          hasLoggedRef.current = true; // Lock
 
           analytics.init();
           analytics.identify(cachedId);
           analytics.track('app_opened', { platform: 'capacitor', method: 'cache' });
 
-          await silentLogin(cachedId);
-          setIsAuthCheckComplete(true);
-          return;
+          const ok = await silentLogin(cachedId);
+          if (ok) {
+            markLoginSuccess();
+            return;
+          }
+
+          console.warn('⚠️ Cached RC login failed. Waiting for RevenueCat live ID...');
         }
 
-        // B. ⏳ If no cache, start the "Race against Time"
+        // B. ⏳ If no cached login, wait for live RC ID.
         console.log('⏳ No auth cache. Waiting for RevenueCat...');
 
-        // We set a trap: if RC doesn't reply in 2.5s, we proceed with Device ID.
-        setTimeout(async () => {
-          if (!hasLoggedRef.current) {
-            console.warn('⏰ RC Timeout (2.5s). Fallback to Device ID.');
-            try {
-              const deviceInfo = await Device.getId();
-              const deviceId = deviceInfo.identifier;
-
-              hasLoggedRef.current = true; // Lock
-
-              analytics.init();
-              analytics.identify(deviceId);
-              analytics.track('app_opened', { platform: 'capacitor', method: 'device_fallback' });
-
-              await silentLogin(deviceId);
-            } catch (e) {
-              console.error('Fallback failed', e);
-            } finally {
-              setIsAuthCheckComplete(true);
-            }
+        // After timeout, release UI gate (keep bundled/cache visible), but do not switch account source.
+        timeoutId = window.setTimeout(() => {
+          if (!hasLoggedRef.current && !pb.authStore.isValid) {
+            console.warn('⏰ RC login not ready after 2.5s. Running in degraded mode until RC ID arrives.');
+            setIsAuthCheckComplete(true);
           }
         }, 2500);
 
@@ -181,22 +176,37 @@ function App() {
     }
 
     initAuth();
+
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
   }, []); // Run once on mount
 
   // 3. 📡 REVENUECAT LISTENER (The "Winner" of the race)
   useEffect(() => {
-    if (appUserID && !hasLoggedRef.current) {
-      console.log('💎 RevenueCat ID Ready:', appUserID);
-      hasLoggedRef.current = true; // Lock
+    if (!appUserID || hasLoggedRef.current) return;
 
-      analytics.init();
-      analytics.identify(appUserID);
-      analytics.track('app_opened', { platform: 'capacitor', method: 'revenuecat' });
+    console.log('💎 RevenueCat ID Ready:', appUserID);
 
-      silentLogin(appUserID).then(() => {
+    analytics.init();
+    analytics.identify(appUserID);
+    analytics.track('app_opened', { platform: 'capacitor', method: 'revenuecat' });
+
+    silentLogin(appUserID).then((ok) => {
+      if (ok) {
+        hasLoggedRef.current = true;
         setIsAuthCheckComplete(true);
-      });
-    }
+        setAuthReadyVersion(v => v + 1);
+      } else {
+        console.warn('⚠️ RC login failed. Keeping degraded mode and waiting for retry triggers.');
+        setIsAuthCheckComplete(true);
+      }
+    }).catch((e) => {
+      console.warn('⚠️ RC login error:', e);
+      setIsAuthCheckComplete(true);
+    });
   }, [appUserID]); // Trigger when RC provides ID
 
   // 4. 🔄 SAFETY RE-FETCH (Ensure Content Loads)
@@ -438,6 +448,7 @@ function App() {
             onProfile={() => setActiveView('profile')}
             isActive={activeView === 'home'}
             isAuthCheckComplete={isAuthCheckComplete}
+            authReadyVersion={authReadyVersion}
           />
 
           {activeView === 'listening' && (

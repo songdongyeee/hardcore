@@ -1,0 +1,296 @@
+{
+  "generatedAt": "2026-02-19T13:29:40.294Z",
+  "pbUrl": "https://zjcnex.top",
+  "collection": "transcripts",
+  "location": "core_library",
+  "visibility": "private",
+  "language": "en",
+  "topic": "General",
+  "difficulty": "L1",
+  "owner": "q1l1m0uqor5o7m2",
+  "wait": true,
+  "sourceDir": "/Users/geo/Downloads/资料",
+  "totalFiles": 28,
+  "results": [
+    {
+      "fileName": "1.mp3",
+      "path": "/Users/geo/Downloads/资料/1.mp3",
+      "recordId": "egmtsq98qjoiw34",
+      "created": "2026-02-19 13:22:50.159Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    },
+    {
+      "fileName": "2.mp3",
+      "path": "/Users/geo/Downloads/资料/2.mp3",
+      "recordId": "qz6m4i4gpiqefdv",
+      "created": "2026-02-19 13:23:03.006Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    },
+    {
+      "fileName": "3.mp3",
+      "path": "/Users/geo/Downloads/资料/3.mp3",
+      "recordId": "dtb5qb3db260x8j",
+      "created": "2026-02-19 13:23:20.825Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    },
+    {
+      "fileName": "4.mp3",
+      "path": "/Users/geo/Downloads/资料/4.mp3",
+      "recordId": "39aexp09vc7r1vw",
+      "created": "2026-02-19 13:23:40.129Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    },
+    {
+      "fileName": "5.mp3",
+      "path": "/Users/geo/Downloads/资料/5.mp3",
+      "recordId": "kxcmd0y19jqgkkj",
+      "created": "2026-02-19 13:23:52.040Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    },
+    {
+      "fileName": "6.mp3",
+      "path": "/Users/geo/Downloads/资料/6.mp3",
+      "recordId": "rys6ho0j7nc2cd0",
+      "created": "2026-02-19 13:24:04.489Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    },
+    {
+      "fileName": "7.mp3",
+      "path": "/Users/geo/Downloads/资料/7.mp3",
+      "recordId": "w40jp35sng379s1",
+      "created": "2026-02-19 13:24:15.899Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    },
+    {
+      "fileName": "8.mp3",
+      "path": "/Users/geo/Downloads/资料/8.mp3",
+      "recordId": "gaezhot6ht6psvs",
+      "created": "2026-02-19 13:24:23.403Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    },
+    {
+      "fileName": "9.mp3",
+      "path": "/Users/geo/Downloads/资料/9.mp3",
+      "recordId": "kx4jp5if3udn016",
+      "created": "2026-02-19 13:24:33.667Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    },
+    {
+      "fileName": "10.mp3",
+      "path": "/Users/geo/Downloads/资料/10.mp3",
+      "recordId": "qqg2exp93832ea4",
+      "created": "2026-02-19 13:24:44.881Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    },
+    {
+      "fileName": "11.mp3",
+      "path": "/Users/geo/Downloads/资料/11.mp3",
+      "recordId": "5tfdrb13ujxmunc",
+      "created": "2026-02-19 13:24:59.235Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    },
+    {
+      "fileName": "12.mp3",
+      "path": "/Users/geo/Downloads/资料/12.mp3",
+      "recordId": "ei31sghorstsp79",
+      "created": "2026-02-19 13:25:16.879Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    },
+    {
+      "fileName": "13.mp3",
+      "path": "/Users/geo/Downloads/资料/13.mp3",
+      "recordId": "kzw6thav4fk0aiy",
+      "created": "2026-02-19 13:25:31.521Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    },
+    {
+      "fileName": "14.mp3",
+      "path": "/Users/geo/Downloads/资料/14.mp3",
+      "recordId": "ad406vllkue7kcq",
+      "created": "2026-02-19 13:25:47.730Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    },
+    {
+      "fileName": "15.mp3",
+      "path": "/Users/geo/Downloads/资料/15.mp3",
+      "recordId": "1b47764hz86nvnw",
+      "created": "2026-02-19 13:26:08.423Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    },
+    {
+      "fileName": "16.mp3",
+      "path": "/Users/geo/Downloads/资料/16.mp3",
+      "recordId": "sldogvoyfwjzkr2",
+      "created": "2026-02-19 13:26:21.879Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    },
+    {
+      "fileName": "17.mp3",
+      "path": "/Users/geo/Downloads/资料/17.mp3",
+      "recordId": "xendnqxi5t9p2im",
+      "created": "2026-02-19 13:26:39.374Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    },
+    {
+      "fileName": "18.mp3",
+      "path": "/Users/geo/Downloads/资料/18.mp3",
+      "recordId": "34vj434eowmfl3h",
+      "created": "2026-02-19 13:26:57.469Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    },
+    {
+      "fileName": "19.mp3",
+      "path": "/Users/geo/Downloads/资料/19.mp3",
+      "recordId": "px148hkkrogzrw4",
+      "created": "2026-02-19 13:27:11.719Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    },
+    {
+      "fileName": "20.mp3",
+      "path": "/Users/geo/Downloads/资料/20.mp3",
+      "recordId": "n2kjfdtyvfuzr8j",
+      "created": "2026-02-19 13:27:25.369Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    },
+    {
+      "fileName": "21.mp3",
+      "path": "/Users/geo/Downloads/资料/21.mp3",
+      "recordId": "0nipyidearni5hx",
+      "created": "2026-02-19 13:27:47.252Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    },
+    {
+      "fileName": "22-1.mp3",
+      "path": "/Users/geo/Downloads/资料/22-1.mp3",
+      "recordId": "sftfil5df0w7g52",
+      "created": "2026-02-19 13:27:58.016Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    },
+    {
+      "fileName": "22.mp3",
+      "path": "/Users/geo/Downloads/资料/22.mp3",
+      "recordId": "7we4euu30clsftp",
+      "created": "2026-02-19 13:28:13.419Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    },
+    {
+      "fileName": "23.mp3",
+      "path": "/Users/geo/Downloads/资料/23.mp3",
+      "recordId": "47v23uimnkqiwok",
+      "created": "2026-02-19 13:28:26.730Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    },
+    {
+      "fileName": "24.mp3",
+      "path": "/Users/geo/Downloads/资料/24.mp3",
+      "recordId": "skhy8kjptbtlqd0",
+      "created": "2026-02-19 13:28:44.450Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    },
+    {
+      "fileName": "25.mp3",
+      "path": "/Users/geo/Downloads/资料/25.mp3",
+      "recordId": "wrplc6ggglt14ao",
+      "created": "2026-02-19 13:28:57.307Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    },
+    {
+      "fileName": "26.mp3",
+      "path": "/Users/geo/Downloads/资料/26.mp3",
+      "recordId": "ayvlw8htzovqmv2",
+      "created": "2026-02-19 13:29:12.184Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    },
+    {
+      "fileName": "27.mp3",
+      "path": "/Users/geo/Downloads/资料/27.mp3",
+      "recordId": "moxlidymgbdbu18",
+      "created": "2026-02-19 13:29:25.170Z",
+      "visibility": "private",
+      "status": "done",
+      "timedOut": false,
+      "ok": true
+    }
+  ]
+}

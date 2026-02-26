@@ -85,10 +85,11 @@ interface HomeViewProps {
   onProfile: () => void;
   isActive?: boolean;
   isAuthCheckComplete: boolean; // 🛡️ Strict Auth Gate
+  authReadyVersion?: number; // Trigger reload when PB login succeeds after degraded mode
 }
 
 
-export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: HomeViewProps) {
+export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete, authReadyVersion = 0 }: HomeViewProps) {
   // Removed unused activeId state
   const [showPaywall, setShowPaywall] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<'initial' | 'progress' | 'success' | 'error'>('initial');
@@ -255,6 +256,12 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
     // 新函数：后台快速加载（并行 + 共享缓存）
     const loadRemoteDataInBackground = async () => {
       try {
+        if (!pb.authStore.isValid) {
+          console.warn('⚠️ [HomeView] Auth not ready, skip remote material load');
+          setIsInitialLoading(false);
+          return;
+        }
+
         // ⚡ 优化1：只获取1次用户进度（避免重复请求）
         const progressList = await fetchUserProgress();
 
@@ -263,34 +270,34 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
 
         console.log('🔍 [Debug] Core Library items:', coreLibResult.items.length);
 
-        // 更新 Core Library 材料
-        setAllMaterials(prev => {
-          // 🔥 FIX: 只移除 core_library 位置的材料，保留其他所有材料
-          const nonCoreLibrary = prev.filter(m => m.location !== 'core_library');
-          const final = [
-            ...nonCoreLibrary,
-            ...coreLibResult.items  // 添加新的 Core Library
-          ];
-
-          // 🔥 保存快照到缓存（已自动排除 Daily Spark）
-          materialService.saveSnapshot(final);
-
-          return final;
-        });
-
-        setHasMorePages(coreLibResult.hasMore);
-        setCurrentPage(1);
-
-        // ✅ 只有当确实加载到了数据时，才结束Loading
         if (coreLibResult.items.length > 0) {
+          // 更新 Core Library 材料
+          setAllMaterials(prev => {
+            // 🔥 FIX: 只移除 core_library 位置的材料，保留其他所有材料
+            const nonCoreLibrary = prev.filter(m => m.location !== 'core_library');
+            const final = [
+              ...nonCoreLibrary,
+              ...coreLibResult.items  // 添加新的 Core Library
+            ];
+
+            // 🔥 保存快照到缓存（已自动排除 Daily Spark）
+            materialService.saveSnapshot(final);
+
+            return final;
+          });
+
+          setHasMorePages(coreLibResult.hasMore);
+          setCurrentPage(1);
           setIsInitialLoading(false);
           hasLoadedRemoteDataRef.current = true;
-        } else {
-          console.warn('⚠️ Initial load returned empty data, maintaining loading state');
-        }
 
-        // 后台预缓存封面
-        setTimeout(() => prefetchCovers(coreLibResult.items, 20), 2000);
+          // 后台预缓存封面
+          setTimeout(() => prefetchCovers(coreLibResult.items, 20), 2000);
+        } else {
+          console.warn('⚠️ Initial load returned empty data, preserving existing library data');
+          setIsInitialLoading(false);
+          setLoadFailed(true);
+        }
 
       } catch (error) {
         console.error('Failed to load remote data:', error);
@@ -325,7 +332,7 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
     }
 
     return () => clearTimeout(timeoutId);
-  }, [pb.authStore.isValid, isAuthCheckComplete]); // Add isAuthCheckComplete dep
+  }, [pb.authStore.isValid, isAuthCheckComplete, authReadyVersion]); // Add authReadyVersion to refresh after delayed auth success
 
   // 🎯 Event-Driven Network Recovery: Listen for network status changes and app state changes
   // 🎯 Event-Driven Network Recovery: Listen for network status changes and app state changes
@@ -349,11 +356,18 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
       if (!pb.authStore.isValid) {
         // Double check validity inside the lock (in case another thread fixed it)
         if (!pb.authStore.isValid) {
-          const { Device } = await import('@capacitor/device');
-          const deviceId = await Device.getId();
-          const success = await silentLogin(deviceId.identifier);
+          const { value: cachedRcId } = await Preferences.get({ key: 'last_rc_id' });
+          if (!cachedRcId) {
+            console.warn('No cached RC ID available for re-authentication');
+            setLoadFailed(true);
+            isRecoveringRef.current = false;
+            return;
+          }
+
+          const success = await silentLogin(cachedRcId);
           if (!success) {
             console.warn('Re-authentication failed');
+            setLoadFailed(true);
             isRecoveringRef.current = false; // Release lock
             return;
           }
@@ -373,18 +387,23 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete }: H
           if (coreLibResult.items.length === 0) {
             console.warn('⚠️ Core library empty after reload, marking as partial failure');
             setLoadFailed(true);
+            isRecoveringRef.current = false;
+            return;
           }
 
           setAllMaterials(prev => {
+            const nonCoreLibrary = prev.filter(m => m.location !== 'core_library');
             const final = [
-              ...prev.filter(m => m.source === 'bundled'),
-              ...coreLibResult.items.filter(item => !prev.some(p => p.id === item.id))
+              ...nonCoreLibrary,
+              ...coreLibResult.items
             ];
+            materialService.saveSnapshot(final);
             return final;
           });
 
           setHasMorePages(coreLibResult.hasMore);
           setCurrentPage(1);
+          setIsInitialLoading(false);
           hasLoadedRemoteDataRef.current = true; // 🎯 Mark remote data as successfully loaded
 
           console.log(`✅ Network recovery successful on attempt ${attempt}`);
