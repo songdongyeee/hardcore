@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Settings, ArrowRight, ChevronRight, Sparkles, BookOpen, LayoutGrid, Crown } from 'lucide-react';
+import { Settings, ArrowRight, ChevronRight, Sparkles, BookOpen, Crown, Star } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { getAllTopics, type Topic } from '@/lib/topicService';
@@ -15,6 +15,8 @@ interface CategoryDrawerProps {
     onClose: () => void;
     onTopicSelect: (category: string | null, topicName: string | null) => void;
     currentTopic?: string;
+    activeFilter: 'all' | 'starred' | 'reading';
+    onFilterChange: (filter: 'all' | 'starred' | 'reading') => void;
     onSettingsClick: () => void;
     onUpgradeClick?: () => void; // Optional callback
     subscriptionTier?: 'free' | 'monthly' | 'quarterly' | 'yearly' | 'lifetime';
@@ -41,6 +43,8 @@ export function CategoryDrawer({
     onClose,
     onTopicSelect,
     currentTopic,
+    activeFilter,
+    onFilterChange,
     onSettingsClick,
     onUpgradeClick,
     subscriptionTier = 'free'
@@ -191,35 +195,48 @@ export function CategoryDrawer({
                 {/* Content - Safe Area Adapted */}
                 <div className="flex-1 overflow-y-auto p-4 pt-[calc(env(safe-area-inset-top)+2rem)] space-y-2 no-scrollbar relative touch-pan-y">
 
-                    {/* ALL MATERIALS */}
-                    <button
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            console.log('🖱️ [Drawer] Clicked "All Materials"');
+                    {/* ALL MATERIALS + FILTER ACTIONS */}
+                    <div className="flex items-center gap-2 mb-6">
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                Haptics.impact({ style: ImpactStyle.Light }).catch(() => { });
+                                onFilterChange(activeFilter === 'starred' ? 'all' : 'starred');
+                                onClose();
+                            }}
+                            className={cn(
+                                "w-11 h-11 rounded-lg border border-white/15 bg-white/5 backdrop-blur-md flex items-center justify-center transition-all active:scale-95 shrink-0",
+                                activeFilter === 'starred'
+                                    ? "text-amber-300"
+                                    : "text-zinc-400 hover:text-amber-300"
+                            )}
+                            aria-label="Favorite filter"
+                            title="收藏筛选"
+                        >
+                            <Star className={cn("w-4 h-4", activeFilter === 'starred' ? "fill-current" : "")} />
+                        </button>
 
-                            // 🔥 Non-blocking haptics
-                            Haptics.impact({ style: ImpactStyle.Medium }).catch(err =>
-                                console.warn('⚠️ Haptics failed', err)
-                            );
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                console.log('🖱️ [Drawer] Clicked "All Materials"');
 
-                            // 🔥 CRITICAL: Update state BEFORE closing to prevent race conditions
-                            console.log('🔄 [Drawer] Triggering reset: onTopicSelect(null, null)');
-                            onTopicSelect(null, null); // Clear filters
+                                Haptics.impact({ style: ImpactStyle.Medium }).catch(err =>
+                                    console.warn('⚠️ Haptics failed', err)
+                                );
 
-                            // Close AFTER state update trigger
-                            onClose();
-                        }}
-                        className="w-full flex items-center justify-between p-4 rounded-2xl glass-button text-left group mb-6 relative overflow-hidden z-50"
-                    >
-                        <div className="absolute inset-0 bg-white/0 group-hover:bg-white/5 transition-colors duration-500"></div>
-                        <div className="flex items-center gap-3 relative z-10">
-                            <div className="text-zinc-400 group-hover:text-white transition-colors">
-                                <LayoutGrid strokeWidth={1.5} size={20} />
-                            </div>
-                            <span className="text-base font-medium text-zinc-200 group-hover:text-white">All Materials</span>
-                        </div>
-                        <ArrowRight className="relative z-10 text-zinc-600 group-hover:text-white transition-colors" size={18} />
-                    </button>
+                                console.log('🔄 [Drawer] Triggering reset: onTopicSelect(null, null)');
+                                onTopicSelect(null, null); // Clear topic/category filters
+                                onFilterChange('all'); // Clear status filters
+
+                                onClose();
+                            }}
+                            className="flex-1 h-11 px-3 rounded-lg border border-white/15 bg-white/5 backdrop-blur-md flex items-center gap-2.5 text-left transition-all active:scale-[0.99] min-w-0"
+                        >
+                            <ArrowRight className="text-zinc-500 transition-colors shrink-0" size={16} />
+                            <span className="text-sm font-medium text-zinc-200 truncate">All Materials</span>
+                        </button>
+                    </div>
 
                     {/* DAILY SPARK SECTION */}
                     <LiquidAccordion

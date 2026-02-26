@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { Trash2, Edit2, Pin, PinOff, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ImpactStyle, Haptics } from "@capacitor/haptics";
+import { Capacitor } from "@capacitor/core";
 import type { Material } from "@/data/types";
 
 export interface MaterialCardProps {
@@ -27,14 +28,58 @@ export const MaterialCard = React.memo(function MaterialCard({
     variant = 'hero',
     showDailySparkTags = false // Default to false
 }: MaterialCardProps) {
+    const normalizeCoverUrl = (url?: string): string => {
+        if (!url) return '';
+        const trimmed = url.trim();
+
+        // Let Capacitor handle the correct scheme mapping.
+        if (trimmed.startsWith('file://')) {
+            return Capacitor.convertFileSrc(trimmed);
+        }
+
+        // On iOS, custom scheme is required. If a cached URL accidentally brings an Android/http path,
+        // we revert it to capacitor:// to prevent 404s.
+        if (Capacitor.getPlatform() === 'ios' && trimmed.startsWith('http://localhost/_capacitor_file_/')) {
+            return trimmed.replace('http://localhost/_capacitor_file_/', 'capacitor://localhost/_capacitor_file_/');
+        }
+
+        return trimmed;
+    };
+
+    const hasCustomCover = !!material.coverUrl && material.coverUrl.trim() !== '';
+
     const [swipeOffset, setSwipeOffset] = useState(0);
     const [isSwiping, setIsSwiping] = useState(false);
+
+    // --- Image Loading State ---
+    const [prevCoverUrl, setPrevCoverUrl] = useState(material.coverUrl);
     const [imageLoaded, setImageLoaded] = useState(false);
+    const [imageError, setImageError] = useState(false);
+    const [fallbackUrl, setFallbackUrl] = useState<string | null>(null);
+
+    // Synchronously reset state if the cover URL changes (e.g., during virtual list recycling)
+    if (material.coverUrl !== prevCoverUrl) {
+        setPrevCoverUrl(material.coverUrl);
+        setImageLoaded(false);
+        setImageError(false);
+        setFallbackUrl(null);
+    }
+
+    const displayCoverUrl = fallbackUrl ?? (normalizeCoverUrl(material.coverUrl) || '/images/default_cover.png');
+    // ---------------------------
 
     const startXRef = useRef(0);
     const startYRef = useRef(0);
     const isHorizontalSwipeRef = useRef<boolean | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
+    const imgRef = useRef<HTMLImageElement>(null);
+
+    // Check if image is already cached and complete after render
+    useEffect(() => {
+        if (imgRef.current?.complete) {
+            setImageLoaded(true);
+        }
+    }, [displayCoverUrl]);
 
     const isGrid = variant === 'grid';
     // Only show rename/delete for materials owned by the user
@@ -245,29 +290,38 @@ export const MaterialCard = React.memo(function MaterialCard({
                     "relative aspect-[4/5] w-full overflow-hidden cursor-pointer transition-all bg-gradient-to-br from-gray-700 to-gray-800 z-10"
                 )}
             >
-                {/* Loading Indicator */}
-                {!imageLoaded && (
-                    <div className="absolute inset-0 flex items-center justify-center z-5">
-                        <div className="w-8 h-8 border-2 border-gray-600 border-t-transparent rounded-full animate-spin" />
-                    </div>
-                )}
-
+                {/* 
+                  * 只有当：不是自定义封面（即默认封面已经存在） 
+                  * 或者 自定义封面已经 loaded
+                  * 时，才将 opacity 设为 1，这样就不会有先亮一下默认封面的闪屏 
+                  */}
                 <img
-                    src={material.coverUrl}
+                    ref={imgRef}
+                    src={displayCoverUrl}
                     className={cn(
                         "absolute inset-0 w-full h-full object-cover transition-opacity duration-500",
-                        imageLoaded ? "opacity-100" : "opacity-0",
+                        imageError || (hasCustomCover && !imageLoaded) ? "opacity-0" : "opacity-100",
                         isGrid
                             ? "grayscale-0 group-hover:scale-105 transition-all duration-700"
                             : (isActive ? "grayscale-0 group-hover:scale-105 transition-all duration-700" : "opacity-60 grayscale")
                     )}
                     alt={material.title}
                     draggable={false}
-                    onLoad={() => setImageLoaded(true)}
+                    onLoad={() => {
+                        setImageLoaded(true);
+                        setImageError(false);
+                    }}
                     onError={(e) => {
-                        setImageLoaded(true); // 即使失败也显示，避免永久loading
-                        // Fallback: hide broken image and show gradient background
-                        (e.target as HTMLImageElement).style.display = 'none';
+                        // iOS Safari may cancel requests on scroll. When that happens,
+                        // gracefully fall back to default cover.
+                        if (displayCoverUrl !== '/images/default_cover.png') {
+                            setImageError(false);
+                            setFallbackUrl('/images/default_cover.png');
+                            return;
+                        }
+                        // Only hide completely if even the default cover fails (rare).
+                        (e.target as HTMLImageElement).style.opacity = '0';
+                        setImageError(true);
                     }}
                 />
 
