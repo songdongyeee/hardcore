@@ -172,26 +172,54 @@ export async function getTranscriptById(id: string): Promise<{ url: string; segm
 // I will insert them back.
 
 export async function silentLogin(userId: string): Promise<boolean> {
+    const deriveSilentCredentials = (rawId: string) => {
+        // Deterministic and PB-safe credentials for RC anonymous IDs like `$RCAnonymousID:xxxx`.
+        let hash = 2166136261;
+        for (let i = 0; i < rawId.length; i++) {
+            hash ^= rawId.charCodeAt(i);
+            hash = Math.imul(hash, 16777619);
+        }
+        const h = (hash >>> 0).toString(16).padStart(8, '0');
+        const compact = rawId
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, '')
+            .slice(-20);
+
+        const username = `rc_${compact}${h}`.slice(0, 40);
+        const password = `Rc#${h}${compact}#Pw2026`; // >= 8 chars and deterministic
+        return { username, password };
+    };
+
+    const { username: safeUsername, password: safePassword } = deriveSilentCredentials(userId);
+
     try {
+        // 1) Backward compatibility: old scheme (username/password both raw ID)
         try {
             await pb.collection('users').authWithPassword(userId, userId);
-            console.log("✅ Silent login success");
+            console.log("✅ Silent login success (legacy credentials)");
             return true;
-        } catch (authErr) {
-            console.log("👤 User not found, creating silent account...");
+        } catch {
+            // 2) New stable scheme for RC IDs (safe username/password)
             try {
-                await pb.collection('users').create({
-                    username: userId,
-                    password: userId,
-                    passwordConfirm: userId,
-                    revenue_id: userId,
-                });
-                await pb.collection('users').authWithPassword(userId, userId);
-                console.log("✅ Silent account created and logged in");
+                await pb.collection('users').authWithPassword(safeUsername, safePassword);
+                console.log("✅ Silent login success (safe credentials)");
                 return true;
-            } catch (createErr) {
-                console.error("❌ Failed to create silent account", createErr);
-                return false;
+            } catch {
+                console.log("👤 User not found, creating silent account...");
+                try {
+                    await pb.collection('users').create({
+                        username: safeUsername,
+                        password: safePassword,
+                        passwordConfirm: safePassword,
+                        revenue_id: userId,
+                    });
+                    await pb.collection('users').authWithPassword(safeUsername, safePassword);
+                    console.log("✅ Silent account created and logged in");
+                    return true;
+                } catch (createErr) {
+                    console.error("❌ Failed to create silent account", createErr);
+                    return false;
+                }
             }
         }
     } catch (e) {

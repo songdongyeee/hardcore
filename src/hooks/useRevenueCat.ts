@@ -5,12 +5,175 @@ import { App as CapApp } from '@capacitor/app';
 import { analytics } from '@/lib/analytics'; // Restore analytics
 // Global init flag to prevent hitting RC multiple times if hook is used in multiple components simultaneously
 let isConfigured = false;
+let configurePromise: Promise<void> | null = null;
+let initPromise: Promise<void> | null = null;
+let hasBootstrapped = false;
+let customerInfoListener: any = null;
+let appStateListener: any = null;
+let lastPbSyncSignature = '';
 
 // Credentials provided by user
 const API_KEY = "appl_ItWPUWsRrylahhZdTrBpvJbEtIo";
+const RC_PROXY_URL = (import.meta.env.VITE_RC_PROXY_URL || '').trim();
 export const ENTITLEMENT_ID = "app_pro";
 
 import { Preferences } from '@capacitor/preferences'; // Cache Support
+
+type SubscriptionTier = 'free' | 'monthly' | 'quarterly' | 'yearly' | 'lifetime';
+
+type SharedRCState = {
+    currentOffering: PurchasesOffering | null;
+    customerInfo: any;
+    isReady: boolean;
+    isVip: boolean;
+    subscriptionTier: SubscriptionTier;
+};
+
+let sharedRCState: SharedRCState = {
+    currentOffering: null,
+    customerInfo: null,
+    isReady: false,
+    isVip: false,
+    subscriptionTier: 'free'
+};
+
+const sharedStateSubscribers = new Set<(state: SharedRCState) => void>();
+
+const emitSharedState = () => {
+    for (const subscriber of sharedStateSubscribers) {
+        subscriber(sharedRCState);
+    }
+};
+
+const setSharedState = (patch: Partial<SharedRCState>) => {
+    sharedRCState = { ...sharedRCState, ...patch };
+    emitSharedState();
+};
+
+const getSubscriptionTierFromInfo = (info: any): SubscriptionTier => {
+    if (!info?.entitlements?.active?.[ENTITLEMENT_ID]) return 'free';
+
+    const entitlement = info.entitlements.active[ENTITLEMENT_ID];
+    const productId = entitlement.productIdentifier?.toLowerCase() || '';
+
+    if (productId.includes('monthly')) return 'monthly';
+    if (productId.includes('quarterly') || productId.includes('quarter')) return 'quarterly';
+    if (productId.includes('yearly') || productId.includes('annual')) return 'yearly';
+    if (productId.includes('lifetime')) return 'lifetime';
+
+    return 'free';
+};
+
+const applyCustomerInfoToShared = (info: any) => {
+    const tier = getSubscriptionTierFromInfo(info);
+    const isVip = !!info?.entitlements?.active?.[ENTITLEMENT_ID];
+    setSharedState({
+        customerInfo: info,
+        subscriptionTier: tier,
+        isVip
+    });
+};
+
+const ensureConfigured = async () => {
+    if (isConfigured) return;
+    if (configurePromise) {
+        await configurePromise;
+        return;
+    }
+
+    configurePromise = (async () => {
+        await Purchases.setLogLevel({ level: LOG_LEVEL.DEBUG });
+
+        if (RC_PROXY_URL) {
+            try {
+                await Purchases.setProxyURL({ url: RC_PROXY_URL });
+                console.log('🌐 RevenueCat proxy enabled:', RC_PROXY_URL);
+            } catch (proxyErr) {
+                // Proxy config failed: keep direct RC path so purchase flow is not blocked.
+                console.warn('⚠️ RevenueCat proxy setup failed, falling back to direct host', proxyErr);
+            }
+        } else {
+            console.log('ℹ️ RevenueCat proxy not configured (VITE_RC_PROXY_URL empty)');
+        }
+
+        await Purchases.configure({ apiKey: API_KEY });
+        isConfigured = true;
+    })().finally(() => {
+        configurePromise = null;
+    });
+
+    await configurePromise;
+};
+
+const initRevenueCat = async (retryCount = 0) => {
+    if (initPromise) {
+        await initPromise;
+        return;
+    }
+
+    initPromise = (async () => {
+        try {
+            if (import.meta.env.VITE_PLATFORM === 'web') return; // Skip on web
+
+            await ensureConfigured();
+
+            // Listener for updates (Renewals, Restores, Purchases from other devices)
+            if (!customerInfoListener) {
+                customerInfoListener = await Purchases.addCustomerInfoUpdateListener((info) => {
+                    applyCustomerInfoToShared(info);
+                });
+            }
+
+            const info = await Purchases.getCustomerInfo();
+            applyCustomerInfoToShared(info);
+
+            if (info.customerInfo?.originalAppUserId) {
+                syncRevenueCatIdToPocketBase(info.customerInfo.originalAppUserId);
+            }
+
+            const offerings = await Purchases.getOfferings();
+            if (offerings.current !== null) {
+                setSharedState({ currentOffering: offerings.current });
+            }
+
+            setSharedState({ isReady: true });
+            console.log('✅ RevenueCat initialized successfully');
+        } catch (e) {
+            console.error("RevenueCat Init Error:", e);
+
+            if (retryCount < 8) {
+                const delay = Math.min(1000 * Math.pow(2, retryCount), 15000);
+                console.log(`⏳ Retrying RevenueCat init in ${delay / 1000}s... (attempt ${retryCount + 1}/8)`);
+                window.setTimeout(() => {
+                    initRevenueCat(retryCount + 1);
+                }, delay);
+            } else {
+                console.warn('⚠️ RevenueCat initialization failed after 8 attempts.');
+                setSharedState({ isReady: true });
+            }
+        }
+    })().finally(() => {
+        initPromise = null;
+    });
+
+    await initPromise;
+};
+
+const bootstrapRevenueCat = () => {
+    if (hasBootstrapped) return;
+    hasBootstrapped = true;
+
+    initRevenueCat(0);
+
+    if (import.meta.env.VITE_PLATFORM !== 'web' && !appStateListener) {
+        appStateListener = CapApp.addListener('appStateChange', (state) => {
+            if (state.isActive && !sharedRCState.isReady) {
+                console.log('📱 App became active, retrying RevenueCat init...');
+                initRevenueCat(0);
+            }
+        });
+    }
+};
 
 // ✅ 同步RevenueCat ID到PocketBase
 async function syncRevenueCatIdToPocketBase(rcUserId: string) {
@@ -37,88 +200,27 @@ async function syncRevenueCatIdToPocketBase(rcUserId: string) {
 }
 
 export function useRevenueCat() {
-    const [currentOffering, setCurrentOffering] = useState<PurchasesOffering | null>(null);
-    const [customerInfo, setCustomerInfo] = useState<any>(null);
-    const [isReady, setIsReady] = useState(false);
-    const [isVip, setIsVip] = useState(false);
-    const [subscriptionTier, setSubscriptionTier] = useState<'free' | 'monthly' | 'quarterly' | 'yearly' | 'lifetime'>('free');
+    const [currentOffering, setCurrentOffering] = useState<PurchasesOffering | null>(sharedRCState.currentOffering);
+    const [customerInfo, setCustomerInfo] = useState<any>(sharedRCState.customerInfo);
+    const [isReady, setIsReady] = useState(sharedRCState.isReady);
+    const [isVip, setIsVip] = useState(sharedRCState.isVip);
+    const [subscriptionTier, setSubscriptionTier] = useState<SubscriptionTier>(sharedRCState.subscriptionTier);
 
     useEffect(() => {
-        let customerInfoListener: any = null;
-        let retryTimeout: number | null = null;
-
-        const init = async (retryCount = 0) => {
-            try {
-                if (import.meta.env.VITE_PLATFORM === 'web') return; // Skip on web
-
-                if (!isConfigured) {
-                    await Purchases.setLogLevel({ level: LOG_LEVEL.DEBUG });
-                    await Purchases.configure({ apiKey: API_KEY });
-                    isConfigured = true;
-                }
-
-                // Listener for updates (Renewals, Restores, Purchases from other devices)
-                customerInfoListener = await Purchases.addCustomerInfoUpdateListener((info) => {
-                    setCustomerInfo(info);
-                    checkEntitlement(info);
-                });
-
-                // Get info
-                const info = await Purchases.getCustomerInfo();
-                setCustomerInfo(info);
-                checkEntitlement(info);
-
-                // ✅ 同步RC ID到PB（启动时）
-                if (info.customerInfo?.originalAppUserId) {
-                    syncRevenueCatIdToPocketBase(info.customerInfo.originalAppUserId);
-                }
-
-                // Get offerings
-                const offerings = await Purchases.getOfferings();
-                if (offerings.current !== null) {
-                    setCurrentOffering(offerings.current);
-                }
-
-                setIsReady(true);
-                console.log('✅ RevenueCat initialized successfully');
-            } catch (e) {
-                console.error("RevenueCat Init Error:", e);
-
-                // ⚡ 重试逻辑
-                if (retryCount < 8) {
-                    const delay = Math.min(1000 * Math.pow(2, retryCount), 15000);
-                    console.log(`⏳ Retrying RevenueCat init in ${delay / 1000}s... (attempt ${retryCount + 1}/8)`);
-                    retryTimeout = setTimeout(() => init(retryCount + 1), delay);
-                } else {
-                    console.warn('⚠️ RevenueCat initialization failed after 8 attempts.');
-                    setIsReady(true);
-                }
-            }
+        const syncLocalState = (state: SharedRCState) => {
+            setCurrentOffering(state.currentOffering);
+            setCustomerInfo(state.customerInfo);
+            setIsReady(state.isReady);
+            setIsVip(state.isVip);
+            setSubscriptionTier(state.subscriptionTier);
         };
 
-        init();
-
-        // ⚡ 监听App状态变化
-        let appStateListener: any = null;
-        if (import.meta.env.VITE_PLATFORM !== 'web') {
-            appStateListener = CapApp.addListener('appStateChange', (state) => {
-                if (state.isActive && !isReady) {
-                    console.log('📱 App became active, retrying RevenueCat init...');
-                    init(0);
-                }
-            });
-        }
+        sharedStateSubscribers.add(syncLocalState);
+        syncLocalState(sharedRCState);
+        bootstrapRevenueCat();
 
         return () => {
-            if (customerInfoListener) {
-                try { customerInfoListener.remove(); } catch (e) { }
-            }
-            if (retryTimeout) {
-                clearTimeout(retryTimeout);
-            }
-            if (appStateListener) {
-                appStateListener.remove();
-            }
+            sharedStateSubscribers.delete(syncLocalState);
         };
     }, []);
 
@@ -152,16 +254,7 @@ export function useRevenueCat() {
     };
 
     const checkEntitlement = (info: any) => {
-        const isActive = info?.entitlements?.active[ENTITLEMENT_ID];
-        if (isActive) {
-            setIsVip(true);
-            // Update subscription tier
-            const tier = getSubscriptionTier(info);
-            setSubscriptionTier(tier);
-        } else {
-            setIsVip(false);
-            setSubscriptionTier('free');
-        }
+        applyCustomerInfoToShared(info);
     };
 
     // Auto-sync subscription to PocketBase when customerInfo changes
@@ -169,6 +262,10 @@ export function useRevenueCat() {
         const syncToPocketBase = async () => {
             if (!customerInfo || !isReady) return;
             if (!pb.authStore.isValid || !pb.authStore.model?.id) return;
+
+            const syncSignature = `${pb.authStore.model.id}:${customerInfo?.requestDateMillis || customerInfo?.requestDate || 'no_request'}:${customerInfo?.entitlements?.active?.[ENTITLEMENT_ID]?.productIdentifier || 'free'}`;
+            if (syncSignature === lastPbSyncSignature) return;
+            lastPbSyncSignature = syncSignature;
 
             try {
                 const subInfo = getSubscriptionInfo();
@@ -240,6 +337,7 @@ export function useRevenueCat() {
                     }
                 }
             } catch (e) {
+                lastPbSyncSignature = '';
                 console.warn('Failed to auto-sync subscription:', e);
             }
         };

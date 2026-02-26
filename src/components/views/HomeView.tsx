@@ -187,6 +187,7 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete, aut
             directory: Directory.Documents
           }).catch(() => { });
           await Preferences.remove({ key: 'materials_snapshot_v1' }); // Clear legacy
+          await Preferences.remove({ key: 'materials_snapshot_fs_exists' }); // Clear filesystem snapshot marker
           await Preferences.set({ key: CACHE_VERSION_KEY, value: '1' });
           console.log('✅ [Cache Buster] Cache cleared. Will reload fresh data.');
         }
@@ -257,9 +258,7 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete, aut
     const loadRemoteDataInBackground = async () => {
       try {
         if (!pb.authStore.isValid) {
-          console.warn('⚠️ [HomeView] Auth not ready, skip remote material load');
-          setIsInitialLoading(false);
-          return;
+          console.warn('⚠️ [HomeView] Auth not ready, loading public materials in degraded mode');
         }
 
         // ⚡ 优化1：只获取1次用户进度（避免重复请求）
@@ -358,18 +357,12 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete, aut
         if (!pb.authStore.isValid) {
           const { value: cachedRcId } = await Preferences.get({ key: 'last_rc_id' });
           if (!cachedRcId) {
-            console.warn('No cached RC ID available for re-authentication');
-            setLoadFailed(true);
-            isRecoveringRef.current = false;
-            return;
-          }
-
-          const success = await silentLogin(cachedRcId);
-          if (!success) {
-            console.warn('Re-authentication failed');
-            setLoadFailed(true);
-            isRecoveringRef.current = false; // Release lock
-            return;
+            console.warn('No cached RC ID available for re-authentication, continue with public mode');
+          } else {
+            const success = await silentLogin(cachedRcId);
+            if (!success) {
+              console.warn('Re-authentication failed, continue with public mode');
+            }
           }
         }
       }

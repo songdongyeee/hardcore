@@ -9,6 +9,98 @@ import writeBlob from 'capacitor-blob-writer';
 const MEDIA_DIR = 'media';
 const IMAGES_DIR = 'images';
 const SNAPSHOT_KEY = 'materials_snapshot_v1';
+const SNAPSHOT_EXISTS_KEY = 'materials_snapshot_fs_exists';
+
+let snapshotWriteInFlight = false;
+let pendingSnapshotForWrite: Material[] | null = null;
+
+let localAudioFiles: Set<string> | null = null;
+let localImageFiles: Set<string> | null = null;
+let localImageById: Map<string, string> | null = null;
+let localIndexLoadPromise: Promise<void> | null = null;
+
+function normalizeDirEntries(entries: any[]): string[] {
+    return entries
+        .map((entry: any) => {
+            if (typeof entry === 'string') return entry;
+            if (entry && typeof entry.name === 'string') return entry.name;
+            return '';
+        })
+        .filter(Boolean);
+}
+
+function indexImageFile(fileName: string): void {
+    if (!localImageById) {
+        localImageById = new Map();
+    }
+    const dotIndex = fileName.lastIndexOf('.');
+    if (dotIndex <= 0) return;
+    const materialId = fileName.slice(0, dotIndex);
+    localImageById.set(materialId, fileName);
+}
+
+function registerLocalPath(path: string): void {
+    const parts = path.split('/');
+    if (parts.length < 2) return;
+    const dir = parts[0];
+    const fileName = parts[parts.length - 1];
+
+    if (dir === MEDIA_DIR) {
+        if (!localAudioFiles) localAudioFiles = new Set();
+        localAudioFiles.add(fileName);
+    } else if (dir === IMAGES_DIR) {
+        if (!localImageFiles) localImageFiles = new Set();
+        localImageFiles.add(fileName);
+        indexImageFile(fileName);
+    }
+}
+
+function unregisterLocalPath(path: string): void {
+    const parts = path.split('/');
+    if (parts.length < 2) return;
+    const dir = parts[0];
+    const fileName = parts[parts.length - 1];
+
+    if (dir === MEDIA_DIR) {
+        localAudioFiles?.delete(fileName);
+    } else if (dir === IMAGES_DIR) {
+        localImageFiles?.delete(fileName);
+        const dotIndex = fileName.lastIndexOf('.');
+        if (dotIndex > 0) {
+            const materialId = fileName.slice(0, dotIndex);
+            localImageById?.delete(materialId);
+        }
+    }
+}
+
+async function ensureLocalFileIndex(): Promise<void> {
+    if (localAudioFiles && localImageFiles && localImageById) return;
+    if (localIndexLoadPromise) {
+        await localIndexLoadPromise;
+        return;
+    }
+
+    localIndexLoadPromise = (async () => {
+        try {
+            const [audioResult, imageResult] = await Promise.all([
+                Filesystem.readdir({ path: MEDIA_DIR, directory: Directory.Documents }).catch(() => ({ files: [] as any[] })),
+                Filesystem.readdir({ path: IMAGES_DIR, directory: Directory.Documents }).catch(() => ({ files: [] as any[] }))
+            ]);
+
+            const audioNames = normalizeDirEntries(audioResult.files || []);
+            const imageNames = normalizeDirEntries(imageResult.files || []);
+
+            localAudioFiles = new Set(audioNames);
+            localImageFiles = new Set(imageNames);
+            localImageById = new Map();
+            imageNames.forEach(indexImageFile);
+        } finally {
+            localIndexLoadPromise = null;
+        }
+    })();
+
+    await localIndexLoadPromise;
+}
 
 export const materialService = {
     /**
@@ -32,44 +124,50 @@ export const materialService = {
             console.log('[Cache] 🕐 Loading snapshot...', Date.now());
             console.time('[Cache] Total load time');
 
-            // 1. 尝试从 Filesystem 读取（新版本）
-            try {
-                console.time('[Cache] Filesystem read');
-                const result = await Filesystem.readFile({
-                    path: 'cache/materials.json',
-                    directory: Directory.Documents,
-                    encoding: Encoding.UTF8
-                });
-                console.timeEnd('[Cache] Filesystem read');
+            // 1. 尝试从 Filesystem 读取（仅在确认有快照时读取，避免首启报错）
+            const { value: hasFsSnapshot } = await Preferences.get({ key: SNAPSHOT_EXISTS_KEY });
+            if (hasFsSnapshot === '1') {
+                try {
+                    console.time('[Cache] Filesystem read');
+                    const result = await Filesystem.readFile({
+                        path: 'cache/materials.json',
+                        directory: Directory.Documents,
+                        encoding: Encoding.UTF8
+                    });
+                    console.timeEnd('[Cache] Filesystem read');
 
-                console.time('[Cache] JSON parse');
-                const materials = JSON.parse(result.data as string);
-                console.timeEnd('[Cache] JSON parse');
-                console.timeEnd('[Cache] Total load time');
+                    console.time('[Cache] JSON parse');
+                    const materials = JSON.parse(result.data as string);
+                    console.timeEnd('[Cache] JSON parse');
+                    console.timeEnd('[Cache] Total load time');
 
-                console.log('✅ [Cache] Loaded snapshot from Filesystem:', materials.length, 'materials');
-                return materials;
-            } catch (fsError) {
-                console.log('📂 [Cache] Filesystem cache not found, checking Preferences...');
-
-                // 2. Fallback: 从 Preferences 读取并迁移（旧版本兼容）
-                const { value } = await Preferences.get({ key: SNAPSHOT_KEY });
-                if (value) {
-                    const materials = JSON.parse(value);
-                    console.log('🔄 [Cache] Migrating from Preferences to Filesystem...');
-
-                    // 迁移到 Filesystem
-                    await this.saveSnapshot(materials);
-
-                    // 清除旧的 Preferences 缓存
-                    await Preferences.remove({ key: SNAPSHOT_KEY });
-
-                    console.log('✅ [Cache] Migration complete:', materials.length, 'materials');
+                    console.log('✅ [Cache] Loaded snapshot from Filesystem:', materials.length, 'materials');
                     return materials;
+                } catch {
+                    // Snapshot flag stale: clear it and continue fallback.
+                    await Preferences.remove({ key: SNAPSHOT_EXISTS_KEY });
                 }
-
-                return null;
             }
+
+            console.log('📂 [Cache] Filesystem cache not found, checking Preferences...');
+
+            // 2. Fallback: 从 Preferences 读取并迁移（旧版本兼容）
+            const { value } = await Preferences.get({ key: SNAPSHOT_KEY });
+            if (value) {
+                const materials = JSON.parse(value);
+                console.log('🔄 [Cache] Migrating from Preferences to Filesystem...');
+
+                // 迁移到 Filesystem
+                await this.saveSnapshot(materials);
+
+                // 清除旧的 Preferences 缓存
+                await Preferences.remove({ key: SNAPSHOT_KEY });
+
+                console.log('✅ [Cache] Migration complete:', materials.length, 'materials');
+                return materials;
+            }
+
+            return null;
         } catch (e) {
             console.error('Failed to load cache snapshot:', e);
             return null;
@@ -83,14 +181,31 @@ export const materialService = {
      * 🔥 使用 Filesystem 存储以突破 4MB 限制
      */
     async saveSnapshot(materials: Material[]): Promise<void> {
-        try {
-            // 🛡️ 防御性编程：如果材料为空，不要覆盖缓存！
-            // 这防止了由网络错误导致的空数据清除掉本地合法的缓存
-            if (!materials || materials.length === 0) {
-                console.warn('⚠️ [Cache] Attempted to save empty snapshot. Skipping to preserve existing data.');
-                return;
-            }
+        // 🛡️ 防御性编程：如果材料为空，不要覆盖缓存！
+        // 这防止了由网络错误导致的空数据清除掉本地合法的缓存
+        if (!materials || materials.length === 0) {
+            console.warn('⚠️ [Cache] Attempted to save empty snapshot. Skipping to preserve existing data.');
+            return;
+        }
 
+        // Serialize writes and always keep the latest snapshot request.
+        pendingSnapshotForWrite = materials;
+        if (snapshotWriteInFlight) return;
+
+        snapshotWriteInFlight = true;
+        try {
+            while (pendingSnapshotForWrite) {
+                const nextSnapshot = pendingSnapshotForWrite;
+                pendingSnapshotForWrite = null;
+                await this.writeSnapshotInternal(nextSnapshot);
+            }
+        } finally {
+            snapshotWriteInFlight = false;
+        }
+    },
+
+    async writeSnapshotInternal(materials: Material[]): Promise<void> {
+        try {
             // 创建缓存目录（如果不存在）
             await Filesystem.mkdir({
                 path: 'cache',
@@ -120,26 +235,16 @@ export const materialService = {
                     userMeta: m.userMeta
                 }));
 
-            // 🔥 原子化写入：防止崩溃导致文件损坏
-            // 1. 写入临时文件
-            const tempPath = 'cache/materials.temp.json';
-            const finalPath = 'cache/materials.json';
-
+            // Keep this path stable to avoid rename races across concurrent writers.
             await Filesystem.writeFile({
-                path: tempPath,
+                path: 'cache/materials.json',
                 data: JSON.stringify(lightweight),
                 directory: Directory.Documents,
                 encoding: Encoding.UTF8
             });
+            await Preferences.set({ key: SNAPSHOT_EXISTS_KEY, value: '1' });
 
-            // 2. 重命名（原子操作）
-            await Filesystem.rename({
-                from: tempPath,
-                to: finalPath,
-                directory: Directory.Documents
-            });
-
-            console.log('💾 [Cache] Saved lightweight snapshot (Atomic):', lightweight.length, 'materials');
+            console.log('💾 [Cache] Saved lightweight snapshot:', lightweight.length, 'materials');
         } catch (e) {
             console.error("Failed to save snapshot", e);
         }
@@ -181,8 +286,12 @@ export const materialService = {
             await Promise.all([
                 Filesystem.rmdir({ path: MEDIA_DIR, directory: Directory.Documents, recursive: true }).catch(() => { }),
                 Filesystem.rmdir({ path: IMAGES_DIR, directory: Directory.Documents, recursive: true }).catch(() => { }),
-                Preferences.remove({ key: SNAPSHOT_KEY })
+                Preferences.remove({ key: SNAPSHOT_KEY }),
+                Preferences.remove({ key: SNAPSHOT_EXISTS_KEY })
             ]);
+            localAudioFiles = null;
+            localImageFiles = null;
+            localImageById = null;
         } catch (e) {
             console.error("Cache cleanup failed", e);
         }
@@ -198,12 +307,14 @@ export const materialService = {
                 path: `${MEDIA_DIR}/${id}.m4a`,
                 directory: Directory.Documents
             }).catch(() => { }); // Ignore if not found
+            unregisterLocalPath(`${MEDIA_DIR}/${id}.m4a`);
 
             // Delete cover image
             await Filesystem.deleteFile({
                 path: `${IMAGES_DIR}/${id}.jpg`,
                 directory: Directory.Documents
             }).catch(() => { }); // Ignore if not found
+            unregisterLocalPath(`${IMAGES_DIR}/${id}.jpg`);
 
             console.log(`Deleted local files for ${id}`);
         } catch (e) {
@@ -463,20 +574,29 @@ export const materialService = {
      */
     async checkLocalFile(id: string, type: 'audio' | 'image' = 'audio'): Promise<string | null> {
         try {
+            await ensureLocalFileIndex();
             const dir = type === 'audio' ? MEDIA_DIR : IMAGES_DIR;
 
             if (type === 'audio') {
                 const fileName = `${id}.m4a`;
-                const result = await Filesystem.stat({ path: `${dir}/${fileName}`, directory: Directory.Documents });
+                if (!localAudioFiles?.has(fileName)) return null;
+                const result = await Filesystem.getUri({ path: `${dir}/${fileName}`, directory: Directory.Documents });
                 return Capacitor.convertFileSrc(result.uri);
             } else {
-                // Only check jpg (most common format from PocketBase)
-                // This reduces error logs significantly
-                const fileName = `${id}.jpg`;
-                const result = await Filesystem.stat({ path: `${dir}/${fileName}`, directory: Directory.Documents });
+                const fileName = localImageById?.get(id);
+                if (!fileName) return null;
+                const result = await Filesystem.getUri({ path: `${dir}/${fileName}`, directory: Directory.Documents });
                 return Capacitor.convertFileSrc(result.uri);
             }
-        } catch (e) {
+        } catch {
+            if (type === 'audio') {
+                unregisterLocalPath(`${MEDIA_DIR}/${id}.m4a`);
+            } else {
+                const knownImageFile = localImageById?.get(id);
+                if (knownImageFile) {
+                    unregisterLocalPath(`${IMAGES_DIR}/${knownImageFile}`);
+                }
+            }
             // File doesn't exist - this is expected, return null silently
             return null;
         }
@@ -533,6 +653,7 @@ export const materialService = {
                 path: path,
                 directory: Directory.Documents
             });
+            registerLocalPath(path);
 
             return Capacitor.convertFileSrc(result.uri);
         } catch (e) {
@@ -755,14 +876,13 @@ export const materialService = {
         hasMore: boolean;
     }> {
         try {
-            if (!pb.authStore.isValid) {
-                return { items: [], totalPages: 0, hasMore: false };
-            }
-
+            const isAuthed = pb.authStore.isValid && !!pb.authStore.model?.id;
             const userId = pb.authStore.model?.id;
 
             // 🎯 构建过滤条件
-            let filter = `(visibility = "public" || owner = "${userId}") && (status = "done" || status = "completed")`;
+            let filter = isAuthed
+                ? `(visibility = "public" || owner = "${userId}") && (status = "done" || status = "completed")`
+                : `(visibility = "public") && (status = "done" || status = "completed")`;
             if (location) {
                 filter += ` && location = "${location}"`;
             }

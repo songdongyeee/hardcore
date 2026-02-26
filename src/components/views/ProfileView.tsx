@@ -171,6 +171,7 @@ export function ProfileView({ onBack }: ProfileViewProps) {
 
                                     // 3. 清除材料列表快照（Preferences 旧位置）
                                     await Preferences.remove({ key: 'materials_snapshot_v1' });
+                                    await Preferences.remove({ key: 'materials_snapshot_fs_exists' });
 
                                     // 4. 清除 Daily Spark ID
                                     await Preferences.remove({ key: 'daily_spark_id' });
@@ -237,4 +238,3 @@ export function ProfileView({ onBack }: ProfileViewProps) {
         </div>
     );
 }
-
