@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import * as React from "react";
-import { Library, Sparkles, Upload, Filter, BookOpen, X, Star, RefreshCw, ArrowUp } from 'lucide-react';
+import { createPortal } from "react-dom";
+import { Library, Sparkles, Upload, RefreshCw, ArrowUp } from 'lucide-react';
 import { Dialog } from '@capacitor/dialog';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Preferences } from '@capacitor/preferences';
@@ -100,7 +101,6 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete, aut
   const [progressMessage, setProgressMessage] = useState('');
 
   // Refactored Filter State
-  const [isMenuOpen, setIsMenuOpen] = useState(false); // Core Library Filtering State
   const [activeFilter, setActiveFilter] = useState<'all' | 'starred' | 'reading'>('all');
 
   // 🔥 NEW: Category Drawer State
@@ -140,7 +140,10 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete, aut
 
   // 🎯 Scroll Control & Top Tap
   const mainRef = useRef<HTMLElement>(null);
+  const coreLibrarySectionRef = useRef<HTMLElement>(null);
+  const lastDrawerOpenRef = useRef(0);
   const lastTapRef = useRef(0);
+  const [isCoreLibraryReached, setIsCoreLibraryReached] = useState(false);
   const handleTopDoubleClick = () => {
     const now = Date.now();
     if (now - lastTapRef.current < 300) {
@@ -609,12 +612,12 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete, aut
           // 1️⃣ Fetch latest progress to ensure list reflects current state
           const progressList = await fetchUserProgress();
 
-          // 🎯 加载第一页 (15条) - Pass progressList
-          const { items, hasMore } = await materialService.loadMaterialsPage(1, 15, progressList, 'daily_spark');
+          // 🎯 加载第一页 (15条) - Pass progressList and topic
+          const { items, hasMore } = await materialService.loadMaterialsPage(1, 15, progressList, 'daily_spark', currentTopic || undefined);
 
           // 🔥 FIX: 合并内置的 Daily Spark 材料 (防止过滤时消失)
           // ⚠️ IMPORTANT: items (Remote/High Priority) MUST be the second argument to overwrite bundled (Local/Low Priority)
-          const bundled = materialService.getBundledOnly().filter(m => m.location === 'daily_spark');
+          const bundled = materialService.getBundledOnly().filter(m => m.location === 'daily_spark' && (!currentTopic || m.tags?.topic === currentTopic));
 
           // 🔥 CRITICAL FIX: Manually apply progress to bundled materials
           // Because bundled items might not be in the remote 'items' list (if filtering/paging differs),
@@ -653,7 +656,7 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete, aut
       };
       loadDailySparkList();
     }
-  }, [currentCategory]);
+  }, [currentCategory, currentTopic]);
 
   // Filter Logic - 根据 currentCategory 选择数据源
   const displayMaterials = (currentCategory === 'daily_spark' ? dailySparkMaterials : allMaterials)
@@ -721,7 +724,7 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete, aut
         15,
         undefined,
         location,
-        (!isDailySpark && currentTopic) ? currentTopic : undefined // 🎯 NEW: Pass topic for Core Library
+        currentTopic || undefined // 🎯 FIX: Pass topic for both Daily Spark and Core Library
       );
 
       if (isDailySpark) {
@@ -743,15 +746,21 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete, aut
     }
   };
 
+  const isFirstFilterRunRef = useRef(true);
+
   // 🎯 Filter Data Loader (Core Library with Topic)
   // 当 Topic 变化时，后端重新加载 (解决分页导致的数据丢失问题)
   useEffect(() => {
     // 忽略 Daily Spark 模式（它有自己的 Effect）
     if (currentCategory === 'daily_spark') return;
 
-    // 仅当已经初始化过远程数据，或者明确选择了 Topic 时才触发
-    // (防止与 initData 冲突，initData 会处理初始加载)
-    if (!hasLoadedRemoteDataRef.current && !currentTopic) return;
+    // 仅当用户明确重置 Topic 或者已经是后续触发时才执行
+    // (防止在初次挂载时触发，因为 initData 会处理初始的加载)
+    if (isFirstFilterRunRef.current && !currentTopic) {
+      isFirstFilterRunRef.current = false;
+      return;
+    }
+    isFirstFilterRunRef.current = false;
 
     const loadFilteredCoreLibrary = async () => {
       setIsInitialLoading(true);
@@ -821,6 +830,15 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete, aut
     // Show/Hide ScrollTop Button
     setShowScrollTop(scrollTop > 200);
 
+    // Sticky transition trigger: when reaching Core Library section
+    const coreSectionTop = coreLibrarySectionRef.current?.offsetTop;
+    if (typeof coreSectionTop === 'number') {
+      // Hysteresis avoids jitter when momentum scrolling near the boundary
+      const enterThreshold = coreSectionTop - 8;
+      const exitThreshold = coreSectionTop - 48;
+      setIsCoreLibraryReached(prev => (prev ? scrollTop >= exitThreshold : scrollTop >= enterThreshold));
+    }
+
     // 距离底部 300px 时触发加载
     if (scrollHeight - scrollTop - clientHeight < 300) {
       loadMore();
@@ -856,8 +874,31 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete, aut
   const handleCardClick = async (material: Material) => {
     // 1. Check if user is authenticated
     if (!pb.authStore.isValid || !pb.authStore.model?.id) {
-      setShowPaywall(true);
-      return;
+      // 获取本地未登录阅览池
+      try {
+        const { value } = await Preferences.get({ key: 'local_unauth_materials_v2' });
+        let readIds: string[] = value ? JSON.parse(value) : [];
+
+        // 如果这个材料已经被免密看过了，直接放行 (不计新额度)
+        if (!readIds.includes(material.id)) {
+          // 如果没看过，查验额度池 (限制2次)
+          if (readIds.length >= 2) {
+            console.log(`[Unauth Limit] ❌ BLOCKED! Count ${readIds.length} >= 2, showing paywall`);
+            setShowPaywall(true);
+            return;
+          }
+          // 还有额度，记录新扣减
+          readIds.push(material.id);
+          await Preferences.set({ key: 'local_unauth_materials_v2', value: JSON.stringify(readIds) });
+          console.log(`[Unauth Limit] 🆕 Unauthenticated access allowed for ${material.id}, Count is now ${readIds.length}/2`);
+        } else {
+          console.log(`[Unauth Limit] ✅ Unauthenticated access returning to ${material.id}`);
+        }
+      } catch (err) {
+        console.warn("Error reading local unauth limit:", err);
+        setShowPaywall(true);
+        return;
+      }
     }
 
     // 2. Free user material access limit
@@ -865,7 +906,7 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete, aut
     const isPublicContent = material.source === 'bundled' || material.visibility === 'public' || material.id.includes('bundled');
 
     console.log(`[Free Limit] Material: ${material.id}, isPublicContent: ${isPublicContent}, location: ${material.location}`);
-    if (isPublicContent) {
+    if (isPublicContent && pb.authStore.model?.id) {
       try {
         const user = await pb.collection('users').getOne(pb.authStore.model.id);
         const subscriptionTier = user.subscription_tier || 'free';
@@ -1523,431 +1564,422 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete, aut
 
   // Determine if we are in a filtered view (Topic or Category selected)
   const isFiltered = currentCategory !== null || currentTopic !== null;
+  const showStickyDrawer = isFiltered || isCoreLibraryReached;
+  const showUploadInHeader = !isFiltered;
+  const openDrawerFromHeader = () => {
+    const now = Date.now();
+    if (now - lastDrawerOpenRef.current < 220) return;
+    lastDrawerOpenRef.current = now;
+    Haptics.impact({ style: ImpactStyle.Medium }).catch(() => { });
+    setIsDrawerOpen(true);
+  };
+  const drawerPortalButton = (typeof document !== 'undefined')
+    ? createPortal(
+      <button
+        onPointerDown={(e) => {
+          e.preventDefault();
+          openDrawerFromHeader();
+        }}
+        onClick={openDrawerFromHeader}
+        className={cn(
+          "touch-manipulation fixed right-6 z-[90] w-11 h-11 bg-zinc-800 border border-zinc-700 rounded-full flex items-center justify-center text-zinc-200 hover:text-white hover:border-zinc-600 shadow-sm active:scale-95 transition-all duration-300",
+          showStickyDrawer && !isDrawerOpen && isActive
+            ? "top-[calc(env(safe-area-inset-top)+0.4rem)] opacity-100 translate-y-0"
+            : "top-[calc(env(safe-area-inset-top)+0.4rem)] opacity-0 -translate-y-5 pointer-events-none"
+        )}
+        aria-label="Open category drawer"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="4" x2="20" y1="12" y2="12"></line>
+          <line x1="4" x2="20" y1="6" y2="6"></line>
+          <line x1="4" x2="20" y1="18" y2="18"></line>
+        </svg>
+      </button>,
+      document.body
+    )
+    : null;
 
   return (
-    <main
-      ref={mainRef}
-      className="flex-1 overflow-y-auto no-scrollbar scroll-smooth bg-black h-full"
-      onScroll={handleScroll}
-    >
-      {/* 🎯 Invisible Top Touch Area for Scroll-to-Top (Double Tap) */}
-      {/* Avoid covering implementation buttons by limiting height to status bar area (~32px) */}
-      <div
-        className="fixed top-0 left-0 right-0 h-8 z-[100]"
-        onClick={handleTopDoubleClick}
-      />
-      <style>{`
+    <>
+      {drawerPortalButton}
+      <main
+        ref={mainRef}
+        className="flex-1 overflow-y-auto no-scrollbar scroll-smooth bg-black h-full"
+        onScroll={handleScroll}
+      >
+        {/* 🎯 Invisible Top Touch Area for Scroll-to-Top (Double Tap) */}
+        {/* Avoid covering implementation buttons by limiting height to status bar area (~32px) */}
+        <div
+          className="fixed top-0 left-0 right-0 h-8 z-[100]"
+          onClick={handleTopDoubleClick}
+        />
+        <style>{`
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
       `}</style>
 
-      <div className="pb-20">
-        {/* Section 1: The Daily Spark */}
-        {/* 🎯 Daily Spark Section - with strict date validation */}
-        {/* Hidden when filtered */}
-        {!isFiltered && (
-          <section className="px-6 pt-[calc(env(safe-area-inset-top)+1.5rem)] mb-1">
-            <div className="flex gap-2 mb-4 items-center animate-in slide-in-from-bottom-4 duration-500">
-              <Sparkles className="w-6 h-6 text-indigo-400" />
-              <h2 className="text-3xl font-medium text-white tracking-tight">Daily Spark</h2>
-              {/* Settings Button */}
-              <button
-                onClick={() => {
-                  Haptics.impact({ style: ImpactStyle.Medium }).catch(() => { });
-                  setIsDrawerOpen(true);
-                }}
-                className="ml-auto w-10 h-10 rounded-full bg-zinc-800/80 backdrop-blur-md border border-zinc-700/50 flex items-center justify-center text-zinc-100 hover:bg-zinc-700 transition-all active:scale-95 shadow-sm"
-              >
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
-                  <line x1="4" x2="20" y1="6" y2="6" />
-                  <line x1="4" x2="20" y1="12" y2="12" />
-                  <line x1="4" x2="20" y1="18" y2="18" />
-                </svg>
-              </button>
-            </div>
-
-            {/* Unified Hero Card */}
-            <div className="animate-in zoom-in-95 duration-700 delay-100 fill-mode-both">
-              {isDailySparkLoading ? (
-                <DelayedSkeleton />
-              ) : dailySparkMaterial ? (
-                // ✅ 真实数据：仅当有效且日期匹配时显示
-                // 🔄 SYNC FIX: 智能合并状态，防止步骤条闪烁
-                // 场景: allMaterials 中可能是旧数据(Step 0)，而 dailySparkMaterial 是新数据(Step > 0)
-                // 策略: 谁的 step 大用谁
-                <MaterialCard
-                  material={(() => {
-                    const fromList = allMaterials.find(m => m.id === dailySparkMaterial.id);
-                    if (!fromList) return dailySparkMaterial;
-
-                    const stepList = fromList.userMeta?.currentStep || 0;
-                    const stepHook = dailySparkMaterial.userMeta?.currentStep || 0;
-
-                    // 如果列表里的进度也是0，或者比Hook的小，就优先用Hook的（因为它刚加载了最新的）
-                    // 除非列表里的更新时间明显更新
-                    return stepHook > stepList ? dailySparkMaterial : fromList;
-                  })()}
-                  isActive={true}
-                  variant="hero"
-                  showDailySparkTags={true} // 🎯 明确要求显示为“每日短句”
-                  onClick={() => handleCardClick(dailySparkMaterial)}
-                  onTogglePin={() => handleTogglePin(dailySparkMaterial.id, dailySparkMaterial.userMeta?.isPinned || false)}
-                  onToggleStar={() => handleToggleStar(dailySparkMaterial.id, dailySparkMaterial.userMeta?.isStarred || false)}
-                />
-              ) : (
-                // ⚠️ Fallback：无数据
-                <div className="aspect-[4/5] w-full rounded-2xl bg-zinc-800 border border-white/10 flex items-center justify-center scale-105 shadow-2xl">
-                  <Sparkles className="w-12 h-12 text-zinc-600/30" />
-                </div>
-              )}
-            </div>
-          </section>
-        )}
-
-        {/* Section 2: Core Library */}
-        <section className="mt-[-0.25rem]">
-          {/* Sticky Header with integrated safe-area coverage */}
-          <div className="sticky top-0 z-30 transition-all duration-300">
-            <div className="absolute inset-0 bg-black/80 backdrop-blur-xl border-b border-white/5"></div>
-            <div className="relative px-6 flex items-center justify-between mt-[-env(safe-area-inset-top)] pt-[calc(env(safe-area-inset-top)+0.4rem)] pb-2.5">
-              <div
-                key={`header-${currentCategory}`} /* 🔑 Force re-render on category change */
-                className="flex items-center gap-3 min-w-0" /* 🔥 Fix: Removed overflow-hidden, added min-w-0 */
-              >
-                {/* 🔥 Dynamic Icon: Sparkles for Daily Spark, Library for Core Library */}
-                {
-                  (currentCategory === 'daily_spark') ? (
-                    <Sparkles className={cn("shrink-0 text-indigo-400", isMenuOpen ? "w-6 h-6" : "w-7 h-7")} />
-                  ) : (
-                    <Library className={cn("shrink-0 text-emerald-400", isMenuOpen ? "w-6 h-6" : "w-7 h-7")} />
-                  )
-                }
-
-                {/* 🕵️ Render Log */}
-                {(() => {
-                  console.log('🎨 [HomeView Render] Header Title for:', currentCategory);
-                  return null;
-                })()}
-
-                <h2 className={cn(
-                  "font-medium text-white tracking-tight whitespace-nowrap",
-                  isMenuOpen ? "text-xl" : "text-3xl"
-                )}>
-                  {currentCategory === 'daily_spark' ? 'Daily Spark' : 'Core Library'}
-                </h2>
-              </div>
-
-              <div key={`header-buttons-${isFiltered ? 'filtered' : 'normal'}`} className="flex gap-3 items-center">
-                {/* Upload Button - 只在非筛选模式显示 */}
-                {!isFiltered && (
-                  <button
-                    key="upload-btn"
-                    onClick={handleImportClick}
-                    className="w-11 h-11 bg-zinc-900 border border-zinc-800 rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:border-zinc-700 shadow-sm shrink-0 active:scale-95"
-                  >
-                    <Upload className="w-5 h-5" />
-                  </button>
-                )}
-
-                {/* Filter Group - 始终显示，可展开 */}
-                <div
-                  key="filter-group"
-                  className={cn(
-                    "group flex flex-row-reverse items-center p-1 gap-1 h-11 bg-zinc-900 border border-zinc-800 rounded-full overflow-hidden shadow-sm",
-                    isMenuOpen ? "w-[140px] border-zinc-600" : "w-11 hover:border-zinc-700"
-                  )}
-                >
-                  <button
-                    onClick={() => setIsMenuOpen(!isMenuOpen)}
-                    className="flex shrink-0 w-9 h-9 items-center justify-center rounded-full text-zinc-400 hover:text-white"
-                  >
-                    {isMenuOpen ? (
-                      <X className="w-5 h-5 text-zinc-500 hover:text-zinc-300 transition-colors" />
-                    ) : (
-                      <Filter className="w-5 h-5 transition-colors" />
-                    )}
-                  </button>
-
-                  {/* Separator & Other Buttons */}
-                  <div className="flex items-center gap-1" style={{ display: isMenuOpen ? 'flex' : 'none' }}>
-                    <div className="w-[1px] h-5 bg-zinc-800 shrink-0 mx-0.5" />
-
-                    <button
-                      onClick={() => setActiveFilter(activeFilter === 'reading' ? 'all' : 'reading')}
-                      className={cn("w-9 h-9 rounded-full flex items-center justify-center transition-colors shrink-0", activeFilter === 'reading' ? "bg-zinc-800 text-indigo-400" : "text-zinc-400 hover:bg-zinc-800 hover:text-indigo-400")}
-                    >
-                      <BookOpen className="w-5 h-5" />
-                    </button>
-
-                    <button
-                      onClick={() => setActiveFilter(activeFilter === 'starred' ? 'all' : 'starred')}
-                      className={cn("w-9 h-9 rounded-full flex items-center justify-center transition-colors shrink-0", activeFilter === 'starred' ? "bg-zinc-800 text-yellow-400" : "text-zinc-400 hover:bg-zinc-800 hover:text-yellow-400")}
-                    >
-                      <Star className={cn("w-5 h-5", activeFilter === 'starred' ? "fill-current" : "")} />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Menu Button - 只在筛选模式显示（固定的抽屉按钮）*/}
-                {isFiltered && (
-                  <button
-                    key="drawer-btn"
-                    onClick={() => {
-                      Haptics.impact({ style: ImpactStyle.Medium }).catch(() => { });
-                      setIsDrawerOpen(true);
-                    }}
-                    className="w-11 h-11 bg-zinc-800 border border-zinc-700 rounded-full flex items-center justify-center text-zinc-200 hover:text-white hover:border-zinc-600 shadow-sm shrink-0 active:scale-95 transition-colors"
-                  >
-                    {/* 内联 SVG Menu 图标 - 三条线 */}
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="4" x2="20" y1="12" y2="12"></line>
-                      <line x1="4" x2="20" y1="6" y2="6"></line>
-                      <line x1="4" x2="20" y1="18" y2="18"></line>
-                    </svg>
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Grid */}
-          <div className="grid grid-cols-1 gap-6 pb-12 px-6 mt-4">
-            {displayMaterials.length > 0 ? (
-              displayMaterials.map((material: Material) => (
-                <div
-                  key={material.id}
-                  className={cn("scroll-reveal", material.isNew && "animate-slide-in")}
-                >
-                  <MaterialCard
-                    material={material}
-                    isActive={false}
-                    variant="grid"
-                    onClick={() => handleCardClick(material)}
-                    onTogglePin={() => handleTogglePin(material.id, material.userMeta?.isPinned || false)}
-                    onToggleStar={() => handleToggleStar(material.id, material.userMeta?.isStarred || false)}
-                    onRename={material.visibility === 'private' ? () => handleRename(material.id, material.title) : undefined}
-                    onDelete={material.visibility === 'private' ? () => handleDelete(material.id) : undefined}
-                  />
-                </div>
-              ))
-            ) : isInitialLoading && !loadFailed ? (
-              // Skeleton loading state - only show if still loading AND hasn't failed
-              <>
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="animate-pulse">
-                    <div className="aspect-[4/5] w-full bg-zinc-800 rounded-2xl border border-white/10" />
-                  </div>
-                ))}
-              </>
-            ) : (
-              // Empty State or Failed State
-              <div className="col-span-1 py-12 flex flex-col items-center justify-center text-zinc-500 gap-4">
-                <Library className="w-12 h-12 opacity-20 mb-2" />
-                <div className="text-center">
-                  <p className="text-sm font-medium">
-                    {loadFailed ? '加载失败' : 'No materials in library'}
-                  </p>
-                  <p className="text-xs opacity-60">
-                    {loadFailed ? '请检查网络连接后重试' : '材料每日更新中'}
-                  </p>
-
-                  {/* Manual Retry Button - only show after confirmed timeout */}
-                  {loadFailed && (
-                    <button
-                      onClick={async () => {
-                        setLoadFailed(false);
-                        setIsInitialLoading(true);
-
-                        try {
-                          const progressList = await fetchUserProgress();
-                          // 🎯 SIMPLIFIED: 只重试 Core Library
-                          const coreLibResult = await materialService.loadMaterialsPage(1, 15, progressList);
-
-                          setAllMaterials(prev => {
-                            const final = [
-                              ...prev.filter(m => m.source === 'bundled'),
-                              ...coreLibResult.items.filter(item => !prev.some(p => p.id === item.id))
-                            ];
-                            return final;
-                          });
-
-                          setHasMorePages(coreLibResult.hasMore);
-                          setCurrentPage(1);
-                          setIsInitialLoading(false);
-                        } catch (error) {
-                          console.error('Manual retry failed:', error);
-                          setLoadFailed(true);
-                          setIsInitialLoading(false);
-                        }
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors"
-                    >
-                      <RefreshCw className="w-4 h-4" />
-                      <span>点击重试</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-
-          </div>
-
-          {/* Partial Failure Retry Button - shows if we have some data (e.g. Daily Spark) but load failed */}
-          {
-            loadFailed && displayMaterials.length > 0 && (
-              <div className="col-span-1 flex flex-col items-center justify-center py-8 gap-3">
-                <p className="text-zinc-500 text-sm">加载中...</p>
+        <div className="pb-20">
+          {/* Section 1: The Daily Spark */}
+          {/* 🎯 Daily Spark Section - with strict date validation */}
+          {/* Hidden when filtered */}
+          {!isFiltered && (
+            <section className="px-6 pt-[calc(env(safe-area-inset-top)+1.5rem)] mb-1">
+              <div className="flex gap-2 mb-4 items-center animate-in slide-in-from-bottom-4 duration-500">
+                <Sparkles className="w-6 h-6 text-indigo-400" />
+                <h2 className="text-3xl font-medium text-white tracking-tight">Daily Spark</h2>
+                {/* Settings Button */}
                 <button
-                  onClick={async () => {
-                    setLoadFailed(false);
-                    setIsInitialLoading(true);
-                    // Reuse the same retry logic (could be extracted to a function)
-                    try {
-                      const progressList = await fetchUserProgress();
-                      const [dailySparkItems, coreLibResult] = await Promise.all([
-                        materialService.loadDailySparkMaterials(progressList),
-                        materialService.loadMaterialsPage(1, 15, progressList)
-                      ]);
-
-                      setAllMaterials(prev => {
-                        const withoutDailySpark = prev.filter(m => m.location !== 'daily_spark');
-                        const withDailySpark = dailySparkItems.length > 0
-                          ? materialService.mergeMaterials(withoutDailySpark, dailySparkItems)
-                          : withoutDailySpark;
-                        return materialService.mergeMaterials(withDailySpark, coreLibResult.items);
-                      });
-
-                      setHasMorePages(coreLibResult.hasMore);
-                      setCurrentPage(1);
-                      setIsInitialLoading(false);
-                      // Check empty again
-                      if (coreLibResult.items.length === 0) setLoadFailed(true);
-                    } catch (error) {
-                      console.error('Manual retry failed:', error);
-                      setLoadFailed(true);
-                      setIsInitialLoading(false);
-                    }
+                  onClick={() => {
+                    Haptics.impact({ style: ImpactStyle.Medium }).catch(() => { });
+                    setIsDrawerOpen(true);
                   }}
-                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors"
+                  className="ml-auto w-10 h-10 rounded-full bg-zinc-800/80 backdrop-blur-md border border-zinc-700/50 flex items-center justify-center text-zinc-100 hover:bg-zinc-700 transition-all active:scale-95 shadow-sm"
                 >
-                  <RefreshCw className="w-4 h-4" />
-                  <span>点击重试</span>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+                    <line x1="4" x2="20" y1="6" y2="6" />
+                    <line x1="4" x2="20" y1="12" y2="12" />
+                    <line x1="4" x2="20" y1="18" y2="18" />
+                  </svg>
                 </button>
               </div>
-            )
-          }
 
-          {/* Loading More Indicator */}
-          {
-            isLoadingMore && (
-              <div className="col-span-1 flex justify-center py-8">
-                <div className="animate-spin h-8 w-8 border-3 border-blue-500 rounded-full border-t-transparent" />
+              {/* Unified Hero Card */}
+              <div className="animate-in zoom-in-95 duration-700 delay-100 fill-mode-both">
+                {isDailySparkLoading ? (
+                  <DelayedSkeleton />
+                ) : dailySparkMaterial ? (
+                  // ✅ 真实数据：仅当有效且日期匹配时显示
+                  // 🔄 SYNC FIX: 智能合并状态，防止步骤条闪烁
+                  // 场景: allMaterials 中可能是旧数据(Step 0)，而 dailySparkMaterial 是新数据(Step > 0)
+                  // 策略: 谁的 step 大用谁
+                  <MaterialCard
+                    material={(() => {
+                      const fromList = allMaterials.find(m => m.id === dailySparkMaterial.id);
+                      if (!fromList) return dailySparkMaterial;
+
+                      const stepList = fromList.userMeta?.currentStep || 0;
+                      const stepHook = dailySparkMaterial.userMeta?.currentStep || 0;
+
+                      // 如果列表里的进度也是0，或者比Hook的小，就优先用Hook的（因为它刚加载了最新的）
+                      // 除非列表里的更新时间明显更新
+                      return stepHook > stepList ? dailySparkMaterial : fromList;
+                    })()}
+                    isActive={true}
+                    variant="hero"
+                    showDailySparkTags={true} // 🎯 明确要求显示为“每日短句”
+                    onClick={() => handleCardClick(dailySparkMaterial)}
+                    onTogglePin={() => handleTogglePin(dailySparkMaterial.id, dailySparkMaterial.userMeta?.isPinned || false)}
+                    onToggleStar={() => handleToggleStar(dailySparkMaterial.id, dailySparkMaterial.userMeta?.isStarred || false)}
+                  />
+                ) : (
+                  // ⚠️ Fallback：无数据
+                  <div className="aspect-[4/5] w-full rounded-2xl bg-zinc-800 border border-white/10 flex items-center justify-center scale-105 shadow-2xl">
+                    <Sparkles className="w-12 h-12 text-zinc-600/30" />
+                  </div>
+                )}
               </div>
-            )
-          }
+            </section>
+          )}
 
-          {/* All Loaded Indicator */}
-          {
-            !hasMorePages && displayMaterials.length > 0 && !isInitialLoading && (
-              <div className="col-span-1 text-center py-6 text-zinc-500 text-sm">
+          {/* Section 2: Core Library */}
+          <section ref={coreLibrarySectionRef} className="mt-[-0.25rem]">
+            {/* Sticky Header with integrated safe-area coverage */}
+            <div className="sticky top-0 z-30 transition-all duration-300">
+              <div className="absolute inset-0 bg-black/80 backdrop-blur-xl border-b border-white/5"></div>
+              <div className="relative px-6 flex items-center justify-between mt-[-env(safe-area-inset-top)] pt-[calc(env(safe-area-inset-top)+0.4rem)] pb-2.5">
+                <div
+                  key={`header-${currentCategory}`} /* 🔑 Force re-render on category change */
+                  className="flex items-center gap-3 min-w-0" /* 🔥 Fix: Removed overflow-hidden, added min-w-0 */
+                >
+                  {/* 🔥 Dynamic Icon: Sparkles for Daily Spark, Library for Core Library */}
+                  {
+                    (currentCategory === 'daily_spark') ? (
+                      <Sparkles className="shrink-0 text-indigo-400 w-7 h-7" />
+                    ) : (
+                      <Library className="shrink-0 text-emerald-400 w-7 h-7" />
+                    )
+                  }
+
+                  {/* 🕵️ Render Log */}
+                  {(() => {
+                    console.log('🎨 [HomeView Render] Header Title for:', currentCategory);
+                    return null;
+                  })()}
+
+                  <h2 className="font-medium text-white tracking-tight whitespace-nowrap text-3xl">
+                    {currentCategory === 'daily_spark' ? 'Daily Spark' : 'Core Library'}
+                  </h2>
+                </div>
+
+                <div key={`header-buttons-${isFiltered ? 'filtered' : 'normal'}`} className={cn("relative h-11 shrink-0", showUploadInHeader ? "w-[106px]" : "w-11")}>
+                  {showUploadInHeader && (
+                    <button
+                      key="upload-btn"
+                      onClick={handleImportClick}
+                      className={cn(
+                        "absolute top-0 w-11 h-11 bg-zinc-900 border border-zinc-800 rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:border-zinc-700 shadow-sm shrink-0 active:scale-95 transition-all duration-300",
+                        showStickyDrawer ? "right-[58px]" : "right-0"
+                      )}
+                    >
+                      <Upload className="w-5 h-5" />
+                    </button>
+                  )}
+
+                </div>
               </div>
-            )
-          }
+            </div>
 
-          {/* Bottom Feed Status */}
-          <div className="mt-8 mb-20 flex flex-col items-center gap-3 opacity-50 animate-in fade-in duration-1000 delay-500">
-            <span className="text-xs text-zinc-500/80 mb-1">
-              正在努力加载...
-            </span>
-            <div className="w-8 h-[1px] bg-zinc-800" />
-            <span className="text-[10px] text-zinc-500 font-medium tracking-[0.25em] px-4">
-              材料每日更新中
-            </span>
-            <div className="w-8 h-[1px] bg-zinc-800" />
-          </div>
-        </section >
+            {/* Grid */}
+            <div className="grid grid-cols-1 gap-6 pb-12 px-6 mt-4">
+              {displayMaterials.length > 0 ? (
+                displayMaterials.map((material: Material) => (
+                  <div
+                    key={material.id}
+                    className={cn("scroll-reveal", material.isNew && "animate-slide-in")}
+                  >
+                    <MaterialCard
+                      material={material}
+                      isActive={false}
+                      variant="grid"
+                      onClick={() => handleCardClick(material)}
+                      onTogglePin={() => handleTogglePin(material.id, material.userMeta?.isPinned || false)}
+                      onToggleStar={() => handleToggleStar(material.id, material.userMeta?.isStarred || false)}
+                      onRename={material.visibility === 'private' ? () => handleRename(material.id, material.title) : undefined}
+                      onDelete={material.visibility === 'private' ? () => handleDelete(material.id) : undefined}
+                    />
+                  </div>
+                ))
+              ) : isInitialLoading && !loadFailed ? (
+                // Skeleton loading state - only show if still loading AND hasn't failed
+                <>
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="animate-pulse">
+                      <div className="aspect-[4/5] w-full bg-zinc-800 rounded-2xl border border-white/10" />
+                    </div>
+                  ))}
+                </>
+              ) : (
+                // Empty State or Failed State
+                <div className="col-span-1 py-12 flex flex-col items-center justify-center text-zinc-500 gap-4">
+                  <Library className="w-12 h-12 opacity-20 mb-2" />
+                  <div className="text-center">
+                    <p className="text-sm font-medium">
+                      {loadFailed ? '加载失败' : 'No materials in library'}
+                    </p>
+                    <p className="text-xs opacity-60">
+                      {loadFailed ? '请检查网络连接后重试' : '材料每日更新中'}
+                    </p>
 
-      </div >
+                    {/* Manual Retry Button - only show after confirmed timeout */}
+                    {loadFailed && (
+                      <button
+                        onClick={async () => {
+                          setLoadFailed(false);
+                          setIsInitialLoading(true);
 
-      {/* 🔥 NEW: Category Drawer */}
-      <CategoryDrawer
-        subscriptionTier={pbSubscriptionTier as any}
-        isOpen={isDrawerOpen}
-        onClose={() => setIsDrawerOpen(false)}
-        onTopicSelect={(category, topicName) => {
-          console.log(`📂 [TopicRecieved] HomeView received: category=${category}, topic=${topicName}`);
-          setCurrentCategory(category);
-          setCurrentTopic(topicName);
-          setIsDrawerOpen(false);
-        }}
-        currentTopic={currentTopic || undefined}
-        onSettingsClick={() => {
-          setIsDrawerOpen(false);
-          onProfile();  // 跳转到设置页
-        }}
-        onUpgradeClick={() => {
-          setIsDrawerOpen(false);
-          setShowPaywall(true); // 打开 Paywall
-        }}
-      />
+                          try {
+                            const progressList = await fetchUserProgress();
+                            // 🎯 SIMPLIFIED: 只重试 Core Library
+                            const coreLibResult = await materialService.loadMaterialsPage(1, 15, progressList);
+
+                            setAllMaterials(prev => {
+                              const final = [
+                                ...prev.filter(m => m.source === 'bundled'),
+                                ...coreLibResult.items.filter(item => !prev.some(p => p.id === item.id))
+                              ];
+                              return final;
+                            });
+
+                            setHasMorePages(coreLibResult.hasMore);
+                            setCurrentPage(1);
+                            setIsInitialLoading(false);
+                          } catch (error) {
+                            console.error('Manual retry failed:', error);
+                            setLoadFailed(true);
+                            setIsInitialLoading(false);
+                          }
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors"
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                        <span>点击重试</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+            </div>
+
+            {/* Partial Failure Retry Button - shows if we have some data (e.g. Daily Spark) but load failed */}
+            {
+              loadFailed && displayMaterials.length > 0 && (
+                <div className="col-span-1 flex flex-col items-center justify-center py-8 gap-3">
+                  <p className="text-zinc-500 text-sm">加载中...</p>
+                  <button
+                    onClick={async () => {
+                      setLoadFailed(false);
+                      setIsInitialLoading(true);
+                      // Reuse the same retry logic (could be extracted to a function)
+                      try {
+                        const progressList = await fetchUserProgress();
+                        const [dailySparkItems, coreLibResult] = await Promise.all([
+                          materialService.loadDailySparkMaterials(progressList),
+                          materialService.loadMaterialsPage(1, 15, progressList)
+                        ]);
+
+                        setAllMaterials(prev => {
+                          const withoutDailySpark = prev.filter(m => m.location !== 'daily_spark');
+                          const withDailySpark = dailySparkItems.length > 0
+                            ? materialService.mergeMaterials(withoutDailySpark, dailySparkItems)
+                            : withoutDailySpark;
+                          return materialService.mergeMaterials(withDailySpark, coreLibResult.items);
+                        });
+
+                        setHasMorePages(coreLibResult.hasMore);
+                        setCurrentPage(1);
+                        setIsInitialLoading(false);
+                        // Check empty again
+                        if (coreLibResult.items.length === 0) setLoadFailed(true);
+                      } catch (error) {
+                        console.error('Manual retry failed:', error);
+                        setLoadFailed(true);
+                        setIsInitialLoading(false);
+                      }
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    <span>点击重试</span>
+                  </button>
+                </div>
+              )
+            }
+
+            {/* Loading More Indicator */}
+            {
+              isLoadingMore && (
+                <div className="col-span-1 flex justify-center py-8">
+                  <div className="animate-spin h-8 w-8 border-3 border-blue-500 rounded-full border-t-transparent" />
+                </div>
+              )
+            }
+
+            {/* All Loaded Indicator */}
+            {
+              !hasMorePages && displayMaterials.length > 0 && !isInitialLoading && (
+                <div className="col-span-1 text-center py-6 text-zinc-500 text-sm">
+                </div>
+              )
+            }
+
+            {/* Bottom Feed Status */}
+            <div className="mt-8 mb-20 flex flex-col items-center gap-3 opacity-50 animate-in fade-in duration-1000 delay-500">
+              <span className="text-xs text-zinc-500/80 mb-1">
+                正在努力加载...
+              </span>
+              <div className="w-8 h-[1px] bg-zinc-800" />
+              <span className="text-[10px] text-zinc-500 font-medium tracking-[0.25em] px-4">
+                材料每日更新中
+              </span>
+              <div className="w-8 h-[1px] bg-zinc-800" />
+            </div>
+          </section >
+
+        </div >
+
+        {/* 🔥 NEW: Category Drawer */}
+        <CategoryDrawer
+          subscriptionTier={pbSubscriptionTier as any}
+          isOpen={isDrawerOpen}
+          onClose={() => setIsDrawerOpen(false)}
+          activeFilter={activeFilter}
+          onFilterChange={setActiveFilter}
+          onTopicSelect={(category, topicName) => {
+            console.log(`📂 [TopicRecieved] HomeView received: category=${category}, topic=${topicName}`);
+            setCurrentCategory(category);
+            setCurrentTopic(topicName);
+            setIsDrawerOpen(false);
+            mainRef.current?.scrollTo({ top: 0, behavior: 'instant' });
+          }}
+          onCategorySelect={(categoryId) => {
+            setCurrentCategory(categoryId === 'all' ? null : categoryId);
+            setCurrentTopic(null); // Reset topic when changing category
+            setIsDrawerOpen(false);
+
+            // 🔥 CRITICAL FIX: Always scroll precisely back to absolute top upon category switch
+            mainRef.current?.scrollTo({ top: 0, behavior: 'instant' });
+          }}
+          currentTopic={currentTopic || undefined}
+          onSettingsClick={() => {
+            setIsDrawerOpen(false);
+            onProfile();  // 跳转到设置页
+          }}
+          onUpgradeClick={() => {
+            setIsDrawerOpen(false);
+            setShowPaywall(true); // 打开 Paywall
+          }}
+        />
 
 
 
-      {/* Scroll to Top FAB (Glassmorphism) */}
-      <button
-        onClick={() => {
-          // ⚡️ UI Priority: Scroll first!
-          mainRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
-          // 📳 Feedback Later: Haptics in next tick to avoid bridge lag on first click
-          setTimeout(() => Haptics.impact({ style: ImpactStyle.Light }).catch(() => { }), 0);
-        }}
-        className={cn(
-          "fixed bottom-16 left-1/2 -translate-x-1/2 z-40 p-3 rounded-full",
-          "bg-zinc-900/50 backdrop-blur-md border border-white/10 shadow-2xl shadow-black/50",
-          "text-zinc-200 transition-all duration-500 ease-out",
-          showScrollTop && isActive
-            ? "opacity-100 translate-y-0 scale-100"
-            : "opacity-0 translate-y-8 scale-90 pointer-events-none"
-        )}
-      >
-        <ArrowUp className="w-5 h-5" />
-      </button>
+        {/* Scroll to Top FAB (Glassmorphism) - Now positioned below Core Library header */}
+        <button
+          onClick={() => {
+            // ⚡️ UI Priority: Scroll first!
+            mainRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+            // 📳 Feedback Later: Haptics in next tick to avoid bridge lag on first click
+            setTimeout(() => Haptics.impact({ style: ImpactStyle.Light }).catch(() => { }), 0);
+          }}
+          style={{ top: 'calc(max(env(safe-area-inset-top), 20px) + 70px)' }} // Adjusted to leave a ~20px gap below the Core Library header
+          className={cn(
+            "fixed left-1/2 -translate-x-1/2 z-40 p-2.5 rounded-full",
+            "bg-zinc-900/50 backdrop-blur-md border border-white/10 shadow-lg shadow-black/50",
+            "text-zinc-200 transition-all duration-500 ease-out",
+            showScrollTop && isActive
+              ? "opacity-100 translate-y-0 scale-100"
+              : "opacity-0 -translate-y-8 scale-90 pointer-events-none"
+          )}
+        >
+          <ArrowUp className="w-5 h-5" />
+        </button>
 
-      {/* Paywall Overlay */}
-      <Paywall
-        isOpen={showPaywall}
-        onClose={() => setShowPaywall(false)}
-        onSuccess={() => {
-          // Reload page to refresh all subscription states
-          window.location.reload();
-        }}
-        source="limit_reached"
-      />
+        {/* Paywall Overlay */}
+        <Paywall
+          isOpen={showPaywall}
+          onClose={() => setShowPaywall(false)}
+          onSuccess={() => {
+            // Reload page to refresh all subscription states
+            window.location.reload();
+          }}
+          source="limit_reached"
+        />
 
-      <UploadModal
-        isOpen={showUploadModal}
-        onClose={() => {
-          setShowUploadModal(false);
-          // Reset to initial after close delay
-          setTimeout(() => setUploadStatus('initial'), 300);
-        }}
-        status={uploadStatus}
-        importProgress={importProgress}
-        onImport={handleStartImport}
-        onUpgrade={() => {
-          setShowUploadModal(false);
-          setShowPaywall(true);
-        }}
-        usedSeconds={usedSeconds}
-        subscriptionTier={subscriptionTier}
-        fileName={importFileName}
-        progressMessage={progressMessage}
-        errorMessage={errorMessage}
-        onSuccessComplete={() => {
-          setShowUploadModal(false);
-          setTimeout(() => setUploadStatus('initial'), 300);
-        }}
-      />
-    </main >
+        <UploadModal
+          isOpen={showUploadModal}
+          onClose={() => {
+            setShowUploadModal(false);
+            // Reset to initial after close delay
+            setTimeout(() => setUploadStatus('initial'), 300);
+          }}
+          status={uploadStatus}
+          importProgress={importProgress}
+          onImport={handleStartImport}
+          onUpgrade={() => {
+            setShowUploadModal(false);
+            setShowPaywall(true);
+          }}
+          usedSeconds={usedSeconds}
+          subscriptionTier={subscriptionTier}
+          fileName={importFileName}
+          progressMessage={progressMessage}
+          errorMessage={errorMessage}
+          onSuccessComplete={() => {
+            setShowUploadModal(false);
+            setTimeout(() => setUploadStatus('initial'), 300);
+          }}
+        />
+      </main >
+    </>
   );
 }

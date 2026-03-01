@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Preferences } from '@capacitor/preferences';
 
 const STORAGE_KEY = 'daily_usage_record';
-const MAX_FREE_DAILY = 3;
+const MAX_FREE_DAILY = 2;
 
 // Export for managing account deletion
 export const clearUsageRecord = async () => {

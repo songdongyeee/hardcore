@@ -14,6 +14,7 @@ interface CategoryDrawerProps {
     isOpen: boolean;
     onClose: () => void;
     onTopicSelect: (category: string | null, topicName: string | null) => void;
+    onCategorySelect: (categoryId: string) => void;
     currentTopic?: string;
     activeFilter: 'all' | 'starred' | 'reading';
     onFilterChange: (filter: 'all' | 'starred' | 'reading') => void;
@@ -196,12 +197,74 @@ export function CategoryDrawer({
                 <div className="flex-1 overflow-y-auto p-4 pt-[calc(env(safe-area-inset-top)+2rem)] space-y-2 no-scrollbar relative touch-pan-y">
 
                     {/* ALL MATERIALS + FILTER ACTIONS */}
-                    <div className="flex items-center gap-2 mb-6">
+                    <div className="flex items-center gap-2 mb-6"
+                    // Optional: we can manage state at the component level or inline
+                    >
                         <button
-                            onClick={(e) => {
+                            onPointerDown={(e) => {
+                                // Store starting position
+                                const btn = e.currentTarget;
+                                btn.dataset.startX = e.clientX.toString();
+                                btn.dataset.startY = e.clientY.toString();
+                                btn.dataset.isSwiping = 'false';
+                            }}
+                            onPointerMove={(e) => {
+                                const btn = e.currentTarget;
+                                const startX = parseFloat(btn.dataset.startX || '0');
+                                const startY = parseFloat(btn.dataset.startY || '0');
+                                if (!startX && !startY) return;
+
+                                // If moved more than 10px, mark as swiping
+                                const dx = Math.abs(e.clientX - startX);
+                                const dy = Math.abs(e.clientY - startY);
+                                if (dx > 10 || dy > 10) {
+                                    btn.dataset.isSwiping = 'true';
+                                }
+                            }}
+                            onPointerUp={(e) => {
+                                const btn = e.currentTarget;
+                                const isSwiping = btn.dataset.isSwiping === 'true';
+
+                                // Clean up
+                                delete btn.dataset.startX;
+                                delete btn.dataset.startY;
+                                delete btn.dataset.isSwiping;
+
+                                if (isSwiping) {
+                                    console.log('🚫 [Drawer] Star filter click prevented (swipe detected)');
+                                    return; // Ignore click if we were swiping
+                                }
+
+                                // Handle intentional click
                                 e.stopPropagation();
                                 Haptics.impact({ style: ImpactStyle.Light }).catch(() => { });
-                                onFilterChange(activeFilter === 'starred' ? 'all' : 'starred');
+
+                                const nextFilter = activeFilter === 'starred' ? 'all' : 'starred';
+                                onFilterChange(nextFilter);
+
+                                // Toast Notification using standard browser API or custom hook if available.
+                                // Since we don't have a specific Toast context in this file, we inject a temporary DOM element for a quick toast, or we can use Capacitor's Toast.
+                                // Actually, Capacitor has a Toast plugin, but typically web apps use sonner or similar.
+                                // Let's use standard DOM Toast for ultimate reliability here, or check if we imported a Toast.
+                                // We'll dispatch a custom event that `App.tsx` or `main.tsx` might listen to, OR just render a floating div temporarily.
+                                // Given the request "出现一个很简捷很小的一个文字的 Toast", a simple document.body child works best without adding new dependencies.
+
+                                const toast = document.createElement('div');
+                                toast.className = 'fixed top-20 left-1/2 -translate-x-1/2 bg-black/80 text-white px-4 py-2 rounded-full text-sm font-medium z-[9999] opacity-0 transition-opacity duration-300 shadow-xl pointer-events-none backdrop-blur-sm border border-white/10';
+                                toast.textContent = nextFilter === 'starred' ? '已展示收藏列表' : '已展示全部内容';
+                                document.body.appendChild(toast);
+
+                                // Fade in
+                                requestAnimationFrame(() => {
+                                    toast.style.opacity = '1';
+                                });
+
+                                // Fade out and remove
+                                setTimeout(() => {
+                                    toast.style.opacity = '0';
+                                    setTimeout(() => toast.remove(), 300);
+                                }, 2000);
+
                                 onClose();
                             }}
                             className={cn(
