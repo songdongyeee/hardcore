@@ -1,0 +1,16 @@
+.step-info-dialog-overlay {
+  animation: fadeIn 0.25s ease-out forwards;  
+}
+.step-info-dialog-content {
+  animation: translateUpFade 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes translateUpFade {
+  from { opacity: 0; transform: scale(0.95) translateY(10px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}

@@ -16,11 +16,31 @@ import { analytics } from "@/lib/analytics";
 
 import { App as CapacitorApp } from '@capacitor/app';
 import { Preferences } from '@capacitor/preferences';
+import { PushNotifications } from '@capacitor/push-notifications';
+import { FirebaseMessaging } from '@capacitor-firebase/messaging';
+import { RELEASE_NOTES } from '@/data/releaseNotes';
+import { WhatsNewModal } from '@/components/ui/WhatsNewModal';
+
 
 type ViewState = 'home' | 'listening' | 'analysis' | 'shadowing' | 'profile';
 
+// 🔖 被标记生词的数据结构
+export interface MarkedWord {
+  /** 全局唯一 ID：段落索引_单词索引 */
+  id: string;
+  /** 单词原文 */
+  text: string;
+  /** 段落索引 */
+  segmentIndex: number;
+  /** 单词在段落中的索引 */
+  wordIndex: number;
+  /** 只增不减的展示序号（从 1 开始） */
+  order: number;
+}
+
 function App() {
   const [activeView, setActiveView] = useState<ViewState>('home');
+  console.log(`📡 [App Render] Current View: ${activeView}`);
   const [currentSrc, setCurrentSrc] = useState<string>('');
   const [currentCoverUrl, setCurrentCoverUrl] = useState<string | undefined>(undefined);
   const [currentTranscript, setCurrentTranscript] = useState<TranscriptSegment[]>(defaultTranscript);
@@ -28,10 +48,54 @@ function App() {
   const [currentMaterialTitle, setCurrentMaterialTitle] = useState<string>(''); // NEW STATE for Analytics
   const [currentWaveformData, setCurrentWaveformData] = useState<number[][] | undefined>(undefined);
 
+  // 🔖 全局生词标记状态（序号只增不减发号器）
+  const [markedWords, setMarkedWords] = useState<MarkedWord[]>([]);
+  const currentMaxOrderRef = useRef<number>(0);
+
+  // 🚀 获取到的推送令牌
+  const [fcmToken, setFcmToken] = useState<string>('');
+  const [apnsToken, setApnsToken] = useState<string>('');
+
+  // 🆙 版本更新弹窗状态
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+
+  const handleMarkWord = (word: { id: string; text: string; segmentIndex: number; wordIndex: number }) => {
+    // 已经存在则不重复标记
+    setMarkedWords(prev => {
+      if (prev.some(w => w.id === word.id)) return prev;
+      currentMaxOrderRef.current += 1;
+      return [...prev, { ...word, order: currentMaxOrderRef.current }];
+    });
+  };
+
+  const handleUnmarkWord = (wordId: string) => {
+    // 取消标记：序号不重排，只从列表中移除
+    setMarkedWords(prev => prev.filter(w => w.id !== wordId));
+  };
+
   // Ref to prevent double-click/event bubbling
   const lastPlayTime = useRef<number>(0);
   // Ref to prevent async init from overwriting user actions (CRITICAL FIX)
   const isUserActiveRef = useRef(false);
+
+  // 🔖 标记持久化：防抖控制 (Debounce)
+  const isInitialMarkLoadRef = useRef(true); // 避免刚加载时就触发保存
+  useEffect(() => {
+    // 首次加载/恢复数据时不触发保存
+    if (isInitialMarkLoadRef.current) {
+      isInitialMarkLoadRef.current = false;
+      return;
+    }
+
+    if (!currentMaterialId || !pb.authStore.isValid) return;
+
+    const timer = setTimeout(() => {
+      console.log('💾 [Debounce Save] Saving marked words to PocketBase...', markedWords.length);
+      updateUserProgress(currentMaterialId, { marked_words: markedWords });
+    }, 1000); // 1秒防抖
+
+    return () => clearTimeout(timer);
+  }, [markedWords, currentMaterialId]);
 
   // 🛡️ Strict Auth Gate: Block HomeView execution until auth check is done (success or fail)
   const [isAuthCheckComplete, setIsAuthCheckComplete] = useState(false);
@@ -95,6 +159,150 @@ function App() {
       furthestPhaseRef.current = '';
     }
   };
+
+  // 🚀 Push Notifications & Version Check Logic
+  useEffect(() => {
+    const initNotificationsAndUpdates = async () => {
+      // 1. 版本检测：检查是否需要弹出“新功能介绍”
+      const { value: lastSeenVersion } = await Preferences.get({ key: 'last_seen_release_version' });
+      if (lastSeenVersion !== RELEASE_NOTES.version) {
+        setShowUpdateModal(true);
+      }
+
+      // 2. 推送注册：申请权限并注册设备 (接入 Firebase Cloud Messaging)
+      try {
+        let permStatus = await FirebaseMessaging.checkPermissions();
+        if (permStatus.receive === 'prompt') {
+          permStatus = await FirebaseMessaging.requestPermissions();
+        }
+
+        if (permStatus.receive === 'granted') {
+          await PushNotifications.register();
+
+          console.log('⏳ Requesting FCM Token from Google...');
+          // 获取 FCM Token (这才是能用来发推的真正 Token)
+          const { token } = await FirebaseMessaging.getToken();
+          console.log('🔥 FCM Push Token:', token);
+          setFcmToken(token);
+        }
+      } catch (err: any) {
+        if (err.message?.includes('timeout') || err.errorMessage?.includes('超时') || (err.code && err.code === -1001)) {
+          console.warn('⚠️ FCM Timeout: Google services reachable. Token sync will retry. Please use VPN for FCM in China.');
+        } else {
+          console.error('❌ FCM Init Error:', err);
+        }
+      }
+    };
+
+    initNotificationsAndUpdates();
+
+    // 监听原生推送注册 (APNs Token - 国内网络秒拿)
+    const unsubReg = PushNotifications.addListener('registration', (token) => {
+      console.log('🍎 Native APNs Token (Value):', token.value);
+      setApnsToken(token.value);
+    });
+
+    // 监听注册失败
+    const unsubRegErr = PushNotifications.addListener('registrationError', (error) => {
+      console.error('❌ Push registration error:', error);
+    });
+
+    // 监听来自 Firebase 的通知消息
+    const unsubRec = FirebaseMessaging.addListener('notificationReceived', (event) => {
+      console.log('🔔 Firebase Notification received: ', event);
+    });
+
+    // 监听通知点击
+    const unsubAct = FirebaseMessaging.addListener('notificationActionPerformed', (event) => {
+      console.log('👉 Firebase Notification action performed: ', event);
+    });
+
+    return () => {
+      unsubReg.then(h => h.remove());
+      unsubRegErr.then(h => h.remove());
+      unsubRec.then(h => h.remove());
+      unsubAct.then(h => h.remove());
+    };
+  }, []);
+
+  // 🆙 Sync User Profile for Push Targeting
+  useEffect(() => {
+    // 🔍 核心修复：即使 isAuthCheckComplete 为 false (比如RC报错了)，只要模型里有 ID 就尝试同步
+    const canSync = (isAuthCheckComplete || pb.authStore.isValid) && pb.authStore.model;
+
+    if (canSync) {
+      console.log('🔄 [Profile Sync Triggered]', {
+        fcmToken: !!fcmToken,
+        userId: pb.authStore.model?.id,
+        authValid: pb.authStore.isValid
+      });
+
+      const syncProfile = async () => {
+        try {
+          const userId = pb.authStore.model!.id;
+          const currentModel = pb.authStore.model;
+          const updateData: any = {};
+
+          // 📡 获取真实版本
+          let realVersion = RELEASE_NOTES.version;
+          try {
+            const info = await CapacitorApp.getInfo();
+            realVersion = info.version;
+          } catch (e) { }
+
+          if (currentModel?.last_active_version !== realVersion) {
+            updateData.last_active_version = realVersion;
+          }
+
+          // 2. 核心修复：检查 Token 是否真正需要写入
+          // 优先使用 FCM，如果国内网络超时，则退而求其次使用 APNs 原生令牌入库
+          const bestToken = fcmToken || apnsToken;
+
+          if (bestToken && currentModel?.fcm_token !== bestToken) {
+            console.log('📡 [Profile Sync] New Token detected:', bestToken);
+            updateData.fcm_token = bestToken;
+          }
+
+          if (Object.keys(updateData).length > 0) {
+            console.log('📡 [Profile Sync] Payload to PB:', updateData);
+            const updatedRec = await pb.collection('users').update(userId, updateData);
+            console.log('✅ [Profile Sync] Successfully wrote to PocketBase');
+            pb.authStore.save(pb.authStore.token, updatedRec);
+          } else {
+            console.log('⏭️ [Profile Sync] No changes needed.', {
+              localVersion: realVersion,
+              dbVersion: currentModel?.last_active_version,
+              localToken: bestToken?.slice(0, 10) + '...',
+              dbToken: currentModel?.fcm_token?.slice(0, 10) + '...'
+            });
+          }
+
+          // Topics
+          try {
+            const safeVersionStr = realVersion.replace(/\./g, '_');
+            await FirebaseMessaging.subscribeToTopic({ topic: `version_${safeVersionStr}` });
+            const tier = currentModel?.subscription_tier || 'free';
+            await FirebaseMessaging.subscribeToTopic({ topic: `tier_${tier}` });
+          } catch (tErr) { }
+        } catch (e) {
+          console.error('❌ [Profile Sync] Error:', e);
+        }
+      };
+
+      syncProfile();
+    }
+  }, [authReadyVersion, fcmToken, apnsToken, isAuthCheckComplete]);
+
+  const handleUpdateModalClose = async () => {
+    setShowUpdateModal(false);
+    // 标记该版本已读
+    await Preferences.set({
+      key: 'last_seen_release_version',
+      value: RELEASE_NOTES.version
+    });
+  };
+
+  // 📊 Helper: End current phase
 
   // 1. 🔥 PARALLEL DATA LOADING (Independent of Auth)
   useEffect(() => {
@@ -253,6 +461,7 @@ function App() {
       }
       // Handle /home
       else if (url.pathname.includes('/home')) {
+        console.log('🔗 [DeepLink] Navigating to home');
         setActiveView('home');
       }
     });
@@ -276,9 +485,12 @@ function App() {
     const now = Date.now();
     // Debounce: Ignore if called within 500ms (prevent double clicks causing audio restart)
     if (now - lastPlayTime.current < 500 && audioUrl === currentSrc) {
-      console.log('🚫 Debounced handlePlay call');
+      console.log('🚫 [handlePlay] Debounced call');
       // Still ensure view is correct just in case
-      if (targetView && activeView !== targetView) setActiveView(targetView);
+      if (targetView && activeView !== targetView) {
+        console.log(`🔄 [handlePlay] Fixing view to: ${targetView}`);
+        setActiveView(targetView);
+      }
       return;
     }
     lastPlayTime.current = now;
@@ -292,6 +504,10 @@ function App() {
       setCurrentMaterialTitle(title || 'Unknown');
       setCurrentWaveformData(waveformData);
       if (coverUrl) setCurrentCoverUrl(coverUrl);
+
+      // 🔖 切换材料时重置标记词
+      setMarkedWords([]);
+      currentMaxOrderRef.current = 0;
 
       // 📊 Start new learning session
       sessionStartTimeRef.current = Date.now();
@@ -316,10 +532,44 @@ function App() {
         category: 'core_library'
       });
 
-      // 🔥 Trigger Phase 1 Progress (Entered Listening)
-      // updateUserProgress 内部会处理 free user 计数
-      if (!targetView || targetView === 'listening') {
-        updateUserProgress(materialId, { current_step: 1 });
+      // 🔥 Trigger Phase 1 Progress & Restore Marked Words
+      isInitialMarkLoadRef.current = true; // 告知 Effect 这是初始化，别急着保存
+      setMarkedWords([]);
+      currentMaxOrderRef.current = 0;
+
+      if (pb.authStore.isValid) {
+        const userId = pb.authStore.model?.id;
+        const rawId = materialId.startsWith('user-') ? materialId.replace('user-', '') : materialId;
+
+        // 悄悄拉取进度恢复 marked_words
+        // updateUserProgress 本身并不返回内容，所以我们需要自己拉一下
+        pb.collection('user_progress').getFirstListItem(`user="${userId}" && material_id="${rawId}"`)
+          .then(progress => {
+            if (progress.marked_words && Array.isArray(progress.marked_words)) {
+              const restoredWords = progress.marked_words as MarkedWord[];
+              setMarkedWords(restoredWords);
+
+              // 恢复最大计数器
+              let maxOrder = 0;
+              restoredWords.forEach(w => {
+                if (w.order > maxOrder) maxOrder = w.order;
+              });
+              currentMaxOrderRef.current = maxOrder;
+              console.log(`✅ [App] Restored ${restoredWords.length} marked words from DB.`);
+            }
+          })
+          .catch(() => { /* NotFound, normally ignored */ })
+          .finally(() => {
+            // 不管有没有找到，都在后台顺手 update current_step (兼顾初次创建逻辑)
+            if (!targetView || targetView === 'listening') {
+              updateUserProgress(materialId, { current_step: 1 });
+            }
+          });
+      } else {
+        // 未登录：只改当前步数（里面会跳过）
+        if (!targetView || targetView === 'listening') {
+          updateUserProgress(materialId, { current_step: 1 });
+        }
       }
     }
 
@@ -328,35 +578,35 @@ function App() {
       setCurrentSrc(audioUrl);
     }
 
-    // 🔥 NEW: 预加载模式 - 立即切换页面，后台等待数据
+    // 🚀 NEW: 预加载模式 - 立即切换页面并播放，后台异步加载数据
     if (dataPromise) {
-      console.log('🎬 Preload mode: switching view immediately, waiting for data in background');
+      console.log('🎬 [handlePlay] Preload mode: switching view immediately');
 
-      // 立即切换页面（让Hero动画开始）
+      // 1. 立即切换页面
       setActiveView(targetView || 'listening');
 
-      // 后台等待数据
-      try {
-        const data = await dataPromise;
-        if (data && data.segments && data.segments.length > 0) {
-          console.log('✅ Preloaded data arrived:', data.segments.length, 'segments');
-          setCurrentTranscript(data.segments);
-          if (data.waveform_data) {
-            setCurrentWaveformData(data.waveform_data);
-          }
-        } else {
-          console.warn('⚠️ Preloaded data is empty or invalid');
-        }
-      } catch (error) {
-        console.error('❌ Preload data failed:', error);
-        // 失败也继续，不阻塞播放
-      }
-
-      // 🔥 CRITICAL FIX: 无论数据是否成功，都要调用play()
-      // 否则会永远卡在0秒
+      // 2. 立即开始播放 (不再等待数据)
       if (!targetView || targetView === 'listening') {
+        console.log('🎬 [handlePlay] Preload: Calling play() immediately');
         play();
       }
+
+      // 3. 后台静默等待数据更新
+      (async () => {
+        try {
+          const data = await dataPromise;
+          if (data && data.segments && data.segments.length > 0) {
+            console.log('✅ [handlePlay] Preloaded data arrived:', data.segments.length, 'segments');
+            setCurrentTranscript(data.segments);
+            if (data.waveform_data) {
+              setCurrentWaveformData(data.waveform_data);
+            }
+          }
+        } catch (error) {
+          console.error('❌ [handlePlay] Preload data failed:', error);
+        }
+      })();
+
       return;
     }
 
@@ -396,21 +646,21 @@ function App() {
     }
 
     if (newTranscript && newTranscript.length > 0) {
-      console.log('✅ Setting new transcript:', newTranscript.length, 'segments');
+      console.log('✅ [handlePlay] Setting new transcript:', newTranscript.length, 'segments');
       setCurrentTranscript(newTranscript);
       // Delay view change to ensure transcript updates first
-      setTimeout(() => setActiveView(targetView || 'listening'), 0);
+      setTimeout(() => {
+        console.log(`🎬 [handlePlay] Navigating to: ${targetView || 'listening'}`);
+        setActiveView(targetView || 'listening');
+      }, 0);
     } else if (audioUrl !== currentSrc && audioUrl === '/演讲音频.m4a') {
       // Only reset to default if switching to bundled material AND source actually changed
-      console.log('🔄 Resetting to default transcript');
+      console.log('🔄 [handlePlay] Resetting to default transcript');
       setCurrentTranscript(defaultTranscript);
       setTimeout(() => setActiveView(targetView || 'listening'), 0);
     } else {
       // Defensive: If source is same, NEVER reset transcript to empty/default
-      if (audioUrl === currentSrc && currentTranscript.length > 1) {
-        console.log('🛡️ Defensive: Maintaining current transcript');
-      }
-      console.log('⚠️ Keeping current transcript:', currentTranscript.length, 'segments');
+      console.log(`⚠️ [handlePlay] Keeping current transcript, Navigating to: ${targetView || 'listening'}`);
       setActiveView(targetView || 'listening');
     }
 
@@ -491,7 +741,10 @@ function App() {
               seek={seek}
               transcript={currentTranscript}
               waveformData={currentWaveformData}
-              coverUrl={currentCoverUrl} // 🔥 Pass down
+              coverUrl={currentCoverUrl}
+              markedWords={markedWords}
+              onMarkWord={handleMarkWord}
+              onUnmarkWord={handleUnmarkWord}
             />
           )}
 
@@ -542,7 +795,8 @@ function App() {
               currentTime={currentTime}
               isPlaying={isPlaying}
               seek={seek}
-              transcript={currentTranscript} // PASS DATA
+              transcript={currentTranscript}
+              markedWords={markedWords}
             />
           )}
 
@@ -554,12 +808,6 @@ function App() {
                 endMaterialSession(false);
                 setActiveView('analysis');
               }} // Back to Analysis (Top Left)
-              onHome={() => {
-                // 📊 End Shadowing phase and session (not completed)
-                endCurrentPhase(false);
-                endMaterialSession(false);
-                setActiveView('home');
-              }}     // Close to Home (Top Right)
               audioSrc={currentSrc}
               transcript={currentTranscript}
               materialId={currentMaterialId} // NEW: Pass Material ID for Phase 3 Tracking
@@ -573,8 +821,16 @@ function App() {
           )}
 
           {activeView === 'profile' && (
-            <ProfileView onBack={() => setActiveView('home')} />
+            <ProfileView
+              onBack={() => setActiveView('home')}
+            />
           )}
+
+          {/* 🆙 新功能介绍弹窗 */}
+          <WhatsNewModal
+            isOpen={showUpdateModal}
+            onClose={handleUpdateModalClose}
+          />
         </div>
 
 

@@ -2,8 +2,7 @@ import PocketBase from 'pocketbase';
 import type { TranscriptSegment } from '@/data/transcript';
 import { Preferences } from '@capacitor/preferences';
 import { CapacitorHttp } from '@capacitor/core';
-
-const CACHE_KEY = 'last_transcript_data_v5_FIXED';
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 
 export const pb = new PocketBase('https://zjcnex.top');
 
@@ -129,9 +128,12 @@ export async function getLatestTranscript(): Promise<{ url: string; segments: Tr
 
 export async function getCachedTranscript(): Promise<{ url: string; segments: TranscriptSegment[] } | null> {
     try {
-        const { value } = await Preferences.get({ key: CACHE_KEY });
-        if (!value) return null;
-        return JSON.parse(value);
+        const result = await Filesystem.readFile({
+            path: 'cache/last_transcript.json',
+            directory: Directory.Documents,
+            encoding: Encoding.UTF8
+        });
+        return JSON.parse(result.data as string);
     } catch (e) {
         return null;
     }
@@ -139,9 +141,21 @@ export async function getCachedTranscript(): Promise<{ url: string; segments: Tr
 
 export async function saveTranscriptToCache(data: { url: string; segments: TranscriptSegment[] }) {
     try {
-        await Preferences.set({ key: CACHE_KEY, value: JSON.stringify(data) });
+        await Filesystem.mkdir({
+            path: 'cache',
+            directory: Directory.Documents,
+            recursive: true
+        }).catch(() => { });
+
+        await Filesystem.writeFile({
+            path: 'cache/last_transcript.json',
+            data: JSON.stringify(data),
+            directory: Directory.Documents,
+            encoding: Encoding.UTF8
+        });
+        console.log("✅ [API Cache] Saved last transcript to FS");
     } catch (e) {
-        console.warn("Cache Save Failed", e);
+        console.warn("❌ [API Cache] Save Failed", e);
     }
 }
 
@@ -216,7 +230,21 @@ export async function silentLogin(userId: string): Promise<boolean> {
                     await pb.collection('users').authWithPassword(safeUsername, safePassword);
                     console.log("✅ Silent account created and logged in");
                     return true;
-                } catch (createErr) {
+                } catch (createErr: any) {
+                    // 🔥 CRITICAL FIX: If creation fails because revenue_id exists but auth failed,
+                    // we need to try finding that record and see what's going on.
+                    if (createErr.data?.data?.revenue_id?.code === 'validation_not_unique') {
+                        console.warn("⚠️ Revenue ID exists but auth failed. Attempting rescue login...");
+                        try {
+                            const existing = await pb.collection('users').getFirstListItem(`revenue_id="${userId}"`);
+                            // Try auth with the found username and our current stable password
+                            await pb.collection('users').authWithPassword(existing.username, safePassword);
+                            console.log("✅ Rescue login success");
+                            return true;
+                        } catch (rescueErr) {
+                            console.error("❌ Rescue login failed", rescueErr);
+                        }
+                    }
                     console.error("❌ Failed to create silent account", createErr);
                     return false;
                 }
@@ -297,7 +325,7 @@ export async function getUserTranscripts(): Promise<any[]> {
     }
 }
 
-export async function updateUserProgress(materialId: string, data: { is_starred?: boolean, is_pinned?: boolean, current_step?: number }) {
+export async function updateUserProgress(materialId: string, data: { is_starred?: boolean, is_pinned?: boolean, current_step?: number, marked_words?: any[] }) {
     console.log(`[Progress Update] Called for material: ${materialId}, data:`, data, `Auth valid: ${pb.authStore.isValid}`);
 
     if (!pb.authStore.isValid) {

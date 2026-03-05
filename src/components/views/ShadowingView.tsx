@@ -1,7 +1,9 @@
 import { ChevronLeft, X, Play, Pause, RotateCcw, Ear, EarOff, Mic, Eye, EyeOff, Download } from "lucide-react";
 // import { transcript } from "@/data/transcript"; // REMOVED STATIC IMPORT
 import type { TranscriptSegment } from "@/data/transcript";
+import { StepGuideModal } from "../ui/StepGuideModal";
 import { useState, useRef, useEffect } from "react";
+import { evaluateRecording, type EvaluationResult } from '@/lib/aiEvaluation';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { cn } from "@/lib/utils";
 import WaveSurfer from "wavesurfer.js";
@@ -24,7 +26,6 @@ const PEAKS_PER_SEC = 30; // Backend generates 30 peaks/second (consistent with 
 
 interface ShadowingViewProps {
   onBack: () => void;
-  onHome: () => void;
   audioSrc: string;
   transcript: TranscriptSegment[]; // Added Prop
   materialId?: string; // Added Prop
@@ -34,9 +35,14 @@ interface ShadowingViewProps {
 
 type ShadowingStatus = 'idle' | 'preparing' | 'recording' | 'review';
 
-export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId, waveformData, onRecordingComplete }: ShadowingViewProps) {
+export function ShadowingView({ onBack, audioSrc, transcript, materialId, waveformData, onRecordingComplete }: ShadowingViewProps) {
   // UNIQUE SESSION KEY PER AUDIO FILE
   const sessionKey = `shadowing_session_${audioSrc.replace(/[^a-z0-9]/gi, '_')}`;
+
+  // --- AI 评价状态 ---
+  const [evalResult, setEvalResult] = useState<EvaluationResult | null>(null);
+  const [isEvaluating, setIsEvaluating] = useState(false);
+  const [showEvalPanel, setShowEvalPanel] = useState(false);
 
   // --- State Machine ---
   const [status, setStatus] = useState<ShadowingStatus>('idle');
@@ -45,31 +51,35 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
   const [showPaywall, setShowPaywall] = useState(false);
 
   // --- Cloze State ---
-  // Default to 'hidden' (100% hidden)
-  type ClozeMode = 'hidden' | 'partial' | 'visible';
-  const [clozeMode, setClozeMode] = useState<ClozeMode>('hidden');
+  // Default to 'hint' (Show first 3 words of each segment)
+  type ClozeMode = 'hint' | 'visible' | 'hidden';
+  const [clozeMode, setClozeMode] = useState<ClozeMode>('hint');
   const [hiddenIndices, setHiddenIndices] = useState<Set<string>>(new Set());
 
-  // Logic: Hidden -> Partial (70%) -> Visible -> Hidden
+  // Logic: Hint (first 3 words) -> Visible (100%) -> Hidden (0%) -> Hint
   const toggleCloze = () => {
     setClozeMode(prev => {
-      if (prev === 'hidden') return 'partial';
-      if (prev === 'partial') return 'visible';
-      return 'hidden';
+      if (prev === 'hint') return 'visible';
+      if (prev === 'visible') return 'hidden';
+      return 'hint';
     });
   };
 
-  // Generate random indices when switching to 'partial'
+  // Generate indices to hide when switching to 'hint'
   useEffect(() => {
-    if (clozeMode === 'partial') {
+    if (clozeMode === 'hint') {
       const indices = new Set<string>();
       transcript.forEach((seg, sIdx) => {
+        let realWordCount = 0;
         seg.words?.forEach((word, wIdx) => {
-          // Only hide actual words (any language), not punctuation
+          // Only count/hide actual words (any language), not punctuation
           const isRealWord = /\p{L}|\p{N}/u.test(word.text);
-          // 70% chance to hide
-          if (isRealWord && Math.random() < 0.7) {
-            indices.add(`${sIdx}-${wIdx}`);
+          if (isRealWord) {
+            realWordCount++;
+            // Hide if it's beyond the 3rd word
+            if (realWordCount > 3) {
+              indices.add(`${sIdx}-${wIdx}`);
+            }
           }
         });
       });
@@ -89,7 +99,7 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
   // Audio Data
   const [duration, setDuration] = useState(0); // Source Duration
   const [userDuration, setUserDuration] = useState(0); // User Duration
-  const [recordedBase64, setRecordedBase64] = useState<string | null>(null);
+  const [recordedChunks, setRecordedChunks] = useState<string[]>([]);
 
   // Segmented Waveform State
   const [fullPeaks, setFullPeaks] = useState<number[] | null>(null);
@@ -335,7 +345,7 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
               });
 
               if (file.data) {
-                setRecordedBase64(file.data as string);
+                setRecordedChunks([file.data as string]);
                 setStatus('review');
                 // Defer waveform load slightly to allow render
                 setTimeout(() => {
@@ -543,10 +553,7 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
     onBack();
   };
 
-  const handleHome = async () => {
-    await cleanupRecording();
-    onHome();
-  };
+
 
   const isTogglingRef = useRef(false);
 
@@ -704,43 +711,31 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
 
       if (res.value.recordDataBase64) {
         const b64 = res.value.recordDataBase64;
-        setRecordedBase64(b64);
+        setRecordedChunks(prev => [...prev, b64]);
         loadUserReviewWaveform(b64, res.value.mimeType);
+
+        // 🤖 停录后自动触发 AI 评价
+        setIsEvaluating(true);
+        setShowEvalPanel(true);
+        const sentences = transcript.map(s => s.text);
+        evaluateRecording(b64, res.value.mimeType || 'audio/aac', sentences, materialId)
+          .then(result => { setEvalResult(result); setIsEvaluating(false); })
+          .catch(() => { setIsEvaluating(false); });
 
         // PERSIST SESSION
         try {
-          // 🔥 TRACK PROGRESS: Phase 3 Completed
           if (materialId) {
             updateUserProgress(materialId, { current_step: 3 });
-
-            // 📊 ANALYTICS: Track recording completion
-            analytics.track('recording_finished', {
-              material_id: materialId
-            });
-
-            // 📊 Notify parent to end phase and session (completed)
-            if (onRecordingComplete) {
-              onRecordingComplete();
-            }
+            analytics.track('recording_finished', { material_id: materialId });
+            if (onRecordingComplete) onRecordingComplete();
           }
-
           const tempPath = `temp_session_${Date.now()}.aac`;
-          await Filesystem.writeFile({
-            path: tempPath,
-            data: b64,
-            directory: Directory.Cache
-          });
-
+          await Filesystem.writeFile({ path: tempPath, data: b64, directory: Directory.Cache });
           await Preferences.set({
             key: sessionKey,
-            value: JSON.stringify({
-              status: 'review',
-              tempPath: tempPath,
-              mimeType: res.value.mimeType,
-              timestamp: Date.now()
-            })
+            value: JSON.stringify({ status: 'review', tempPath, mimeType: res.value.mimeType, timestamp: Date.now() })
           });
-        } catch (e: any) { console.warn("Persist Failed", e); alert("PERSIST FAIL: " + e.message); }
+        } catch (e: any) { console.warn("Persist Failed", e); }
       }
     } catch (e: any) {
       alert("Stop Error: " + e.message);
@@ -773,8 +768,10 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
         return alert("Device Capability Error");
       }
 
-      if (userWs.current) { userWs.current.destroy(); userWs.current = null; }
-      setRecordedBase64(null);
+      // 如果这是重录操作清空的，此时才清空原有的逻辑。在分段录制时，我们保留 userWs 以视觉展示最新一段
+      // 这里暂不一刀切 userWs.current.destroy()，因为如果分段继续，希望看到上一段（或只是部分刷新）。
+      // 简单起见，这里我们保持 userWs 原状，等录完后再写入新数据。
+
 
       // Stop any playback
       sourceAudioRef.current?.pause();
@@ -918,12 +915,23 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
       {/* Centered Container for iPad - keeps 50vw padding calculation consistent */}
       <div className="w-full max-w-md md:max-w-2xl lg:max-w-3xl mx-auto h-full flex flex-col relative">
         <div className="flex items-center justify-between h-14 px-4 shrink-0 z-20 bg-black/80 backdrop-blur-md">
-          <button onClick={handleBack} className="p-2"><ChevronLeft className="w-6 h-6 text-zinc-400" /></button>
+          <button onClick={handleBack} className="p-2 w-10"><ChevronLeft className="w-6 h-6 text-zinc-400 hover:text-white" /></button>
           <div className="flex flex-col items-center">
             <span className="text-xs font-medium text-zinc-500 tracking-widest uppercase">第三步</span>
             <span className="text-sm font-semibold text-white tracking-tight">语速 要一样</span>
           </div>
-          <button onClick={handleHome} className="p-2"><X className="w-6 h-6 text-zinc-400" /></button>
+          <div className="flex items-center justify-end w-10">
+            <StepGuideModal
+              stepKey="shadowing"
+              title="第三步：分段复述"
+              description={
+                <div className="flex flex-col gap-3 text-left">
+                  <p>挑战复述或背诵整段材料，注意<strong>语速和流利度</strong>。</p>
+                  <p>在这你可以<strong>一段一段地复述</strong>。点击评价功能，我们的AI将直接针对你的纯净录音进行多维度口语评价。</p>
+                </div>
+              }
+            />
+          </div>
         </div>
 
         <div className="flex-1 relative min-h-0 bg-[#0c0c0c] group">
@@ -983,14 +991,14 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
                   onClick={toggleCloze}
                   className="flex items-center gap-1.5 px-2.5 py-1 bg-zinc-900/95 backdrop-blur-md border border-zinc-700/50 rounded-full text-[10px] font-bold text-zinc-100 shadow-xl active:scale-95 transition-all h-[24px] min-w-[60px] justify-center"
                 >
-                  {clozeMode === 'hidden' && <EyeOff className="w-3 h-3 text-zinc-400" />}
-                  {clozeMode === 'partial' && <Eye className="w-3 h-3 text-amber-400" />}
+                  {clozeMode === 'hint' && <Eye className="w-3 h-3 text-amber-400" />}
                   {clozeMode === 'visible' && <Eye className="w-3 h-3 text-emerald-400" />}
+                  {clozeMode === 'hidden' && <EyeOff className="w-3 h-3 text-zinc-400" />}
 
                   <span className="tracking-widest leading-none text-center">
-                    {clozeMode === 'hidden' && "文本"}
-                    {clozeMode === 'partial' && "70%"}
-                    {clozeMode === 'visible' && "隐藏"}
+                    {clozeMode === 'hint' && "提示"}
+                    {clozeMode === 'visible' && "全部"}
+                    {clozeMode === 'hidden' && "已隐藏"}
                   </span>
                 </button>
               </div>
@@ -1009,7 +1017,7 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
                           (() => {
                             if (clozeMode === 'hidden') return "bg-zinc-800 text-transparent";
                             if (clozeMode === 'visible') return "text-white/60 bg-transparent";
-                            // Partial
+                            // Hint mode
                             const isHidden = hiddenIndices.has(`${si}-${wi}`);
                             return isHidden ? "bg-zinc-800 text-transparent" : "text-white/60 bg-transparent";
                           })()
@@ -1076,7 +1084,6 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
                     <span className="text-[8px] font-bold tracking-widest transition-colors text-zinc-200">原声</span>
                   </div>
                 </div>
-
                 <div className="absolute top-[250px] left-0 right-0 flex flex-col items-center gap-2 h-[160px] justify-center">
                   <div className="flex flex-col items-center gap-1.5">
                     <button
@@ -1144,67 +1151,59 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
             )}
 
             {status === 'review' && (
-              <div className="w-full h-full flex items-center justify-between gap-4 animate-in fade-in slide-in-from-bottom-4 px-4 relative z-10">
+              <div className="w-full h-full flex items-center justify-between gap-3 animate-in fade-in slide-in-from-bottom-4 px-4 relative z-10">
+                {/* 重录 */}
                 <button
                   onClick={() => {
-                    if (sourceWs.current) {
-                      sourceWs.current.setTime(0);
-                      sourceWs.current.pause();
-                    }
+                    if (sourceWs.current) { sourceWs.current.setTime(0); sourceWs.current.pause(); }
+                    if (userWs.current) { userWs.current.destroy(); userWs.current = null; }
                     scrollToUnsafe(0);
+                    setRecordedChunks([]);
                     setStatus('idle');
+                    setEvalResult(null);
+                    setShowEvalPanel(false);
                     Preferences.remove({ key: sessionKey });
                   }}
-                  className="flex-[1.2] h-14 rounded-2xl bg-zinc-900 text-zinc-400 font-semibold tracking-wide flex items-center justify-center border border-zinc-800 hover:bg-zinc-800 hover:text-white active:scale-95 transition-all"
+                  className="flex-1 h-14 rounded-2xl bg-zinc-900 text-zinc-400 font-semibold flex items-center justify-center gap-1.5 border border-zinc-800 hover:bg-zinc-800 hover:text-white active:scale-95 transition-all"
                 >
-                  <div className="flex items-center gap-2">
-                    <RotateCcw className="w-5 h-5" />
-                    <span>重录</span>
-                  </div>
+                  <RotateCcw className="w-4 h-4" />
+                  <span className="text-sm">重录</span>
                 </button>
 
+                {/* 继续录制 */}
+                <button
+                  onClick={() => {
+                    setShowEvalPanel(false);
+                    setStatus('idle');
+                    // 不重置 sourceWs 进度，允许从刚好结束的地方继续录新的一段！
+                  }}
+                  className="flex-[1.6] h-14 rounded-2xl bg-indigo-600 text-white font-bold flex items-center justify-center gap-1.5 hover:bg-indigo-500 active:scale-95 transition-all shadow-lg shadow-indigo-900/50"
+                >
+                  <span className="text-sm">继续</span>
+                </button>
+
+                {/* 保存所有段落录音 */}
                 <button
                   onClick={async () => {
-                    if (!recordedBase64) return;
-
-                    // 🔒 PAYWALL CHECK
-                    // Use PocketBase auth store for stable VIP check (avoids async/cache issues)
-
-                    // Force refresh auth store model if possible
+                    if (recordedChunks.length === 0) return;
                     if (pb.authStore.isValid && !pb.authStore.model) {
                       try { await pb.collection('users').authRefresh(); } catch (e) { }
                     }
-
                     const user = pb.authStore.model;
-                    const tier = user?.subscription_tier || 'free';
-                    console.log('[ShadowingView] Clicked Save. User:', user?.id, 'Tier:', tier);
-
-                    const isPaidUser = tier !== 'free';
-
-                    if (!isPaidUser) {
-                      console.log('[ShadowingView] Access Denied. Showing Paywall.');
-                      setShowPaywall(true);
-                      return;
-                    }
-
-                    console.log('[ShadowingView] Access Granted. Saving...');
-
+                    const isPaidUser = (user?.subscription_tier || 'free') !== 'free';
+                    if (!isPaidUser) { setShowPaywall(true); return; }
                     try {
-                      const fileName = "shadowing_" + Date.now() + ".aac";
-                      await Filesystem.writeFile({
-                        path: fileName,
-                        data: recordedBase64,
-                        directory: Directory.Documents
-                      });
-                      alert("保存成功！\n\n已保存至“文件 > 我的iPhone > 语核”文件夹");
+                      for (let i = 0; i < recordedChunks.length; i++) {
+                        const fileName = `shadowing_${Date.now()}_part${i + 1}.aac`;
+                        await Filesystem.writeFile({ path: fileName, data: recordedChunks[i], directory: Directory.Documents });
+                      }
+                      alert(`保存成功！\n\n已无损保存 ${recordedChunks.length} 段录音至\u201c文件 > 我的iPhone > 语核\u201d文件夹`);
                     } catch (e: any) { alert("Save Failed:" + e.message); }
                   }}
-                  className="flex-[2] h-14 rounded-2xl bg-[#00D68F] text-black font-bold tracking-wide flex items-center justify-center hover:brightness-110 active:scale-95 transition-all shadow-lg shadow-[#00D68F]/20"
+                  className="flex-1 h-14 rounded-2xl bg-[#00D68F]/10 text-[#00D68F] font-semibold flex items-center justify-center gap-1.5 border border-[#00D68F]/30 hover:bg-[#00D68F]/20 active:scale-95 transition-all"
                 >
-                  <div className="flex items-center gap-2">
-                    <Download className="w-5 h-5" />
-                    <span>保存录音</span>
-                  </div>
+                  <Download className="w-4 h-4" />
+                  <span className="text-sm">保存</span>
                 </button>
               </div>
             )}
@@ -1213,13 +1212,124 @@ export function ShadowingView({ onBack, onHome, audioSrc, transcript, materialId
           <Paywall
             isOpen={showPaywall}
             onClose={() => setShowPaywall(false)}
-            onSuccess={() => {
-              setShowPaywall(false);
-              alert("开通成功！请再次点击“保存”按钮。");
-            }}
+            onSuccess={() => { setShowPaywall(false); alert("开通成功！请再次点击\u201c保存\u201d按钮。"); }}
           />
         </div>
       </div>
+
+      {/* 🤖 AI 评价卡片悬浮（不遮挡底栏） */}
+      {showEvalPanel && (
+        <div className="absolute inset-x-0 top-0 bottom-48 z-[200] bg-black/60 backdrop-blur-sm flex items-end justify-center animate-in fade-in pb-4">
+          <div className="w-full h-full max-h-[80vh] max-w-md bg-zinc-950/95 shadow-2xl animate-in slide-in-from-bottom-8 flex flex-col mx-4 rounded-3xl border border-zinc-800 overflow-hidden">
+
+            {/* 顶部标题与关闭 */}
+            <div className="flex justify-between items-center pt-5 pb-3 px-6 shrink-0 relative border-b border-zinc-800/50">
+              <div className="flex flex-col">
+                <span className="text-xs font-bold tracking-widest text-indigo-400 uppercase mb-0.5">语核 AI</span>
+                <h2 className="text-base font-bold text-white leading-tight">口语评价报告</h2>
+              </div>
+              <button onClick={() => setShowEvalPanel(false)} className="p-2 text-zinc-400 hover:text-white rounded-full bg-zinc-900/50 hover:bg-zinc-800 transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* 评价内容区（可滚动）*/}
+            <div className="flex-1 overflow-y-auto px-6 pb-8 no-scrollbar">
+
+              {isEvaluating ? (
+                /* Loading 状态 */
+                <div className="flex flex-col items-center justify-center py-16 gap-4">
+                  <div className="relative w-20 h-20">
+                    <div className="absolute inset-0 rounded-full border-4 border-zinc-800" />
+                    <div className="absolute inset-0 rounded-full border-4 border-t-indigo-500 border-r-indigo-500 border-b-transparent border-l-transparent animate-spin" />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="text-2xl">🎙</span>
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-white font-semibold">AI 正在分析你的录音</p>
+                    <p className="text-zinc-500 text-sm mt-1">评估流利度、发音、语速...</p>
+                  </div>
+                </div>
+              ) : evalResult ? (
+                <>
+                  {/* 总分圆 */}
+                  <div className="flex flex-col items-center py-6">
+                    <div className="relative w-28 h-28">
+                      <svg className="w-28 h-28 -rotate-90" viewBox="0 0 100 100">
+                        <circle cx="50" cy="50" r="42" fill="none" stroke="#27272a" strokeWidth="8" />
+                        <circle
+                          cx="50" cy="50" r="42" fill="none"
+                          stroke={evalResult.overallScore >= 90 ? '#a78bfa' : evalResult.overallScore >= 80 ? '#6366f1' : evalResult.overallScore >= 70 ? '#38bdf8' : '#f97316'}
+                          strokeWidth="8" strokeLinecap="round"
+                          strokeDasharray={`${2 * Math.PI * 42}`}
+                          strokeDashoffset={`${2 * Math.PI * 42 * (1 - evalResult.overallScore / 100)}`}
+                          className="transition-all duration-1000"
+                        />
+                      </svg>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <span className="text-3xl font-black text-white">{evalResult.overallScore}</span>
+                        <span className="text-xs text-zinc-500 font-bold tracking-widest">{evalResult.grade} 级</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 4 维度评分 */}
+                  <div className="space-y-3 mb-6">
+                    {evalResult.dimensions.map(dim => (
+                      <div key={dim.key} className="bg-zinc-900 rounded-2xl p-4">
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-sm font-semibold text-zinc-200">{dim.label}</span>
+                          <span className="text-sm font-bold text-white tabular-nums">{dim.score}</span>
+                        </div>
+                        <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden mb-2">
+                          <div
+                            className="h-full rounded-full transition-all duration-700"
+                            style={{
+                              width: `${dim.score}%`,
+                              background: dim.score >= 85 ? 'linear-gradient(90deg,#6366f1,#a78bfa)' : dim.score >= 70 ? 'linear-gradient(90deg,#0ea5e9,#6366f1)' : 'linear-gradient(90deg,#f97316,#eab308)'
+                            }}
+                          />
+                        </div>
+                        <p className="text-xs text-zinc-500">{dim.comment}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* 逐句评价 */}
+                  {evalResult.sentences.length > 0 && (
+                    <div className="mb-6">
+                      <h3 className="text-xs font-bold tracking-widest text-zinc-500 uppercase mb-3">逐句评价</h3>
+                      <div className="space-y-2">
+                        {evalResult.sentences.map((s, i) => (
+                          <div key={i} className="bg-zinc-900/60 rounded-xl p-3 border border-zinc-800/50">
+                            <div className="flex items-start justify-between gap-2 mb-1">
+                              <p className="text-sm text-zinc-300 leading-snug flex-1">{s.original}</p>
+                              <span className={`text-xs font-bold tabular-nums shrink-0 ${s.score >= 85 ? 'text-indigo-400' : s.score >= 70 ? 'text-sky-400' : 'text-orange-400'}`}>{s.score}</span>
+                            </div>
+                            <p className="text-xs text-zinc-500">{s.feedback}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 总体建议 */}
+                  <div className="bg-indigo-950/40 border border-indigo-800/40 rounded-2xl p-4 mb-4">
+                    <h3 className="text-xs font-bold tracking-widest text-indigo-400 uppercase mb-2">AI 建议</h3>
+                    <p className="text-sm text-zinc-300 leading-relaxed">{evalResult.suggestion}</p>
+                  </div>
+                </>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-16 gap-3">
+                  <p className="text-zinc-500 text-sm">评价数据暂不可用</p>
+                </div>
+              )}
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 }

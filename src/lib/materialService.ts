@@ -124,6 +124,26 @@ export const materialService = {
             console.log('[Cache] 🕐 Loading snapshot...', Date.now());
             console.time('[Cache] Total load time');
 
+            const parseAndFixUrls = async (dataStr: string) => {
+                const materials: Material[] = JSON.parse(dataStr);
+                // Fix stale iOS Capacitor UUID paths dynamically
+                if (Capacitor.getPlatform() === 'ios') {
+                    await Promise.all(materials.map(async (m) => {
+                        if (m.source === 'remote') {
+                            if (m.audioUrl?.startsWith('capacitor://') || m.audioUrl?.startsWith('file://')) {
+                                const localAudio = await this.checkLocalFile(m.id, 'audio');
+                                if (localAudio) m.audioUrl = localAudio;
+                            }
+                            if (m.coverUrl?.startsWith('capacitor://') || m.coverUrl?.startsWith('file://')) {
+                                const localCover = await this.checkLocalFile(m.id, 'image');
+                                if (localCover) m.coverUrl = localCover;
+                            }
+                        }
+                    }));
+                }
+                return materials;
+            };
+
             // 1. 尝试从 Filesystem 读取（仅在确认有快照时读取，避免首启报错）
             const { value: hasFsSnapshot } = await Preferences.get({ key: SNAPSHOT_EXISTS_KEY });
             if (hasFsSnapshot === '1') {
@@ -136,9 +156,9 @@ export const materialService = {
                     });
                     console.timeEnd('[Cache] Filesystem read');
 
-                    console.time('[Cache] JSON parse');
-                    const materials = JSON.parse(result.data as string);
-                    console.timeEnd('[Cache] JSON parse');
+                    console.time('[Cache] JSON parse and fix URLs');
+                    const materials = await parseAndFixUrls(result.data as string);
+                    console.timeEnd('[Cache] JSON parse and fix URLs');
                     console.timeEnd('[Cache] Total load time');
 
                     console.log('✅ [Cache] Loaded snapshot from Filesystem:', materials.length, 'materials');
@@ -154,7 +174,7 @@ export const materialService = {
             // 2. Fallback: 从 Preferences 读取并迁移（旧版本兼容）
             const { value } = await Preferences.get({ key: SNAPSHOT_KEY });
             if (value) {
-                const materials = JSON.parse(value);
+                const materials = await parseAndFixUrls(value);
                 console.log('🔄 [Cache] Migrating from Preferences to Filesystem...');
 
                 // 迁移到 Filesystem
@@ -251,28 +271,39 @@ export const materialService = {
     },
 
     /**
-     * Save transcript to local cache
+     * Save transcript to local cache using Filesystem (avoids 4MB Preferences limit)
      */
     async saveTranscriptCache(materialId: string, transcript: any[]): Promise<void> {
         try {
-            await Preferences.set({
-                key: `transcript_${materialId}`,
-                value: JSON.stringify(transcript)
+            await Filesystem.mkdir({
+                path: 'cache/transcripts',
+                directory: Directory.Documents,
+                recursive: true
+            }).catch(() => { });
+
+            await Filesystem.writeFile({
+                path: `cache/transcripts/${materialId}.json`,
+                data: JSON.stringify(transcript),
+                directory: Directory.Documents,
+                encoding: Encoding.UTF8
             });
-            console.log(`✅ Cached transcript for ${materialId}`);
+            console.log(`✅ [FS Cache] Saved transcript for ${materialId}`);
         } catch (e) {
-            console.warn(`Failed to cache transcript for ${materialId}`, e);
+            console.warn(`❌ [FS Cache] Save failed for ${materialId}`, e);
         }
     },
 
     /**
-     * Load transcript from local cache
+     * Load transcript from local cache using Filesystem
      */
     async loadTranscriptCache(materialId: string): Promise<any[] | null> {
         try {
-            const { value } = await Preferences.get({ key: `transcript_${materialId}` });
-            if (!value) return null;
-            return JSON.parse(value);
+            const result = await Filesystem.readFile({
+                path: `cache/transcripts/${materialId}.json`,
+                directory: Directory.Documents,
+                encoding: Encoding.UTF8
+            });
+            return JSON.parse(result.data as string);
         } catch (e) {
             return null;
         }
