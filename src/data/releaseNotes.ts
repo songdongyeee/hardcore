@@ -15,19 +15,14 @@ export const RELEASE_NOTES: ReleaseNote = {
     title: "全新版本焕新开启",
     features: [
         {
-            icon: "sparkles",
-            title: "丝滑交互体验",
-            description: "深度优化了长文章的性能，彻底解决听力练习时的卡顿和发热。"
+            icon: "mic",
+            title: "录音更易用",
+            description: "增加了逐步录音、逐步继续的功能，更自由的对比和重录。"
         },
         {
             icon: "zap",
             title: "逐词精准交互",
             description: "新增句子和单词级的点击标记功能，支持实时卡拉 OK 高亮。"
-        },
-        {
-            icon: "bell",
-            title: "远程推送通知",
-            description: "重要的版本更新和学习提醒，现可通过桌面通知第一时间获知。"
         }
     ]
 };

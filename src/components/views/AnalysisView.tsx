@@ -277,11 +277,16 @@ export function AnalysisView({ onBack, onNextPhase, audioRef, currentTime, isPla
         <div className="flex items-center gap-2">
           <StepGuideModal
             stepKey="analysis"
-            title="第二步：精读原文"
+            title="第二步方法提示"
+            onOpen={() => audioRef.current?.pause()}
+            onClose={() => {
+              if (isPlaying) audioRef.current?.play().catch(() => { });
+            }}
             description={
-              <div className="flex flex-col gap-3 text-left">
-                <p>结合刚才标记的难点，深刻<strong>理解单词和上下文</strong>的联系。</p>
-                <p>你可以针对每一个段落进行反复地重听，目标是能够<strong>复述或背诵出整段材料</strong>的含义。</p>
+              <div className="flex flex-col gap-4 text-left">
+                <p>理解单词和不明白的上下文。</p>
+                <p>再次去听和跟读。</p>
+                <p>目标复述乃至背诵出整段材料。</p>
               </div>
             }
           />

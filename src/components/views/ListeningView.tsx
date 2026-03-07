@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo, useCallback, memo } from "react";
-import { Eye, RotateCcw, RotateCw, Pause, Play, ChevronLeft, Info, Repeat, Bookmark, BookmarkX, Check } from "lucide-react";
+import { Eye, RotateCcw, RotateCw, Pause, Play, ChevronLeft, Repeat, Bookmark, BookmarkX, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TranscriptSegment } from "@/data/transcript";
 import type { MarkedWord } from "@/App";
@@ -339,7 +339,7 @@ export function ListeningView({
 
   const [isDragging, setIsDragging] = useState(false);
   const [dragProgress, setDragProgress] = useState(0);
-  const [showTip, setShowTip] = useState(false);
+
 
   const currentProgress = audioRef.current?.duration
     ? (currentTime / audioRef.current.duration) * 100
@@ -363,38 +363,32 @@ export function ListeningView({
     <>
       <div className="absolute inset-0 bg-black z-30 flex flex-col h-full w-full">
         {/* Nav */}
-        <div className="px-4 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-4 flex justify-between items-center border-b border-zinc-900 bg-black/90 backdrop-blur-md sticky top-0 z-40 shrink-0">
-          {/* 左侧：返回 */}
+        <div className="px-6 pt-[calc(env(safe-area-inset-top)+0.5rem)] pb-6 flex justify-between items-center border-b border-zinc-900 bg-black/90 backdrop-blur-md sticky top-0 z-40 shrink-0">
           <button onClick={onBack} className="p-2 -ml-2 text-zinc-400 hover:text-white transition-colors">
             <ChevronLeft size={24} />
           </button>
 
-          {/* 中间：引导按钮 */}
-          <StepGuideModal
-            stepKey="listening"
-            title="第一步：通篇盲听"
-            description={
-              <div className="flex flex-col gap-3 text-left">
-                <p>听长难句或生词时，<strong>尽量不要停下来</strong>，试着掌握段落的整体意思。</p>
-                <p>在听的过程中，点击你不理解的生词进行<strong>【标记】</strong>。推荐这步配合纸笔：好记性不如烂笔头。</p>
-              </div>
-            }
-          />
-          <div className="relative">
-            <button
-              onClick={() => setShowTip(!showTip)}
-              className="p-2 -mr-2 text-zinc-500 hover:text-zinc-300 transition-colors"
-            >
-              <Info className="w-4 h-4" />
-            </button>
-            {showTip && (
-              <div className="absolute top-full right-0 mt-2 w-64 bg-zinc-900/95 backdrop-blur-sm border border-zinc-700 rounded-lg p-3 shadow-xl animate-in fade-in slide-in-from-top-2 z-50">
-                <p className="text-xs text-zinc-300 leading-relaxed">
-                  阿里云转写服务可能会出现时间与单词不对应的情况
-                </p>
-                <div className="absolute -top-1 right-3 w-2 h-2 bg-zinc-900 border-l border-t border-zinc-700 rotate-45"></div>
-              </div>
-            )}
+          <div className="flex flex-col items-center">
+            <span className="text-xs font-medium text-zinc-500 tracking-widest uppercase">第一步</span>
+            <span className="text-sm font-semibold text-white tracking-tight">盲听 反复听</span>
+          </div>
+
+          <div className="flex items-center justify-end">
+            <StepGuideModal
+              stepKey="listening"
+              title="第一步方法提示"
+              onOpen={() => audioRef.current?.pause()}
+              onClose={() => {
+                if (isPlaying) audioRef.current?.play().catch(() => { });
+              }}
+              description={
+                <div className="flex flex-col gap-4 text-left">
+                  <p>从头到尾听完，尽量不要停，试着掌握整体意思。</p>
+                  <p>过程中点击<strong>【标记】</strong>不理解的单词。</p>
+                  <p>准备好纸笔，边记边写更佳。</p>
+                </div>
+              }
+            />
           </div>
         </div>
 

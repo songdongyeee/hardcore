@@ -219,13 +219,14 @@ export async function silentLogin(userId: string): Promise<boolean> {
                 console.log("✅ Silent login success (safe credentials)");
                 return true;
             } catch {
-                console.log("👤 User not found, creating silent account...");
                 try {
+                    const { RELEASE_NOTES } = await import('@/data/releaseNotes');
                     await pb.collection('users').create({
                         username: safeUsername,
                         password: safePassword,
                         passwordConfirm: safePassword,
                         revenue_id: userId,
+                        last_active_version: RELEASE_NOTES.version
                     });
                     await pb.collection('users').authWithPassword(safeUsername, safePassword);
                     console.log("✅ Silent account created and logged in");

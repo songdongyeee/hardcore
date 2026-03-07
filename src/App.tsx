@@ -179,15 +179,21 @@ function App() {
         if (permStatus.receive === 'granted') {
           await PushNotifications.register();
 
-          console.log('⏳ Requesting FCM Token from Google...');
-          // 获取 FCM Token (这才是能用来发推的真正 Token)
-          const { token } = await FirebaseMessaging.getToken();
-          console.log('🔥 FCM Push Token:', token);
+          console.log('⏳ Requesting FCM Token from Google with 5s timeout...');
+          // ⚠️ FCM_TIMEOUT_FIX: 在未翻墙的网络下，getToken() 会阻塞极长的时间甚至不返回，导致 App 的 Token 同步状态永远落后。
+          // 强制加入 5 秒超时竞速机制。
+          const tokenPromise = FirebaseMessaging.getToken();
+          const timeoutPromise = new Promise<{ token: string }>((_, reject) =>
+            setTimeout(() => reject(new Error('FCM getToken timeout (5s) - likely no VPN')), 5000)
+          );
+
+          const { token } = await Promise.race([tokenPromise, timeoutPromise]);
+          console.log('🔥 FCM Push Token (Successfully retrieved):', token);
           setFcmToken(token);
         }
       } catch (err: any) {
         if (err.message?.includes('timeout') || err.errorMessage?.includes('超时') || (err.code && err.code === -1001)) {
-          console.warn('⚠️ FCM Timeout: Google services reachable. Token sync will retry. Please use VPN for FCM in China.');
+          console.warn('⚠️ FCM Timeout Blocked. Resorting to APNs (if iOS) or empty token. Please use VPN for FCM in China.');
         } else {
           console.error('❌ FCM Init Error:', err);
         }
@@ -265,9 +271,25 @@ function App() {
 
           if (Object.keys(updateData).length > 0) {
             console.log('📡 [Profile Sync] Payload to PB:', updateData);
-            const updatedRec = await pb.collection('users').update(userId, updateData);
-            console.log('✅ [Profile Sync] Successfully wrote to PocketBase');
-            pb.authStore.save(pb.authStore.token, updatedRec);
+            try {
+              const updatedRec = await pb.collection('users').update(userId, updateData);
+              console.log('✅ [Profile Sync] Successfully wrote to PocketBase');
+              pb.authStore.save(pb.authStore.token, updatedRec);
+            } catch (syncErr: any) {
+              console.error('❌ [Profile Sync] Original DB Update Error:', syncErr.message, syncErr.data);
+              // 🛡️ 容错处理：如果 PocketBase 的 fcm_token 字段是普通文本，默认最大长度是 255
+              // 而 Android/FCM 的 token 往往会超过 200+ 甚至跑到 255+ 字符，导致整个 update 请求被 400 拒绝
+              // 从而连带导致 last_active_version 也存入失败！
+              if (updateData.fcm_token && syncErr.status === 400) {
+                console.warn('⚠️ [Profile Sync] Token validation failed (likely exceeded DB max length). Retrying without token...');
+                delete updateData.fcm_token;
+                if (Object.keys(updateData).length > 0) {
+                  const rescueRec = await pb.collection('users').update(userId, updateData);
+                  pb.authStore.save(pb.authStore.token, rescueRec);
+                  console.log('✅ [Profile Sync] Rescue save successful (without token).');
+                }
+              }
+            }
           } else {
             console.log('⏭️ [Profile Sync] No changes needed.', {
               localVersion: realVersion,

@@ -123,6 +123,20 @@ function main() {
 
   const newSentences = inputJson?.[0]?.sentences?.length || 0;
   data[idx].transcriptRaw = JSON.stringify(inputJson);
+
+  // 🔥 Update duration
+  if (newSentences > 0) {
+    const sentences = inputJson[0].sentences;
+    const last = sentences[sentences.length - 1];
+    const totalMs = last.end_time || 0;
+    const totalSeconds = Math.ceil(totalMs / 1000);
+    const m = Math.floor(totalSeconds / 60);
+    const s = totalSeconds % 60;
+    const durationStr = `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+    data[idx].duration = durationStr;
+    console.log(`[patch_bundled_transcript] Updated duration to ${durationStr}`);
+  }
+
   writeBundledArray(BUNDLED_PATH, data);
 
   console.log(

@@ -11,6 +11,7 @@
 用法：
     python3 fix_timestamps.py <材料ID> [--no-upload]
     python3 fix_timestamps.py <材料ID> --translation-only [--retranslate-all]
+    python3 fix_timestamps.py --local-audio <音频路径> --local-json <JSON路径> [--no-upload]
     
 示例：
     python3 fix_timestamps.py 47j7723c9w7a5bd
@@ -150,7 +151,7 @@ class TimestampFixer:
             )
             
             # 提取句子和单词
-            whisper_sentences = []
+            raw_whisper_sentences = []
             for segment in segments:
                 words_list = []
                 if segment.words:
@@ -161,15 +162,15 @@ class TimestampFixer:
                             "end_time": int(word.end * 1000)
                         })
                 
-                whisper_sentences.append({
+                raw_whisper_sentences.append({
                     "text": segment.text.strip(),
                     "begin_time": int(segment.start * 1000),
                     "end_time": int(segment.end * 1000),
                     "words": words_list
                 })
             
-            self.log(f"Whisper 转写完成: {len(whisper_sentences)} 个句子", "SUCCESS")
-            return whisper_sentences
+            self.log(f"Whisper 转写完成: 共 {len(raw_whisper_sentences)} 个句子", "SUCCESS")
+            return raw_whisper_sentences
             
         except Exception as e:
             self.log(f"Whisper 转写失败: {e}", "ERROR")
@@ -422,37 +423,35 @@ class TimestampFixer:
     
     def align_sentences(self, aliyun_json, whisper_sentences):
         """
-        新算法：直接使用 Whisper 的句子结构，调用API生成翻译
-        
-        策略：
-        1. 完全使用 Whisper 的 98 个句子（含时间戳和单词）
-        2. 调用阿里云翻译API为每个Whisper句子生成翻译
-        3. 不再使用阿里云原有翻译（已错位）
-        
-        优点：
-        - 时间戳 100% 来自 Whisper（精确）
-        - 覆盖全部音频（不会缺失）
-        - 翻译和句子准确对应（新生成）
+        改进算法：
+        1. 尝试调用 API 翻译。
+        2. 如果 API 密钥不存在，则通过文本相似度从原始 Aliyun JSON 中找回翻译。
         """
-        self.log("开始构建新的句子结构（基于 Whisper + 新翻译）...", "PROCESS")
+        self.log("开始构建新的句子结构（基于 Whisper + 翻译找回/重发）...", "PROCESS")
         
-        # 1. 调用翻译API为所有Whisper句子生成翻译
-        whisper_with_translation = self.translate_whisper_sentences(whisper_sentences, only_missing=False)
+        # 1. 尝试调用翻译API
+        api_key = os.getenv('DASHSCOPE_API_KEY')
+        if api_key:
+            whisper_with_translation = self.translate_whisper_sentences(whisper_sentences, only_missing=False)
+        else:
+            self.log("⚠️ DASHSCOPE_API_KEY 未设置，将尝试从原始数据中通过相似度『找回』翻译", "WARNING")
+            # 从 aliyun_json 中提取原始句子
+            original_sentences = aliyun_json[0].get('sentences', [])
+            whisper_with_translation = self.match_translation_by_similarity(original_sentences, whisper_sentences)
         
         # 2. 统计
         total_whisper = len(whisper_with_translation)
         with_translation = sum(1 for s in whisper_with_translation if s.get('translation'))
         
         self.log(f"✅ Whisper 句子数: {total_whisper}", "SUCCESS")
-        self.log(f"✅ 有翻译的句子: {with_translation}", "SUCCESS")
-        self.log(f"✅ 无翻译的句子: {total_whisper - with_translation}", "INFO")
-        self.log(f"✅ 所有时间戳均来自 Whisper（精确）", "SUCCESS")
-        self.log(f"✅ 所有翻译均为新生成（准确对应）", "SUCCESS")
+        self.log(f"✅ 最终有翻译的句子: {with_translation}/{total_whisper}", "SUCCESS")
         
-        # 3. 替换阿里云数据结构
-        aliyun_json[0]['sentences'] = whisper_with_translation
+        # 3. 替换数据结构
+        import copy
+        new_json = copy.deepcopy(aliyun_json)
+        new_json[0]['sentences'] = whisper_with_translation
         
-        return aliyun_json
+        return new_json
 
     def patch_translation_only(self, aliyun_json, only_missing=True):
         """
@@ -494,8 +493,21 @@ class TimestampFixer:
         """自动回写修复后的 JSON 到 PocketBase"""
         try:
             self.log("自动回写到 PocketBase...", "PROCESS")
+            
+            # 计算时长
+            duration_str = "00:00"
+            if aligned_json and len(aligned_json) > 0 and len(aligned_json[0].get('sentences', [])) > 0:
+                last_sentence = aligned_json[0]['sentences'][-1]
+                total_ms = last_sentence.get('end_time', 0)
+                total_seconds = int(total_ms / 1000)
+                minutes = total_seconds // 60
+                seconds = total_seconds % 60
+                duration_str = f"{minutes:02d}:{seconds:02d}"
+                self.log(f"计算出新时长: {duration_str}", "INFO")
+
             payload = {
                 "text": json.dumps(aligned_json, ensure_ascii=False),
+                "duration": duration_str,
                 "status": "done"
             }
             resp = self.session.patch(
@@ -503,23 +515,38 @@ class TimestampFixer:
                 json=payload
             )
             resp.raise_for_status()
-            self.log("✅ 已自动回写到 PB（text + status=done）", "SUCCESS")
+            self.log(f"✅ 已自动回写到 PB（text + duration={duration_str} + status=done）", "SUCCESS")
             return True
         except Exception as e:
             self.log(f"自动回写失败: {e}", "ERROR")
             return False
     
-    def run(self, record_id, auto_upload=True, mode="full", only_missing_translation=True):
+    def run(self, record_id=None, auto_upload=True, mode="full", only_missing_translation=True, local_audio=None, local_json=None):
         """主流程"""
-        self.log(f"=== 开始处理材料: {record_id} | mode={mode} ===", "INFO")
+        display_id = record_id or "local"
+        self.log(f"=== 开始处理材料: {display_id} | mode={mode} ===", "INFO")
         
-        # 1. 登录
-        if not self.login():
-            return False
+        # 1. 登录 (如果是本地模式且不需要回写，可以跳过)
+        if not record_id and not auto_upload:
+            pass
+        else:
+            if not self.login():
+                return False
         
         audio_path = None
-        if mode == "full":
-            # 2. 下载材料（含音频）
+        aliyun_json = None
+        record = None
+
+        if local_audio and local_json:
+            # 本地模式
+            audio_path = local_audio
+            with open(local_json, 'r', encoding='utf-8') as f:
+                aliyun_json = json.load(f)
+            record = {"id": "local"}
+            self.log(f"使用本地音频: {local_audio}", "INFO")
+            self.log(f"使用本地 JSON: {local_json}", "INFO")
+        elif mode == "full":
+            # 2. 从 PB 下载材料（含音频）
             audio_path, aliyun_json, record = self.download_material(record_id)
             if not audio_path:
                 return False
@@ -533,7 +560,8 @@ class TimestampFixer:
             raise RuntimeError(f"未知模式: {mode}")
 
         # 2.1 保存原始备份
-        self.save_backup(record_id, aliyun_json)
+        output_record_id = record_id or "local"
+        self.save_backup(output_record_id, aliyun_json)
 
         if mode == "full":
             # 3. Whisper 转写
@@ -585,7 +613,9 @@ class TimestampFixer:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="修复时间戳并可自动回写 PocketBase")
-    parser.add_argument("record_id", help="transcripts 记录 ID")
+    parser.add_argument("record_id", nargs="?", help="transcripts 记录 ID (可选，若提供 --local 则可省略)")
+    parser.add_argument("--local-audio", help="本地音频文件路径")
+    parser.add_argument("--local-json", help="本地原始 JSON 文件路径")
     parser.add_argument(
         "--translation-only",
         action="store_true",
@@ -607,11 +637,17 @@ if __name__ == "__main__":
     fixer = TimestampFixer()
     mode = "translation_only" if args.translation_only else "full"
     only_missing_translation = not args.retranslate_all
+    
+    if not record_id and not (args.local_audio and args.local_json):
+        parser.error("必须提供 record_id 或同时提供 --local-audio 和 --local-json")
+
     success = fixer.run(
         record_id,
-        auto_upload=not args.no_upload,
+        auto_upload=not args.no_upload if record_id else False,
         mode=mode,
         only_missing_translation=only_missing_translation,
+        local_audio=args.local_audio,
+        local_json=args.local_json
     )
     
     sys.exit(0 if success else 1)

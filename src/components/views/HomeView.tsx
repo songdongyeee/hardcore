@@ -180,10 +180,10 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete, aut
       // 🚀 阶段 1: 尝试加载缓存（不等待 Auth）
       if (!hasCacheLoadedRef.current) {
         // 🔥 CACHE BUSTER: Force clear cache for version upgrade (Fixing .m4a -> .mp3)
-        const CACHE_VERSION_KEY = 'cache_version_v2';
+        const CACHE_VERSION_KEY = 'cache_version_v3';
         const { value: currentVersion } = await Preferences.get({ key: CACHE_VERSION_KEY });
 
-        if (currentVersion !== '1') {
+        if (currentVersion !== '2') {
           console.log('🧹 [Cache Buster] Clearing old cache for upgrade...');
           await Filesystem.deleteFile({
             path: 'cache/materials.json',
@@ -191,8 +191,8 @@ export function HomeView({ onPlay, onProfile, isActive, isAuthCheckComplete, aut
           }).catch(() => { });
           await Preferences.remove({ key: 'materials_snapshot_v1' }); // Clear legacy
           await Preferences.remove({ key: 'materials_snapshot_fs_exists' }); // Clear filesystem snapshot marker
-          await Preferences.set({ key: CACHE_VERSION_KEY, value: '1' });
-          console.log('✅ [Cache Buster] Cache cleared. Will reload fresh data.');
+          await Preferences.set({ key: CACHE_VERSION_KEY, value: '2' });
+          console.log('✅ [Cache Buster] Cache cleared to version 2.');
         }
 
         const snapshot = await materialService.getCachedSnapshot();

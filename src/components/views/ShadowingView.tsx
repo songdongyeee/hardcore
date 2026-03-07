@@ -1,9 +1,9 @@
-import { ChevronLeft, X, Play, Pause, RotateCcw, Ear, EarOff, Mic, Eye, EyeOff, Download } from "lucide-react";
+import { ChevronLeft, Play, Pause, RotateCcw, Mic, Eye, EyeOff, Download } from "lucide-react";
 // import { transcript } from "@/data/transcript"; // REMOVED STATIC IMPORT
 import type { TranscriptSegment } from "@/data/transcript";
 import { StepGuideModal } from "../ui/StepGuideModal";
 import { useState, useRef, useEffect } from "react";
-import { evaluateRecording, type EvaluationResult } from '@/lib/aiEvaluation';
+// import { type EvaluationResult } from '@/lib/aiEvaluation'; // AI 功能已隐藏
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { cn } from "@/lib/utils";
 import WaveSurfer from "wavesurfer.js";
@@ -40,9 +40,11 @@ export function ShadowingView({ onBack, audioSrc, transcript, materialId, wavefo
   const sessionKey = `shadowing_session_${audioSrc.replace(/[^a-z0-9]/gi, '_')}`;
 
   // --- AI 评价状态 ---
+  /*
   const [evalResult, setEvalResult] = useState<EvaluationResult | null>(null);
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [showEvalPanel, setShowEvalPanel] = useState(false);
+  */
 
   // --- State Machine ---
   const [status, setStatus] = useState<ShadowingStatus>('idle');
@@ -89,17 +91,18 @@ export function ShadowingView({ onBack, audioSrc, transcript, materialId, wavefo
     }
   }, [clozeMode, transcript]);
 
-  const [isPlayingMaster, setIsPlayingMaster] = useState(false);
-  const isPlayingMasterRef = useRef(false); // Ref for Loop Sync
-
-  // Mixer State
-  const [isSourceMuted, setIsSourceMuted] = useState(true); // Default OFF (Ear)
-  const [isUserMuted, setIsUserMuted] = useState(false);   // Default ON (Mic)
+  // 独立播放状态 — 原声 / 自己录音
+  const [isSourcePlaying, setIsSourcePlaying] = useState(false);
+  const isSourcePlayingRef = useRef(false);
+  const [isUserPlaying, setIsUserPlaying] = useState(false);
+  const isUserPlayingRef = useRef(false);
 
   // Audio Data
   const [duration, setDuration] = useState(0); // Source Duration
   const [userDuration, setUserDuration] = useState(0); // User Duration
-  const [recordedChunks, setRecordedChunks] = useState<string[]>([]);
+  // --- 多段录音 ---
+  type RecordedSegment = { b64: string; mimeType: string; startTime: number; duration: number; peaks: number[]; url: string };
+  const [recordedSegments, setRecordedSegments] = useState<RecordedSegment[]>([]);
 
   // Segmented Waveform State
   const [fullPeaks, setFullPeaks] = useState<number[] | null>(null);
@@ -134,13 +137,20 @@ export function ShadowingView({ onBack, audioSrc, transcript, materialId, wavefo
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const sourceContainerRef = useRef<HTMLDivElement>(null);
   const sourceWs = useRef<WaveSurfer | null>(null);
-  const userContainerRef = useRef<HTMLDivElement>(null);
-  const userWs = useRef<WaveSurfer | null>(null);
+
 
   const rafRef = useRef<number>(0);
   const startTimeRef = useRef<number>(0);
   const isDraggingRef = useRef(false);
+  const pausedTimeRef = useRef<number>(0);
+  const recordingStartOffsetRef = useRef<number>(0);
+  // 多段 WaveSurfer 实例管理
+  const segmentWsRefs = useRef<(WaveSurfer | null)[]>([]);
+  const segmentContainersRef = useRef<(HTMLDivElement | null)[]>([]);
+  const isTogglingRef = useRef(false);
   const statusRef = useRef(status);
+  // 追踪 userAudioRef 当前加载的是哪一个录音段索引
+  const loadedUserSegIdxRef = useRef<number>(-1);
 
   useEffect(() => { statusRef.current = status; }, [status]);
 
@@ -345,12 +355,16 @@ export function ShadowingView({ onBack, audioSrc, transcript, materialId, wavefo
               });
 
               if (file.data) {
-                setRecordedChunks([file.data as string]);
+                // 处理 peaks 数据以展示真实波形
+                const b64 = file.data as string;
+                const binStr2 = atob(b64);
+                const bytes2 = new Uint8Array(binStr2.length);
+                for (let k = 0; k < binStr2.length; k++) bytes2[k] = binStr2.charCodeAt(k);
+                const blob2 = new Blob([bytes2], { type: session.mimeType || 'audio/aac' });
+                const url2 = URL.createObjectURL(blob2);
+                const peaks2 = await processPeaks(blob2);
+                setRecordedSegments([{ b64, mimeType: session.mimeType || 'audio/aac', startTime: 0, duration: 0, peaks: peaks2, url: url2 }]);
                 setStatus('review');
-                // Defer waveform load slightly to allow render
-                setTimeout(() => {
-                  loadUserReviewWaveform(file.data as string, session.mimeType || 'audio/aac');
-                }, 100);
               } else {
                 console.warn("RESTORE FILE EMPTY");
               }
@@ -367,7 +381,6 @@ export function ShadowingView({ onBack, audioSrc, transcript, materialId, wavefo
 
     return () => {
       sourceWs.current?.destroy();
-      userWs.current?.destroy();
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
   }, []);
@@ -450,29 +463,34 @@ export function ShadowingView({ onBack, audioSrc, transcript, materialId, wavefo
 
   const stopPlaybackLoop = () => {
     if (playbackRafRef.current) cancelAnimationFrame(playbackRafRef.current);
-    // Pause actual audio
     sourceAudioRef.current?.pause();
     userAudioRef.current?.pause();
+    setIsSourcePlaying(false); setIsUserPlaying(false);
+    isSourcePlayingRef.current = false; isUserPlayingRef.current = false;
   };
 
   const lastScrollCheckRef = useRef(0);
 
   const onScroll = () => {
     if (!scrollContainerRef.current) return;
-    if (isPlayingMasterRef.current) return; // Do not process scroll events while playing (handled by loop)
+    if (isSourcePlayingRef.current || isUserPlayingRef.current) return; // 播放中不处理滚动
 
     const scrollLeft = scrollContainerRef.current.scrollLeft;
     const time = scrollLeft / PX_PER_SEC;
 
-    // 🔥 FIX: Subtract segmentStart to get relative time in segment
     if (sourceWs.current) {
-      // Only update if time is within this segment
       const relativeTime = time - segmentStart;
       if (relativeTime >= 0 && relativeTime <= SEGMENT_DURATION) {
         sourceWs.current.setTime(relativeTime);
       }
     }
-    if (userWs.current) userWs.current.setTime(time);
+    // 同步所有段的 WaveSurfer
+    segmentWsRefs.current.forEach((ws, i) => {
+      if (ws) {
+        const seg = recordedSegments[i];
+        if (seg) ws.setTime(Math.max(0, time - seg.startTime));
+      }
+    });
 
     // Sync Audio Position (Scrubbing)
     // Only seek if we are dragging/scrolling, so when we hit play it starts from here
@@ -514,7 +532,9 @@ export function ShadowingView({ onBack, audioSrc, transcript, materialId, wavefo
 
   const handlePointerDown = () => {
     isDraggingRef.current = true;
-    if (isPlayingMasterRef.current) toggleMasterPlay(); // Pause if playing
+    if (isSourcePlayingRef.current || isUserPlayingRef.current) {
+      stopPlaybackLoop();
+    }
   };
 
   const handlePointerUp = () => {
@@ -555,152 +575,109 @@ export function ShadowingView({ onBack, audioSrc, transcript, materialId, wavefo
 
 
 
-  const isTogglingRef = useRef(false);
+  // 智能滚回：如果当前基准线在最新段的结尾，自动滑回该段起始。返回最终决定的 uiTime。
+  const smartScrollIfNeeded = (): number => {
+    const scrollLeft = scrollContainerRef.current?.scrollLeft || 0;
+    const currentTime = scrollLeft / PX_PER_SEC;
 
-  const toggleMasterPlay = async () => {
+    const lastSeg = recordedSegments[recordedSegments.length - 1];
+    if (!lastSeg || lastSeg.duration <= 0) return currentTime;
+
+    const segEnd = lastSeg.startTime + lastSeg.duration;
+    // 如果离结尾很近（0.5s内），判定为录完音要回播
+    if (currentTime >= segEnd - 0.5) {
+      scrollToUnsafe(lastSeg.startTime);
+      return lastSeg.startTime;
+    }
+    return currentTime;
+  };
+
+  const toggleSourcePlay = async () => {
     if (isTogglingRef.current) return;
     isTogglingRef.current = true;
-
     try {
-      if (isPlayingMasterRef.current) {
-        // STOP ALL
-        stopPlaybackLoop();
-        setIsPlayingMaster(false);
-        isPlayingMasterRef.current = false;
+      if (isSourcePlayingRef.current) {
+        sourceAudioRef.current?.pause();
+        setIsSourcePlaying(false); isSourcePlayingRef.current = false;
+        if (!isUserPlayingRef.current && playbackRafRef.current) cancelAnimationFrame(playbackRafRef.current);
       } else {
-        // START ALL
-        const scrollLeft = scrollContainerRef.current?.scrollLeft || 0;
-        const startTime = scrollLeft / PX_PER_SEC;
-        const maxDur = Math.max(duration, userDuration);
-
-        // Reset if at end
-        if (startTime >= maxDur - 0.2) {
-          scrollToUnsafe(0);
-          if (sourceAudioRef.current) sourceAudioRef.current.currentTime = 0;
-          if (userAudioRef.current) userAudioRef.current.currentTime = 0;
-        } else {
-          // Sync Current Time
-          if (sourceAudioRef.current) sourceAudioRef.current.currentTime = startTime;
-          if (userAudioRef.current) userAudioRef.current.currentTime = startTime;
-        }
-
-        // Apply Mute State
+        const uiTime = smartScrollIfNeeded();
         if (sourceAudioRef.current) {
-          sourceAudioRef.current.volume = isSourceMuted ? 0 : 1.0;
-          sourceAudioRef.current.muted = isSourceMuted;
+          sourceAudioRef.current.currentTime = uiTime;
+          sourceAudioRef.current.volume = 1.0;
+          sourceAudioRef.current.muted = false;
+          await sourceAudioRef.current.play();
         }
+        setIsSourcePlaying(true); isSourcePlayingRef.current = true;
+        if (!isUserPlayingRef.current) startMasterLoop();
+      }
+    } catch (e) { console.error('Source play error', e); }
+    finally { isTogglingRef.current = false; }
+  };
+
+  const toggleUserPlay = async () => {
+    if (isTogglingRef.current) return;
+    isTogglingRef.current = true;
+    try {
+      if (isUserPlayingRef.current) {
+        userAudioRef.current?.pause();
+        setIsUserPlaying(false); isUserPlayingRef.current = false;
+        if (!isSourcePlayingRef.current && playbackRafRef.current) cancelAnimationFrame(playbackRafRef.current);
+      } else {
+        const uiTime = smartScrollIfNeeded();
+
+        // 🚀 根据当前基准时间找到对应的录音段
+        const segIdx = recordedSegments.findIndex(s => uiTime >= s.startTime && uiTime < s.startTime + (s.duration || 999));
+
         if (userAudioRef.current) {
-          userAudioRef.current.volume = isUserMuted ? 0 : 1.0;
-          userAudioRef.current.muted = isUserMuted;
+          if (segIdx !== -1) {
+            const seg = recordedSegments[segIdx];
+            // 如果切段了，更新 src 并等待加载
+            if (loadedUserSegIdxRef.current !== segIdx) {
+              userAudioRef.current.src = seg.url;
+              loadedUserSegIdxRef.current = segIdx;
+              // 等待元数据加载后再寻址播放，防止设置 currentTime 失败
+              await new Promise<void>((resolve) => {
+                const uAudio = userAudioRef.current;
+                if (!uAudio) return resolve();
+                const onLoaded = () => {
+                  uAudio.removeEventListener('loadedmetadata', onLoaded);
+                  resolve();
+                };
+                uAudio.addEventListener('loadedmetadata', onLoaded);
+                uAudio.load();
+              });
+            }
+            userAudioRef.current.currentTime = uiTime - seg.startTime;
+            userAudioRef.current.volume = 1.0;
+            userAudioRef.current.muted = false;
+            await userAudioRef.current.play();
+          } else {
+            // 当前位置没录音，但用户点了播放，我们让音频静默播放（作为时间轴驱动）
+            userAudioRef.current.volume = 0;
+            // 如果在 0 附近直接跳过
+            userAudioRef.current.currentTime = 0;
+            await userAudioRef.current.play();
+          }
         }
-
-        // Play Actual Audio
-        const p1 = sourceAudioRef.current?.play();
-        const p2 = userAudioRef.current?.play();
-
-        await Promise.all([p1, p2].filter(p => p !== undefined)).catch(e => console.warn("Play error", e));
-
-        setIsPlayingMaster(true);
-        isPlayingMasterRef.current = true;
-        startMasterLoop();
+        setIsUserPlaying(true); isUserPlayingRef.current = true;
+        if (!isSourcePlayingRef.current) startMasterLoop();
       }
     } catch (e) {
-      console.error("Master toggle failed", e);
-      setIsPlayingMaster(false);
-      isPlayingMasterRef.current = false;
-    } finally {
-      isTogglingRef.current = false;
+      console.error('User play error', e);
+      setIsUserPlaying(false); isUserPlayingRef.current = false;
     }
-  };
-
-  const startMasterLoop = () => {
-    if (playbackRafRef.current) cancelAnimationFrame(playbackRafRef.current);
-
-    // We use the actual audio playback time as the truth source
-    const useSourceAsMaster = sourceAudioRef.current && !sourceAudioRef.current.paused;
-    const masterAudio = useSourceAsMaster ? sourceAudioRef.current : userAudioRef.current;
-
-    // Fallback to performance.now if no audio is playing (rare)
-    const sysStart = performance.now();
-    const scrollLeft = scrollContainerRef.current?.scrollLeft || 0;
-    const startOffset = scrollLeft / PX_PER_SEC;
-
-    let lastUpdateTime = 0;
-    const UPDATE_INTERVAL = 30; // 30fps update for smooth UI
-
-    const loop = () => {
-      if (!isPlayingMasterRef.current) return;
-
-      const now = performance.now();
-
-      if (now - lastUpdateTime >= UPDATE_INTERVAL) {
-
-        let uiTime = 0;
-        if (masterAudio && !masterAudio.paused) {
-          uiTime = masterAudio.currentTime;
-        } else {
-          // Fallback clock
-          const elapsed = (now - sysStart) / 1000;
-          uiTime = startOffset + elapsed;
-        }
-
-        const maxDur = Math.max(duration, userDuration);
-
-        if (uiTime >= maxDur) {
-          uiTime = maxDur;
-          scrollToUnsafe(uiTime);
-          setIsPlayingMaster(false);
-          isPlayingMasterRef.current = false;
-          sourceAudioRef.current?.pause();
-          userAudioRef.current?.pause();
-          cancelAnimationFrame(playbackRafRef.current!);
-          return;
-        }
-
-        // Update UI
-        scrollToUnsafe(uiTime);
-
-        // Update WaveSurfer Visuals (Cursor)
-        if (sourceWs.current) {
-          const relTime = uiTime - segmentStart;
-          // 始终更新进度，不再限制范围
-          sourceWs.current.setTime(Math.max(0, Math.min(relTime, SEGMENT_DURATION)));
-        }
-        if (userWs.current) userWs.current.setTime(uiTime);
-
-        lastUpdateTime = now;
-      }
-
-      playbackRafRef.current = requestAnimationFrame(loop);
-    };
-    playbackRafRef.current = requestAnimationFrame(loop);
-  };
-
-  const toggleSourceMute = () => {
-    const newState = !isSourceMuted;
-    setIsSourceMuted(newState);
-    // Control Audio Element
-    if (sourceAudioRef.current) {
-      sourceAudioRef.current.volume = newState ? 0 : 1.0;
-      sourceAudioRef.current.muted = newState;
-    }
-    // No need to touch WaveSurfer volume as it's always 0
-  };
-
-  const toggleUserMute = () => {
-    const newState = !isUserMuted;
-    setIsUserMuted(newState);
-    // Control Audio Element
-    if (userAudioRef.current) {
-      userAudioRef.current.volume = newState ? 0 : 1.0;
-      userAudioRef.current.muted = newState;
-    }
+    finally { isTogglingRef.current = false; }
   };
 
   // --- Recording Logic ---
 
   const stopRecording = async () => {
     try {
+      // 🔥 记录暂停时的物理时间点（滚动位置 → 秒），用于继续录音的起点偏移
+      const scrollLeft = scrollContainerRef.current?.scrollLeft || 0;
+      pausedTimeRef.current = scrollLeft / PX_PER_SEC;
+
       await Haptics.impact({ style: ImpactStyle.Heavy });
       await new Promise(r => setTimeout(r, 200));
 
@@ -711,16 +688,29 @@ export function ShadowingView({ onBack, audioSrc, transcript, materialId, wavefo
 
       if (res.value.recordDataBase64) {
         const b64 = res.value.recordDataBase64;
-        setRecordedChunks(prev => [...prev, b64]);
-        loadUserReviewWaveform(b64, res.value.mimeType);
+        const segStartTime = recordingStartOffsetRef.current;
+        // const segEndTime = pausedTimeRef.current; // AI 评价范围基准，当前版本隐藏逻辑中暂不使用
+        // 追加当前段（内联处理 peaks + blob URL，由 useEffect 创建 WaveSurfer）
+        const binStr = atob(b64);
+        const byteArr = new Uint8Array(binStr.length);
+        for (let k = 0; k < binStr.length; k++) byteArr[k] = binStr.charCodeAt(k);
+        const blob = new Blob([byteArr], { type: res.value.mimeType || 'audio/aac' });
+        const url = URL.createObjectURL(blob);
+        const peaks = await processPeaks(blob);
+        setRecordedSegments(prev => [...prev, { b64, mimeType: res.value.mimeType || 'audio/aac', startTime: segStartTime, duration: 0, peaks, url }]);
 
-        // 🤖 停录后自动触发 AI 评价
+        // 🤖 停录后自动触发 AI 评价（当前版本已隐藏）
+        /*
         setIsEvaluating(true);
         setShowEvalPanel(true);
-        const sentences = transcript.map(s => s.text);
-        evaluateRecording(b64, res.value.mimeType || 'audio/aac', sentences, materialId)
+        const segSentences = transcript
+          .filter(s => s.end > segStartTime && s.start < segEndTime)
+          .map(s => s.text);
+        const sentencesToEval = segSentences.length > 0 ? segSentences : transcript.map(s => s.text);
+        evaluateRecording(b64, res.value.mimeType || 'audio/aac', sentencesToEval, materialId)
           .then(result => { setEvalResult(result); setIsEvaluating(false); })
           .catch(() => { setIsEvaluating(false); });
+        */
 
         // PERSIST SESSION
         try {
@@ -746,11 +736,10 @@ export function ShadowingView({ onBack, audioSrc, transcript, materialId, wavefo
   useEffect(() => {
     if (status === 'review') {
       if (recordingRafRef.current) cancelAnimationFrame(recordingRafRef.current);
+      // 🔥 FIX: 不再强制归零，保留暂停时的时间轴位置，让用户看到刚才录到的地方
       requestAnimationFrame(() => {
-        scrollToUnsafe(0);
         if (sourceWs.current) {
-          sourceWs.current.setTime(0);
-          sourceWs.current.setVolume(isSourceMuted ? 0 : 1.0);
+          sourceWs.current.setVolume(1.0);
         }
       });
     }
@@ -781,7 +770,10 @@ export function ShadowingView({ onBack, audioSrc, transcript, materialId, wavefo
 
       // ✅ 阶段2: 录音真正开始,切换到"录音中"
       setStatus('recording');
-      const startOffset = sourceWs.current ? sourceWs.current.getCurrentTime() : 0;
+      // 🔥 FIX: 用滚动容器的真实物理时间作为偏移（支持从暂停点继续录音）
+      const scrollLeft = scrollContainerRef.current?.scrollLeft || 0;
+      const startOffset = scrollLeft / PX_PER_SEC;
+      recordingStartOffsetRef.current = startOffset; // 保存本段起始时间
       startTimeRef.current = performance.now() - (startOffset * 1000);
 
       if (sourceWs.current) sourceWs.current.pause();
@@ -839,70 +831,152 @@ export function ShadowingView({ onBack, audioSrc, transcript, materialId, wavefo
     return peaks;
   };
 
-  const loadUserReviewWaveform = async (base64: string, mimeType: string) => {
-    if (!userContainerRef.current) return;
-    try {
-      console.log('[Waveform] Starting load, base64 length:', base64.length);
+  // segmentStartTime 由调用处传入，JSX 通过 recordedSegments state 读取，故此处以 _ 前缀标注
+  const startMasterLoop = () => {
+    if (playbackRafRef.current) cancelAnimationFrame(playbackRafRef.current);
 
-      const bin = atob(base64);
-      const len = bin.length;
-      const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
-      const blob = new Blob([bytes], { type: mimeType });
-      const url = URL.createObjectURL(blob);
+    // 锚点时钟：启动时记录一次位置和系统时间，后续完全由增量驱动，不读取 DOM
+    const rawScrollLeft = scrollContainerRef.current?.scrollLeft || 0;
+    const anchorTime = rawScrollLeft / PX_PER_SEC;
+    const anchorSystemTime = performance.now();
 
-      // Load into User Audio Engine
-      if (userAudioRef.current) {
-        userAudioRef.current.src = url;
-        userAudioRef.current.load();
+    const loop = () => {
+      if (!isSourcePlayingRef.current && !isUserPlayingRef.current) return;
+
+      const now = performance.now();
+      const deltaFromAnchor = (now - anchorSystemTime) / 1000;
+
+      // uiTime 只由锚点 + 增量构成，不受 DOM 读写抖动影响
+      let uiTime = anchorTime + deltaFromAnchor;
+
+      // 1. 原声基准对齐 (如果是原声播放，以原声音频为准修正，因为它更稳)
+      if (isSourcePlayingRef.current && sourceAudioRef.current) {
+        uiTime = sourceAudioRef.current.currentTime;
       }
 
-      console.log('[Waveform] Processing peaks...');
-      const userPeaks = await processPeaks(blob);
+      // 2. 动态音频路由 (录音分段自动对齐)
+      if (isUserPlayingRef.current && userAudioRef.current && !isTogglingRef.current) {
+        const targetSegIdx = recordedSegments.findIndex(s => uiTime >= s.startTime && uiTime < s.startTime + (s.duration || 0.1));
 
-      console.log('[Waveform] Creating WaveSurfer instance...');
-      if (userWs.current) userWs.current.destroy();
+        if (targetSegIdx !== -1) {
+          const seg = recordedSegments[targetSegIdx];
+          if (loadedUserSegIdxRef.current !== targetSegIdx) {
+            console.log(`[AudioEngine] Stance-Switching to segment ${targetSegIdx}`);
+            userAudioRef.current.src = seg.url;
+            userAudioRef.current.load();
+            userAudioRef.current.currentTime = Math.max(0, uiTime - seg.startTime);
+            userAudioRef.current.play().catch(() => { });
+            loadedUserSegIdxRef.current = targetSegIdx;
+          } else {
+            // 纠偏阈值放宽到 0.3s，防止微小漂移导致音频寻址频繁跳变（卡顿元凶）
+            const drift = Math.abs(userAudioRef.current.currentTime - (uiTime - seg.startTime));
+            if (drift > 0.3) {
+              userAudioRef.current.currentTime = uiTime - seg.startTime;
+            }
+          }
+          userAudioRef.current.volume = 1.0;
+        } else {
+          userAudioRef.current.volume = 0;
+        }
+      }
 
-      userWs.current = WaveSurfer.create({
-        container: userContainerRef.current,
+      // 3. 检查是否结束
+      const lastSeg = recordedSegments[recordedSegments.length - 1];
+      const maxUserTime = lastSeg ? lastSeg.startTime + lastSeg.duration : 0;
+      const totalDuration = duration || 0;
+
+      if (isSourcePlayingRef.current && uiTime >= totalDuration - 0.01) {
+        sourceAudioRef.current?.pause();
+        setIsSourcePlaying(false); isSourcePlayingRef.current = false;
+      }
+      if (isUserPlayingRef.current && uiTime >= maxUserTime - 0.01) {
+        userAudioRef.current?.pause();
+        setIsUserPlaying(false); isUserPlayingRef.current = false;
+      }
+
+      if (!isSourcePlayingRef.current && !isUserPlayingRef.current) {
+        if (playbackRafRef.current) cancelAnimationFrame(playbackRafRef.current);
+        return;
+      }
+
+      // 4. 同步 UI 和波形
+      scrollToUnsafe(uiTime);
+      if (sourceWs.current) {
+        const relTime = uiTime - segmentStart;
+        sourceWs.current.setTime(Math.max(0, Math.min(relTime, SEGMENT_DURATION)));
+      }
+      segmentWsRefs.current.forEach((ws, i) => {
+        if (ws) {
+          const seg = recordedSegments[i];
+          if (seg && seg.duration > 0) {
+            const relT = uiTime - seg.startTime;
+            ws.setTime(Math.max(0, Math.min(relT, seg.duration)));
+          }
+        }
+      });
+
+      playbackRafRef.current = requestAnimationFrame(loop);
+    };
+    playbackRafRef.current = requestAnimationFrame(loop);
+  };
+
+  // 每新增一段录音，创建对应的 WaveSurfer 实例
+  useEffect(() => {
+    if (recordedSegments.length === 0) return;
+    const i = recordedSegments.length - 1;
+    const seg = recordedSegments[i];
+    if (!seg.peaks || seg.peaks.length === 0 || !seg.url) return;
+
+    requestAnimationFrame(() => {
+      const container = segmentContainersRef.current[i];
+      if (!container) return;
+
+      if (segmentWsRefs.current[i]) { segmentWsRefs.current[i]!.destroy(); }
+
+      const ws = WaveSurfer.create({
+        container,
         waveColor: '#ff3b30',
-        progressColor: '#b02a22',
+        progressColor: '#c0392b',
         cursorColor: 'transparent',
-        // --- VISUAL: Apple Style (Matches Source) ---
-        barWidth: 2,
-        barGap: 2,
-        barRadius: 2,
+        barWidth: 2, barGap: 2, barRadius: 2,
         height: WAVE_HEIGHT,
-        url: url, // Still provide URL for audio playback
-        peaks: [userPeaks], // Force use of our optimized peaks
+        url: seg.url,
+        peaks: [seg.peaks],
         interact: false,
         fillParent: false,
         minPxPerSec: PX_PER_SEC,
         autoScroll: false,
         normalize: true,
       });
-      // Visual only
-      userWs.current.setVolume(0);
+      ws.setVolume(0);
+      segmentWsRefs.current[i] = ws;
 
-      userWs.current.on('ready', (d) => {
-        console.log('[Waveform] Ready, duration:', d);
+      // 最新段 → 设为用户音频源
+      if (userAudioRef.current) {
+        userAudioRef.current.src = seg.url;
+        userAudioRef.current.load();
+        loadedUserSegIdxRef.current = i; // 同步记录当前加载的段索引
+      }
+
+      ws.on('ready', (d) => {
         setUserDuration(d);
-        userWs.current?.setVolume(1.0);
+        ws.setVolume(1.0);
+        setRecordedSegments(prev =>
+          prev.length > 0
+            ? [...prev.slice(0, -1), { ...prev[prev.length - 1], duration: d }]
+            : prev
+        );
       });
-      userWs.current.on('finish', () => { });
-      userWs.current.on('error', (err) => {
-        console.error('[Waveform] WS Error', err);
-        alert('波形加载错误：' + err.message);
-      });
+      ws.on('error', (err) => console.error('[SegmentWS] Error:', err));
+    });
+  }, [recordedSegments.length]);
 
-      console.log('[Waveform] Load complete');
-    } catch (e: any) {
-      console.error('[Waveform] Load failed:', e);
-      alert('波形加载失败: ' + e.message + '\n\n音频可能过长，建议分段上传。');
-    }
-  };
-
-  const totalDuration = Math.max(duration, userDuration);
+  // 总用户录音的时间范围 = 最后一段的起始 + 时长
+  const lastSeg = recordedSegments[recordedSegments.length - 1];
+  const totalUserDuration = lastSeg
+    ? lastSeg.startTime + (lastSeg.duration > 0 ? lastSeg.duration : userDuration)
+    : userDuration;
+  const totalDuration = Math.max(duration, totalUserDuration);
   const totalWidth = totalDuration > 0 ? (totalDuration * PX_PER_SEC) : '100%';
 
   // 🔥 FIX: Calculate padding based on actual container width, not viewport width
@@ -923,11 +997,19 @@ export function ShadowingView({ onBack, audioSrc, transcript, materialId, wavefo
           <div className="flex items-center justify-end w-10">
             <StepGuideModal
               stepKey="shadowing"
-              title="第三步：分段复述"
+              title="第三步方法提示"
+              onOpen={() => {
+                sourceAudioRef.current?.pause();
+                userAudioRef.current?.pause();
+              }}
+              onClose={() => {
+                if (isSourcePlayingRef.current) sourceAudioRef.current?.play().catch(() => { });
+                if (isUserPlayingRef.current) userAudioRef.current?.play().catch(() => { });
+              }}
               description={
-                <div className="flex flex-col gap-3 text-left">
-                  <p>挑战复述或背诵整段材料，注意<strong>语速和流利度</strong>。</p>
-                  <p>在这你可以<strong>一段一段地复述</strong>。点击评价功能，我们的AI将直接针对你的纯净录音进行多维度口语评价。</p>
+                <div className="flex flex-col gap-4 text-left">
+                  <p>复述或背诵整段内容，注意语速和时间。</p>
+                  <p>一段一段复述，对比录音和原材料。</p>
                 </div>
               }
             />
@@ -986,7 +1068,7 @@ export function ShadowingView({ onBack, audioSrc, transcript, materialId, wavefo
                 }}
               />
 
-              <div className="absolute top-[214px] left-4 z-30 pointer-events-auto">
+              <div className="absolute top-[214px] left-0 z-40 pointer-events-auto sticky left-4 w-fit">
                 <button
                   onClick={toggleCloze}
                   className="flex items-center gap-1.5 px-2.5 py-1 bg-zinc-900/95 backdrop-blur-md border border-zinc-700/50 rounded-full text-[10px] font-bold text-zinc-100 shadow-xl active:scale-95 transition-all h-[24px] min-w-[60px] justify-center"
@@ -1012,7 +1094,7 @@ export function ShadowingView({ onBack, audioSrc, transcript, materialId, wavefo
                       <div
                         key={`${si}-${wi}`}
                         className={cn(
-                          "absolute top-[4px] flex items-center justify-center text-xs font-medium transition-all duration-300 select-none px-0.5 whitespace-nowrap overflow-hidden rounded-[2px] h-[18px]",
+                          "absolute top-[4px] flex items-center justify-start text-xs font-medium transition-all duration-300 select-none px-0.5 whitespace-nowrap overflow-hidden rounded-[2px] h-[18px] text-left",
                           // UI Polish: Block style for Cloze
                           (() => {
                             if (clozeMode === 'hidden') return "bg-zinc-800 text-transparent";
@@ -1031,15 +1113,18 @@ export function ShadowingView({ onBack, audioSrc, transcript, materialId, wavefo
                 )}
               </div>
 
-              <div className="absolute top-[250px] left-0 w-full h-[160px] pointer-events-none">
+              {/* 所有录音段：各有独立 WaveSurfer，定位在正确起始处，段间有分割线 */}
+              {recordedSegments.map((seg, i) => (
                 <div
-                  ref={userContainerRef}
-                  className={cn(
-                    "absolute inset-0 w-full h-full transition-opacity duration-500 delay-100",
-                    status === 'review' ? "opacity-100" : "opacity-0"
-                  )}
+                  key={`seg-container-${i}`}
+                  className="absolute top-[250px] h-[160px] pointer-events-none"
+                  style={{
+                    left: `${seg.startTime * PX_PER_SEC}px`,
+                    borderLeft: i > 0 ? '1px solid rgba(255,255,255,0.15)' : 'none',
+                  }}
+                  ref={(el) => { segmentContainersRef.current[i] = el; }}
                 />
-              </div>
+              ))}
             </div>
           </div>
 
@@ -1065,50 +1150,52 @@ export function ShadowingView({ onBack, audioSrc, transcript, materialId, wavefo
             </div>
           )}
 
-          {status === 'review' && (
-            <>
-              <div className="absolute right-0 top-0 bottom-0 w-[48px] border-l border-zinc-800/50 bg-black/20 z-10 animate-in fade-in slide-in-from-right-8">
-                <div className="absolute top-[60px] left-0 right-0 flex flex-col items-center gap-2 h-[160px] justify-center">
-                  <div className="flex flex-col items-center gap-1.5">
-                    <button
-                      onClick={toggleSourceMute}
-                      className={cn(
-                        "w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200",
-                        !isSourceMuted
-                          ? "bg-white text-black shadow-[0_0_15px_rgba(255,255,255,0.4)] scale-110"
-                          : "bg-zinc-800 text-zinc-500 border border-zinc-500"
-                      )}
-                    >
-                      {!isSourceMuted ? <Ear className="w-3.5 h-3.5" /> : <EarOff className="w-3.5 h-3.5" />}
-                    </button>
-                    <span className="text-[8px] font-bold tracking-widest transition-colors text-zinc-200">原声</span>
-                  </div>
-                </div>
-                <div className="absolute top-[250px] left-0 right-0 flex flex-col items-center gap-2 h-[160px] justify-center">
-                  <div className="flex flex-col items-center gap-1.5">
-                    <button
-                      onClick={toggleUserMute}
-                      className={cn(
-                        "w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200",
-                        !isUserMuted
-                          ? "bg-white text-black shadow-[0_0_15px_rgba(255,255,255,0.4)] scale-110"
-                          : "bg-zinc-800 text-zinc-500 border border-zinc-500"
-                      )}
-                    >
-                      {!isUserMuted ? <Ear className="w-3.5 h-3.5" /> : <EarOff className="w-3.5 h-3.5" />}
-                    </button>
-                    <span className="text-[8px] font-bold tracking-widest transition-colors text-zinc-200">录音</span>
-                  </div>
-                </div>
+          {/* 🎵 悬浮播放按钮——固定在屏幕水平居中，分别浮在原声 / 录音波形上 */}
+          {!showPaywall && status !== 'recording' && status !== 'preparing' && (
+            <button
+              onClick={toggleSourcePlay}
+              className="absolute left-1/2 -translate-x-1/2 z-[100] flex flex-col items-center gap-1 active:scale-95 transition-transform"
+              style={{ top: '92px' }}
+            >
+              <div className={cn(
+                "w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 shadow-xl relative",
+                isSourcePlaying
+                  ? "bg-white text-black scale-105 shadow-white/40"
+                  : "bg-zinc-900/80 text-white border border-white/20 backdrop-blur-xl"
+              )}>
+                {isSourcePlaying
+                  ? <Pause className="w-4 h-4 fill-current" />
+                  : <Play className="w-4 h-4 fill-current ml-0.5" />}
               </div>
-
-              <button
-                onClick={toggleMasterPlay}
-                className="absolute left-1/2 -translate-x-1/2 bottom-[30px] z-10 w-20 h-20 rounded-full bg-white text-black shadow-[0_0_40px_rgba(255,255,255,0.4)] flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
-              >
-                {isPlayingMaster ? <Pause className="w-8 h-8 fill-current" /> : <Play className="w-8 h-8 fill-current ml-1" />}
-              </button>
-            </>
+              <div className="px-1.5 py-0.5 rounded-full bg-black/40 backdrop-blur-md border border-white/10">
+                <span className={cn("text-[8px] font-bold tracking-wider",
+                  isSourcePlaying ? "text-white" : "text-white/60"
+                )}>原声</span>
+              </div>
+            </button>
+          )}
+          {!showPaywall && recordedSegments.length > 0 && status !== 'recording' && status !== 'preparing' && (
+            <button
+              onClick={toggleUserPlay}
+              className="absolute left-1/2 -translate-x-1/2 z-[100] flex flex-col items-center gap-1 active:scale-95 transition-transform"
+              style={{ top: '300px' }}
+            >
+              <div className={cn(
+                "w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 shadow-xl relative",
+                isUserPlaying
+                  ? "bg-red-500 text-white scale-105 shadow-red-500/50"
+                  : "bg-zinc-900/80 text-red-500 border border-red-500/20 backdrop-blur-xl shadow-red-500/5"
+              )}>
+                {isUserPlaying
+                  ? <Pause className="w-4 h-4 fill-current" />
+                  : <Play className="w-4 h-4 fill-current ml-0.5" />}
+              </div>
+              <div className="px-1.5 py-0.5 rounded-full bg-red-500/10 backdrop-blur-md border border-red-500/20">
+                <span className={cn("text-[8px] font-bold tracking-wider",
+                  isUserPlaying ? "text-red-500" : "text-red-500/60"
+                )}>录音</span>
+              </div>
+            </button>
           )}
         </div>
 
@@ -1122,7 +1209,7 @@ export function ShadowingView({ onBack, audioSrc, transcript, materialId, wavefo
                     <Mic className="w-8 h-8 text-white" />
                   </div>
                 </button>
-                <span className="absolute mt-28 text-xs text-zinc-500 tracking-wider font-medium">TAP TO RECORD</span>
+                <span className="absolute mt-28 text-xs text-zinc-500 tracking-wider font-medium">点击录音</span>
               </div>
             )}
 
@@ -1156,13 +1243,14 @@ export function ShadowingView({ onBack, audioSrc, transcript, materialId, wavefo
                 <button
                   onClick={() => {
                     if (sourceWs.current) { sourceWs.current.setTime(0); sourceWs.current.pause(); }
-                    if (userWs.current) { userWs.current.destroy(); userWs.current = null; }
+                    segmentWsRefs.current.forEach(ws => ws?.destroy());
+                    segmentWsRefs.current = [];
+                    segmentContainersRef.current = [];
                     scrollToUnsafe(0);
-                    setRecordedChunks([]);
+                    setRecordedSegments([]);
+                    setUserDuration(0);
+                    recordingStartOffsetRef.current = 0;
                     setStatus('idle');
-                    setEvalResult(null);
-                    setShowEvalPanel(false);
-                    Preferences.remove({ key: sessionKey });
                   }}
                   className="flex-1 h-14 rounded-2xl bg-zinc-900 text-zinc-400 font-semibold flex items-center justify-center gap-1.5 border border-zinc-800 hover:bg-zinc-800 hover:text-white active:scale-95 transition-all"
                 >
@@ -1173,7 +1261,6 @@ export function ShadowingView({ onBack, audioSrc, transcript, materialId, wavefo
                 {/* 继续录制 */}
                 <button
                   onClick={() => {
-                    setShowEvalPanel(false);
                     setStatus('idle');
                     // 不重置 sourceWs 进度，允许从刚好结束的地方继续录新的一段！
                   }}
@@ -1185,7 +1272,7 @@ export function ShadowingView({ onBack, audioSrc, transcript, materialId, wavefo
                 {/* 保存所有段落录音 */}
                 <button
                   onClick={async () => {
-                    if (recordedChunks.length === 0) return;
+                    if (recordedSegments.length === 0) return;
                     if (pb.authStore.isValid && !pb.authStore.model) {
                       try { await pb.collection('users').authRefresh(); } catch (e) { }
                     }
@@ -1193,11 +1280,11 @@ export function ShadowingView({ onBack, audioSrc, transcript, materialId, wavefo
                     const isPaidUser = (user?.subscription_tier || 'free') !== 'free';
                     if (!isPaidUser) { setShowPaywall(true); return; }
                     try {
-                      for (let i = 0; i < recordedChunks.length; i++) {
+                      for (let i = 0; i < recordedSegments.length; i++) {
                         const fileName = `shadowing_${Date.now()}_part${i + 1}.aac`;
-                        await Filesystem.writeFile({ path: fileName, data: recordedChunks[i], directory: Directory.Documents });
+                        await Filesystem.writeFile({ path: fileName, data: recordedSegments[i].b64, directory: Directory.Documents });
                       }
-                      alert(`保存成功！\n\n已无损保存 ${recordedChunks.length} 段录音至\u201c文件 > 我的iPhone > 语核\u201d文件夹`);
+                      alert(`保存成功！\n\n已无损保存 ${recordedSegments.length} 段录音至\u201c文件 > 我的iPhone > 语核\u201d文件夹`);
                     } catch (e: any) { alert("Save Failed:" + e.message); }
                   }}
                   className="flex-1 h-14 rounded-2xl bg-[#00D68F]/10 text-[#00D68F] font-semibold flex items-center justify-center gap-1.5 border border-[#00D68F]/30 hover:bg-[#00D68F]/20 active:scale-95 transition-all"
@@ -1216,120 +1303,6 @@ export function ShadowingView({ onBack, audioSrc, transcript, materialId, wavefo
           />
         </div>
       </div>
-
-      {/* 🤖 AI 评价卡片悬浮（不遮挡底栏） */}
-      {showEvalPanel && (
-        <div className="absolute inset-x-0 top-0 bottom-48 z-[200] bg-black/60 backdrop-blur-sm flex items-end justify-center animate-in fade-in pb-4">
-          <div className="w-full h-full max-h-[80vh] max-w-md bg-zinc-950/95 shadow-2xl animate-in slide-in-from-bottom-8 flex flex-col mx-4 rounded-3xl border border-zinc-800 overflow-hidden">
-
-            {/* 顶部标题与关闭 */}
-            <div className="flex justify-between items-center pt-5 pb-3 px-6 shrink-0 relative border-b border-zinc-800/50">
-              <div className="flex flex-col">
-                <span className="text-xs font-bold tracking-widest text-indigo-400 uppercase mb-0.5">语核 AI</span>
-                <h2 className="text-base font-bold text-white leading-tight">口语评价报告</h2>
-              </div>
-              <button onClick={() => setShowEvalPanel(false)} className="p-2 text-zinc-400 hover:text-white rounded-full bg-zinc-900/50 hover:bg-zinc-800 transition-colors">
-                <X size={18} />
-              </button>
-            </div>
-
-            {/* 评价内容区（可滚动）*/}
-            <div className="flex-1 overflow-y-auto px-6 pb-8 no-scrollbar">
-
-              {isEvaluating ? (
-                /* Loading 状态 */
-                <div className="flex flex-col items-center justify-center py-16 gap-4">
-                  <div className="relative w-20 h-20">
-                    <div className="absolute inset-0 rounded-full border-4 border-zinc-800" />
-                    <div className="absolute inset-0 rounded-full border-4 border-t-indigo-500 border-r-indigo-500 border-b-transparent border-l-transparent animate-spin" />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-2xl">🎙</span>
-                    </div>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-white font-semibold">AI 正在分析你的录音</p>
-                    <p className="text-zinc-500 text-sm mt-1">评估流利度、发音、语速...</p>
-                  </div>
-                </div>
-              ) : evalResult ? (
-                <>
-                  {/* 总分圆 */}
-                  <div className="flex flex-col items-center py-6">
-                    <div className="relative w-28 h-28">
-                      <svg className="w-28 h-28 -rotate-90" viewBox="0 0 100 100">
-                        <circle cx="50" cy="50" r="42" fill="none" stroke="#27272a" strokeWidth="8" />
-                        <circle
-                          cx="50" cy="50" r="42" fill="none"
-                          stroke={evalResult.overallScore >= 90 ? '#a78bfa' : evalResult.overallScore >= 80 ? '#6366f1' : evalResult.overallScore >= 70 ? '#38bdf8' : '#f97316'}
-                          strokeWidth="8" strokeLinecap="round"
-                          strokeDasharray={`${2 * Math.PI * 42}`}
-                          strokeDashoffset={`${2 * Math.PI * 42 * (1 - evalResult.overallScore / 100)}`}
-                          className="transition-all duration-1000"
-                        />
-                      </svg>
-                      <div className="absolute inset-0 flex flex-col items-center justify-center">
-                        <span className="text-3xl font-black text-white">{evalResult.overallScore}</span>
-                        <span className="text-xs text-zinc-500 font-bold tracking-widest">{evalResult.grade} 级</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 4 维度评分 */}
-                  <div className="space-y-3 mb-6">
-                    {evalResult.dimensions.map(dim => (
-                      <div key={dim.key} className="bg-zinc-900 rounded-2xl p-4">
-                        <div className="flex justify-between items-center mb-2">
-                          <span className="text-sm font-semibold text-zinc-200">{dim.label}</span>
-                          <span className="text-sm font-bold text-white tabular-nums">{dim.score}</span>
-                        </div>
-                        <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden mb-2">
-                          <div
-                            className="h-full rounded-full transition-all duration-700"
-                            style={{
-                              width: `${dim.score}%`,
-                              background: dim.score >= 85 ? 'linear-gradient(90deg,#6366f1,#a78bfa)' : dim.score >= 70 ? 'linear-gradient(90deg,#0ea5e9,#6366f1)' : 'linear-gradient(90deg,#f97316,#eab308)'
-                            }}
-                          />
-                        </div>
-                        <p className="text-xs text-zinc-500">{dim.comment}</p>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* 逐句评价 */}
-                  {evalResult.sentences.length > 0 && (
-                    <div className="mb-6">
-                      <h3 className="text-xs font-bold tracking-widest text-zinc-500 uppercase mb-3">逐句评价</h3>
-                      <div className="space-y-2">
-                        {evalResult.sentences.map((s, i) => (
-                          <div key={i} className="bg-zinc-900/60 rounded-xl p-3 border border-zinc-800/50">
-                            <div className="flex items-start justify-between gap-2 mb-1">
-                              <p className="text-sm text-zinc-300 leading-snug flex-1">{s.original}</p>
-                              <span className={`text-xs font-bold tabular-nums shrink-0 ${s.score >= 85 ? 'text-indigo-400' : s.score >= 70 ? 'text-sky-400' : 'text-orange-400'}`}>{s.score}</span>
-                            </div>
-                            <p className="text-xs text-zinc-500">{s.feedback}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* 总体建议 */}
-                  <div className="bg-indigo-950/40 border border-indigo-800/40 rounded-2xl p-4 mb-4">
-                    <h3 className="text-xs font-bold tracking-widest text-indigo-400 uppercase mb-2">AI 建议</h3>
-                    <p className="text-sm text-zinc-300 leading-relaxed">{evalResult.suggestion}</p>
-                  </div>
-                </>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-16 gap-3">
-                  <p className="text-zinc-500 text-sm">评价数据暂不可用</p>
-                </div>
-              )}
-            </div>
-
-          </div>
-        </div>
-      )}
     </div>
   );
 }

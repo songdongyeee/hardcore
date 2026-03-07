@@ -1032,8 +1032,36 @@ export const materialService = {
         // 保留旧数据
         existing.forEach(m => map.set(m.id, m));
 
-        // 合并新数据（覆盖更新）
-        newItems.forEach(m => map.set(m.id, m));
+        // 合并新数据（覆盖更新，但保留关键字段）
+        newItems.forEach(newItem => {
+            const existingItem = map.get(newItem.id);
+            if (existingItem) {
+                // 如果 newItem 缺少转写或波形（快照通常会去掉这些大字段），保留原有的
+                const merged = { ...existingItem, ...newItem };
+
+                if (!newItem.transcript || newItem.transcript.length === 0) {
+                    merged.transcript = existingItem.transcript;
+                }
+                if (!newItem.waveform_data || newItem.waveform_data.length === 0) {
+                    merged.waveform_data = existingItem.waveform_data;
+                }
+
+                // 🔥 保护时长和难度：如果新数据是默认值（00:00），保留旧的有效值
+                if (newItem.tags && existingItem.tags) {
+                    merged.tags = {
+                        ...existingItem.tags,
+                        ...newItem.tags,
+                        duration: (newItem.tags.duration === '00:00' || !newItem.tags.duration)
+                            ? existingItem.tags.duration
+                            : newItem.tags.duration,
+                    };
+                }
+
+                map.set(newItem.id, merged);
+            } else {
+                map.set(newItem.id, newItem);
+            }
+        });
 
         return Array.from(map.values());
     },

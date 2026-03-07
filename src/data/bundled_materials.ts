@@ -190,9 +190,9 @@ const GENERATED_MATERIALS: Material[] = RAW_DATA_INPUT.map((item, index) => {
         ...manual, // Spread manual config first (includes title, subtitle, customOrder, etc.)
 
         // Override with required/computed fields that should never be from manual config
-        id: `bundled-${nameNoExt}`,
-        source: 'bundled',
-        location: manual.location || supportedLocation, // Allow manual override but provide fallback
+        id: item.id || `bundled-${nameNoExt}`,
+        source: 'bundled' as const,
+        location: (manual.location as any) || supportedLocation, // Allow manual override but provide fallback
 
         // Only use generated title/subtitle if manual doesn't specify them
         title: manual.title || title,
