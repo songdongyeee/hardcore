@@ -11,7 +11,7 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: ReleaseNote = {
-    version: "1.10.7", // 每次发版前更新此版本号
+    version: "1.20.2", // 仅用于控制首页“新特性”弹窗的显示，不作为 App 真实版本上报
     title: "全新版本焕新开启",
     features: [
         {

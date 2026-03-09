@@ -163,7 +163,8 @@ function App() {
   // 🚀 Push Notifications & Version Check Logic
   useEffect(() => {
     const initNotificationsAndUpdates = async () => {
-      // 1. 版本检测：检查是否需要弹出“新功能介绍”
+      // 1. 版本检测：检查是否需要弹出“新功能介绍” 
+      // 这里的逻辑只跟 RELEASE_NOTES.version 挂钩，用于控制 UI
       const { value: lastSeenVersion } = await Preferences.get({ key: 'last_seen_release_version' });
       if (lastSeenVersion !== RELEASE_NOTES.version) {
         setShowUpdateModal(true);
@@ -183,12 +184,19 @@ function App() {
           // ⚠️ FCM_TIMEOUT_FIX: 在未翻墙的网络下，getToken() 会阻塞极长的时间甚至不返回，导致 App 的 Token 同步状态永远落后。
           // 强制加入 5 秒超时竞速机制。
           const tokenPromise = FirebaseMessaging.getToken();
+          // 🔥 进一步优化：即使 race 失败了（超时了），如果之后 getToken 成功了（比如用户开了 VPN），
+          // 我们依然捕获它并触发同步。
+          tokenPromise.then(({ token }) => {
+            console.log('🔥 FCM Token actually arrived (possibly late):', token);
+            setFcmToken(token);
+          }).catch(() => { });
+
           const timeoutPromise = new Promise<{ token: string }>((_, reject) =>
             setTimeout(() => reject(new Error('FCM getToken timeout (5s) - likely no VPN')), 5000)
           );
 
           const { token } = await Promise.race([tokenPromise, timeoutPromise]);
-          console.log('🔥 FCM Push Token (Successfully retrieved):', token);
+          console.log('🔥 FCM Push Token (Succeeded within 5s):', token);
           setFcmToken(token);
         }
       } catch (err: any) {
@@ -206,6 +214,8 @@ function App() {
     const unsubReg = PushNotifications.addListener('registration', (token) => {
       console.log('🍎 Native APNs Token (Value):', token.value);
       setApnsToken(token.value);
+      // 🔥 关键修复：拿到 Token 后立即增加版本号，触发下面的 syncProfile useEffect 同步到后端
+      setAuthReadyVersion(v => v + 1);
     });
 
     // 监听注册失败
@@ -249,14 +259,17 @@ function App() {
           const currentModel = pb.authStore.model;
           const updateData: any = {};
 
-          // 📡 获取真实版本
-          let realVersion = RELEASE_NOTES.version;
+          // 📡 获取真实版本 (由 Info.plist / build.gradle 决定)
+          let realVersion = "0.0.0";
           try {
             const info = await CapacitorApp.getInfo();
             realVersion = info.version;
-          } catch (e) { }
+          } catch (e) {
+            console.error('❌ [Profile Sync] Failed to get native app version:', e);
+          }
 
-          if (currentModel?.last_active_version !== realVersion) {
+          // 仅在拿到有效的真实版本号时才更新，避免 N/A 或 0.0.0 覆盖
+          if (realVersion !== "0.0.0" && currentModel?.last_active_version !== realVersion) {
             updateData.last_active_version = realVersion;
           }
 
@@ -317,7 +330,7 @@ function App() {
 
   const handleUpdateModalClose = async () => {
     setShowUpdateModal(false);
-    // 标记该版本已读
+    // 标记该“功能公告版本”已读，与 App 真实版本解耦
     await Preferences.set({
       key: 'last_seen_release_version',
       value: RELEASE_NOTES.version
