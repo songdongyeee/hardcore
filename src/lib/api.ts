@@ -186,7 +186,9 @@ export async function getTranscriptById(id: string): Promise<{ url: string; segm
 // I will insert them back.
 
 export async function silentLogin(userId: string): Promise<boolean> {
-    const deriveSilentCredentials = (rawId: string) => {
+    if (!userId) return false;
+
+    const deriveSilentCredentials = (rawId: string, suffix: string = 'Pw2026') => {
         // Deterministic and PB-safe credentials for RC anonymous IDs like `$RCAnonymousID:xxxx`.
         let hash = 2166136261;
         for (let i = 0; i < rawId.length; i++) {
@@ -200,62 +202,82 @@ export async function silentLogin(userId: string): Promise<boolean> {
             .slice(-20);
 
         const username = `rc_${compact}${h}`.slice(0, 40);
-        const password = `Rc#${h}${compact}#Pw2026`; // >= 8 chars and deterministic
+        // Supports legacy recovery by allowing different suffixes
+        const password = `Rc#${h}${compact}#${suffix}`; 
         return { username, password };
     };
 
-    const { username: safeUsername, password: safePassword } = deriveSilentCredentials(userId);
+    const { username: safeUsername, password: safePassword } = deriveSilentCredentials(userId, 'Pw2026');
+    const { password: oldPassword2025 } = deriveSilentCredentials(userId, 'Pw2025');
 
-    try {
-        // 1) Backward compatibility: old scheme (username/password both raw ID)
+    // 1. Try strategies in order of likelihood
+    const strategies = [
+        { u: safeUsername, p: safePassword, label: 'Stable' },
+        { u: userId, p: userId, label: 'Legacy' },
+        { u: safeUsername, p: oldPassword2025, label: 'Transitional-2025' }
+    ];
+
+    console.log(`📡 [SilentLogin] Starting auth for ${userId.slice(0, 10)}...`);
+
+    for (const strat of strategies) {
         try {
-            await pb.collection('users').authWithPassword(userId, userId);
-            console.log("✅ Silent login success (legacy credentials)");
+            await pb.collection('users').authWithPassword(strat.u, strat.p);
+            console.log(`✅ [SilentLogin] Success (Strategy: ${strat.label})`);
             return true;
-        } catch {
-            // 2) New stable scheme for RC IDs (safe username/password)
+        } catch (err) {
+            // Continue to next strategy
+        }
+    }
+
+    // 2. If all auth failed, try to CREATE new account
+    try {
+        const { RELEASE_NOTES } = await import('@/data/releaseNotes');
+        await pb.collection('users').create({
+            username: safeUsername,
+            password: safePassword,
+            passwordConfirm: safePassword,
+            revenue_id: userId,
+            last_active_version: RELEASE_NOTES.version
+        });
+        await pb.collection('users').authWithPassword(safeUsername, safePassword);
+        console.log("✅ [SilentLogin] New account created and logged in");
+        return true;
+    } catch (createErr: any) {
+        // 3. 🆘 RESCUE: If creation fails because revenue_id exists, 
+        // it means user has an account with a password we haven't tried yet.
+        if (createErr.data?.data?.revenue_id?.code === 'validation_not_unique' || 
+            createErr.data?.data?.username?.code === 'validation_not_unique') {
+            
+            console.warn("⚠️ [SilentLogin] Account exists but initial auth failed. Running deep rescue...");
             try {
-                await pb.collection('users').authWithPassword(safeUsername, safePassword);
-                console.log("✅ Silent login success (safe credentials)");
-                return true;
-            } catch {
-                try {
-                    const { RELEASE_NOTES } = await import('@/data/releaseNotes');
-                    await pb.collection('users').create({
-                        username: safeUsername,
-                        password: safePassword,
-                        passwordConfirm: safePassword,
-                        revenue_id: userId,
-                        last_active_version: RELEASE_NOTES.version
-                    });
-                    await pb.collection('users').authWithPassword(safeUsername, safePassword);
-                    console.log("✅ Silent account created and logged in");
-                    return true;
-                } catch (createErr: any) {
-                    // 🔥 CRITICAL FIX: If creation fails because revenue_id exists but auth failed,
-                    // we need to try finding that record and see what's going on.
-                    if (createErr.data?.data?.revenue_id?.code === 'validation_not_unique') {
-                        console.warn("⚠️ Revenue ID exists but auth failed. Attempting rescue login...");
-                        try {
-                            const existing = await pb.collection('users').getFirstListItem(`revenue_id="${userId}"`);
-                            // Try auth with the found username and our current stable password
-                            await pb.collection('users').authWithPassword(existing.username, safePassword);
-                            console.log("✅ Rescue login success");
-                            return true;
-                        } catch (rescueErr) {
-                            console.error("❌ Rescue login failed", rescueErr);
-                        }
-                    }
-                    console.error("❌ Failed to create silent account", createErr);
-                    return false;
+                // Find the record by unique revenue_id
+                const existing = await pb.collection('users').getFirstListItem(`revenue_id="${userId}"`);
+                
+                // Try all known password combinations against THIS specific username
+                const rescuePasswords = [safePassword, userId, oldPassword2025];
+                for (const p of rescuePasswords) {
+                    try {
+                        await pb.collection('users').authWithPassword(existing.username, p);
+                        console.log("✅ [SilentLogin] Rescue login success with alternate password");
+                        
+                        // 🔥 SELF-HEALING: Upgrade this user's password to the latest stable one
+                        await pb.collection('users').update(existing.id, {
+                            password: safePassword,
+                            passwordConfirm: safePassword
+                        });
+                        console.log("🆙 [SilentLogin] Upgraded user password to stable scheme");
+                        return true;
+                    } catch { /* try next */ }
                 }
+            } catch (rescueErr) {
+                console.error("❌ [SilentLogin] Rescue failed: record not found or server error", rescueErr);
             }
         }
-    } catch (e) {
-        console.error("❌ Silent login process failed", e);
+        console.error("❌ [SilentLogin] All login and rescue attempts failed", createErr);
         return false;
     }
 }
+
 
 export async function fetchUserProgress() {
     if (!pb.authStore.isValid) return [];
@@ -395,10 +417,12 @@ export async function updateUserProgress(materialId: string, data: { is_starred?
 }
 
 export async function deleteUserData() {
-    if (!pb.authStore.isValid) return;
     try {
         const userId = pb.authStore.model?.id;
-        if (!userId) return;
+        if (!pb.authStore.isValid || !userId) {
+            console.warn("⚠️ [DeleteData] Not logged in, only clearing local cache.");
+            return;
+        }
 
         // 1. Delete progress
         const progress = await pb.collection('user_progress').getFullList({ filter: `user="${userId}"` });
@@ -414,17 +438,17 @@ export async function deleteUserData() {
 
         // 3. Delete User account
         await pb.collection('users').delete(userId);
-
-        // 4. Clear local storage
+        console.log("🗑️ [DeleteData] Server-side data deleted successfully");
+    } catch (e) {
+        console.error("❌ [DeleteData] Server-side deletion failed", e);
+    } finally {
+        // 4. ALWAYS Clear local storage & preferences
         pb.authStore.clear();
         await Preferences.clear();
-
-        console.log("🗑️ User data and account deleted successfully");
-    } catch (e) {
-        console.error("Failed to delete user data", e);
-        throw e;
+        console.log("🧹 [DeleteData] Local storage and auth cleared");
     }
 }
+
 
 export async function fetchSystemConfig(key: string) {
     try {

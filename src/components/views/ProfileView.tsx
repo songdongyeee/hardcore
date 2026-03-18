@@ -1,6 +1,6 @@
 import { ChevronLeft, RotateCcw, ShieldCheck, Trash2, RefreshCw } from "lucide-react";
 import { useRevenueCat } from "@/hooks/useRevenueCat";
-import { deleteUserData, pb } from "@/lib/api";
+import { deleteUserData, pb, silentLogin } from "@/lib/api";
 import { useEffect, useState } from "react";
 import { Paywall } from "@/components/Paywall";
 import { App } from "@capacitor/app";
@@ -14,10 +14,11 @@ interface ProfileViewProps {
 }
 
 export function ProfileView({ onBack }: ProfileViewProps) {
-    const { isVip, restorePurchases, subscriptionTier, isReady } = useRevenueCat();
+    const { isVip, restorePurchases, subscriptionTier, isReady, appUserID: currentAppUserId } = useRevenueCat();
     const [pbUserId, setPbUserId] = useState<string>(
         pb.authStore.isValid && pb.authStore.model?.id ? pb.authStore.model.id : 'Loading...'
     );
+
     const [pbSubscriptionTier, setPbSubscriptionTier] = useState<'free' | 'monthly' | 'quarterly' | 'yearly'>(() => {
         if (pb.authStore.isValid && pb.authStore.model?.subscription_tier) {
             return pb.authStore.model.subscription_tier;
@@ -206,6 +207,61 @@ export function ProfileView({ onBack }: ProfileViewProps) {
                         <p>App Version: {appVersion}</p>
                     </div>
 
+                    {/* 🆘 EMERGENCY SECTION: Only show when logged out */}
+                    {pbUserId === 'Not logged in' && (
+                        <div className="mt-8 p-4 bg-red-500/5 border border-red-500/20 rounded-xl space-y-4">
+                            <div className="flex items-start gap-3">
+                                <RefreshCw className="w-5 h-5 text-red-500 mt-1" />
+                                <div>
+                                    <h3 className="text-sm font-bold text-red-500">登录状态异常</h3>
+                                    <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
+                                        系统检测到您的账户认证已过期或存在冲突。请尝试手动重试登录，或执行一次彻底的重置。
+                                    </p>
+                                </div>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-3">
+                                <button
+                                    onClick={async () => {
+                                        // Use appUserID from hook, fallback to cached ID from Preferences
+                                        const { value: cachedId } = await Preferences.get({ key: 'last_rc_id' });
+                                        const targetId = currentAppUserId || cachedId;
+                                        
+                                        if (!targetId) {
+                                            alert("无法获取凭证，请确保网络连接正常并重试。");
+                                            return;
+                                        }
+
+                                        const success = await silentLogin(targetId);
+                                        if (success) {
+                                            alert("登录恢复成功！");
+                                            fetchSubscriptionTier();
+                                        } else {
+                                            alert("重试登录失败，请尝试“强制重置”。");
+                                        }
+                                    }}
+
+                                    className="h-10 bg-red-500 text-white text-xs font-bold rounded-lg shadow-lg shadow-red-500/20 active:scale-95 transition"
+                                >
+                                    立即重试
+                                </button>
+                                
+                                <button
+                                    onClick={async () => {
+                                        if (confirm("🚨 强制重置将清空所有本地缓存并强制重新授权。这不会影响您的订阅。确定吗？")) {
+                                            await deleteUserData();
+                                            alert("重置完成，应用将立即重启。");
+                                            window.location.reload();
+                                        }
+                                    }}
+                                    className="h-10 bg-zinc-800 text-zinc-300 text-xs font-bold rounded-lg border border-zinc-700 active:scale-95 transition"
+                                >
+                                    强制重置
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Delete Account Button - positioned further down with darker color */}
                     <div className="pt-8">
                         <button
@@ -222,6 +278,7 @@ export function ProfileView({ onBack }: ProfileViewProps) {
                             Delete Account & Data
                         </button>
                     </div>
+
                 </div>
 
             </div>

@@ -258,6 +258,24 @@ async function main() {
         const VISIBILITY = 'private';
         formData.append('visibility', VISIBILITY);
 
+        // --- 🧪 Smart Cover Detection ---
+        const imageExtensions = ['.webp', '.jpg', '.jpeg', '.png'];
+        let coverFound = false;
+        for (const ext of imageExtensions) {
+            const coverPath = filePath.replace(/\.[^/.]+$/, ext);
+            if (fs.existsSync(coverPath)) {
+                console.log(`   🖼️  Found matching cover: ${path.basename(coverPath)}`);
+                const coverBuffer = fs.readFileSync(coverPath);
+                const coverBlob = new Blob([coverBuffer]);
+                formData.append('cover', coverBlob, path.basename(coverPath));
+                coverFound = true;
+                break;
+            }
+        }
+        if (!coverFound) {
+            console.log(`   ℹ️  No matching cover found for ${fileName}`);
+        }
+
         try {
             const record = await pb.collection('transcripts').create(formData);
             console.log(`   ✅ Uploaded (ID: ${record.id}). Waiting for ASR...`);
