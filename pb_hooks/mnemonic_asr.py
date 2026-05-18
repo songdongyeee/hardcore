@@ -50,7 +50,7 @@ def main():
         task_response = Transcription.async_call(
             model="paraformer-v2",
             file_urls=[file_url],
-            language_hints=["en"],
+            language_hints=["en", "zh"],
             api_key=api_key
         )
 
