@@ -87,11 +87,21 @@ export function useAITutor(context: SessionContext | null) {
       (async () => {
         setOrbState('thinking');
         setSubtitle('');
-        const reply = await tutor.chat(next, context);
-
-        const aiMsg: TutorMessage = { id: crypto.randomUUID(), role: 'ai', text: reply };
-        setMessages(prev2 => [...prev2, aiMsg]);
-        await speak(reply);
+        try {
+          const reply = await tutor.chat(next, context);
+          const aiMsg: TutorMessage = { id: crypto.randomUUID(), role: 'ai', text: reply };
+          setMessages(prev2 => [...prev2, aiMsg]);
+          await speak(reply);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : '';
+          let hint = '出错了，请稍后再试';
+          if (msg === 'DAILY_LIMIT') hint = '今日对话次数已用完，明天再来～';
+          else if (msg === 'MONTHLY_LIMIT') hint = '本月对话次数已用完';
+          else if (msg === 'UNAUTHORIZED') hint = '请先登录';
+          setSubtitle(hint);
+          setOrbState('idle');
+          setTimeout(() => setSubtitle(''), 4000);
+        }
       })();
 
       return next;

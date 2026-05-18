@@ -1,4 +1,5 @@
 import type { AITutorService, TutorMessage, SessionContext } from './index';
+import { pb } from '@/lib/api';
 
 /**
  * Aliyun full-stack implementation.
@@ -24,6 +25,11 @@ export class AliyunTutorService implements AITutorService {
     return `你好，我是 Nex！我看到你标记了 ${context.markedWords.length} 个词：${wordList}。我们来练练吧——在原文里，「${firstWord}」是什么意思？你还记得吗？`;
   }
 
+  private get authHeader(): Record<string, string> {
+    const token = pb.authStore.token;
+    return token ? { 'Authorization': `Bearer ${token}` } : {};
+  }
+
   async transcribeAudio(audioBlob: Blob, mimeType: string): Promise<string> {
     const arrayBuffer = await audioBlob.arrayBuffer();
     const bytes = new Uint8Array(arrayBuffer);
@@ -33,7 +39,7 @@ export class AliyunTutorService implements AITutorService {
 
     const res = await fetch(`${this.baseUrl}/api/mnemonic/asr`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...this.authHeader },
       body: JSON.stringify({ audioBase64, mimeType }),
     });
     const data = await res.json();
@@ -41,10 +47,9 @@ export class AliyunTutorService implements AITutorService {
   }
 
   async chat(messages: TutorMessage[], context: SessionContext): Promise<string> {
-    // TODO: POST to PB hook → Qwen-Plus → return reply text
     const res = await fetch(`${this.baseUrl}/api/mnemonic/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...this.authHeader },
       body: JSON.stringify({
         messages,
         markedWords: context.markedWords.map(w => ({
@@ -54,6 +59,13 @@ export class AliyunTutorService implements AITutorService {
         materialTitle: context.materialTitle,
       }),
     });
+
+    if (res.status === 429) {
+      const data = await res.json();
+      throw new Error(data.error === 'daily_limit_exceeded' ? 'DAILY_LIMIT' : 'MONTHLY_LIMIT');
+    }
+    if (res.status === 401) throw new Error('UNAUTHORIZED');
+
     const data = await res.json();
     return data.reply ?? '';
   }
@@ -64,7 +76,7 @@ export class AliyunTutorService implements AITutorService {
     try {
       const res = await fetch(`${this.baseUrl}/api/mnemonic/tts`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...this.authHeader },
         body: JSON.stringify({ text }),
       });
       const data = await res.json();
