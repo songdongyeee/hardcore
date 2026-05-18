@@ -832,6 +832,8 @@ function App() {
               seek={seek}
               transcript={currentTranscript}
               markedWords={markedWords}
+              onMarkWord={handleMarkWord}
+              onUnmarkWord={handleUnmarkWord}
             />
           )}
 
