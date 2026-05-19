@@ -70,8 +70,8 @@ function runPython(scriptPath, payload) {
 // ── TTS ───────────────────────────────────────────────────────────────────────
 routerAdd("POST", "/api/mnemonic/tts", (c) => {
   try {
-    var info = $apis.requestInfo(c);
-    var body = info.body || {};
+    var body = {};
+    try { c.bind(body); } catch(_) {}
     var text = (body.text || "").trim();
     if (!text) return c.json(400, { error: "text is required" });
 
@@ -117,7 +117,8 @@ routerAdd("POST", "/api/mnemonic/chat", (c) => {
       });
     }
 
-    var body = info.body || {};
+    var body = {};
+    try { c.bind(body); } catch(_) {}
     var messages = body.messages || [];
     if (messages.length === 0) return c.json(400, { error: "messages required" });
 
@@ -140,8 +141,8 @@ routerAdd("POST", "/api/mnemonic/chat", (c) => {
 // ── ASR (Paraformer) ──────────────────────────────────────────────────────────
 routerAdd("POST", "/api/mnemonic/asr", (c) => {
   try {
-    var info = $apis.requestInfo(c);
-    var body = info.body || {};
+    var body = {};
+    try { c.bind(body); } catch(_) {}
     var audioBase64 = body.audioBase64 || "";
     var mimeType = body.mimeType || "audio/mp4";
 
