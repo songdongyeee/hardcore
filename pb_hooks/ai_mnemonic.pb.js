@@ -67,11 +67,19 @@ function runPython(scriptPath, payload) {
   }
 }
 
-// ── TTS (no auth required — quota is enforced on Chat only) ──────────────────
+// ── Auth helper: get record from context set by requireRecordAuth middleware ───
+function getAuthFromContext(c) {
+  // requireRecordAuth() stores the verified record in context as "authRecord"
+  try { return c.get("authRecord"); } catch(_) {}
+  return null;
+}
+
+// ── TTS ───────────────────────────────────────────────────────────────────────
 routerAdd("POST", "/api/mnemonic/tts", (c) => {
   try {
-    var info = $apis.requestInfo(c);
-    var body = info.body || {};
+    // Auth is guaranteed by middleware; body read separately via c.bind()
+    var body = {};
+    c.bind(body);
     var text = (body.text || "").trim();
     if (!text) return c.json(400, { error: "text is required" });
 
@@ -83,42 +91,35 @@ routerAdd("POST", "/api/mnemonic/tts", (c) => {
   } catch (e) {
     return c.json(500, { error: "hook_exception", message: String(e) });
   }
-});
+}, $apis.requireRecordAuth());
 
 // ── Chat (Qwen LLM + quota guard) ─────────────────────────────────────────────
 routerAdd("POST", "/api/mnemonic/chat", (c) => {
   try {
-    var info = $apis.requestInfo(c);
-    var userId = info.auth.id;
-    var tier = String(info.auth.get("subscription_tier") || "free").toLowerCase();
+    // Get auth record set by middleware (avoids re-reading body via requestInfo)
+    var authRecord = getAuthFromContext(c);
+    if (!authRecord) return c.json(401, { error: "unauthorized" });
+
+    var userId = authRecord.id;
+    var tier = String(authRecord.get("subscription_tier") || "free").toLowerCase();
     var quota = QUOTA[tier] || QUOTA.free;
 
     var now = new Date();
-    var today = now.toISOString().slice(0, 10);       // YYYY-MM-DD
-    var monthPrefix = now.toISOString().slice(0, 7);  // YYYY-MM
+    var today = now.toISOString().slice(0, 10);
+    var monthPrefix = now.toISOString().slice(0, 7);
 
     var dayCount = getDayCount(userId, today);
     if (dayCount >= quota.daily) {
-      return c.json(429, {
-        error: "daily_limit_exceeded",
-        used: dayCount,
-        limit: quota.daily,
-        tier: tier
-      });
+      return c.json(429, { error: "daily_limit_exceeded", used: dayCount, limit: quota.daily, tier: tier });
     }
 
     var monthCount = getMonthCount(userId, monthPrefix);
     if (monthCount >= quota.monthly) {
-      return c.json(429, {
-        error: "monthly_limit_exceeded",
-        used: monthCount,
-        limit: quota.monthly,
-        tier: tier
-      });
+      return c.json(429, { error: "monthly_limit_exceeded", used: monthCount, limit: quota.monthly, tier: tier });
     }
 
     var body = {};
-    try { c.bind(body); } catch(_) {}
+    c.bind(body);
     var messages = body.messages || [];
     if (messages.length === 0) return c.json(400, { error: "messages required" });
 
@@ -129,9 +130,7 @@ routerAdd("POST", "/api/mnemonic/chat", (c) => {
     });
     if (result.error) return c.json(502, result);
 
-    // Increment only after successful response
     incrementUsage(userId, today);
-
     return c.json(200, result);
   } catch (e) {
     return c.json(500, { error: "hook_exception", message: String(e) });
@@ -142,7 +141,7 @@ routerAdd("POST", "/api/mnemonic/chat", (c) => {
 routerAdd("POST", "/api/mnemonic/asr", (c) => {
   try {
     var body = {};
-    try { c.bind(body); } catch(_) {}
+    c.bind(body);
     var audioBase64 = body.audioBase64 || "";
     var mimeType = body.mimeType || "audio/mp4";
 
