@@ -1,6 +1,6 @@
 /// <reference path="../pb_data/types.d.ts" />
 
-// ── Quota Config (edit to adjust limits, takes effect on next request) ────────
+// ── Quota Config ──────────────────────────────────────────────────────────────
 var QUOTA = {
   free:      { daily:  5, monthly:  10 },
   monthly:   { daily: 30, monthly: 150 },
@@ -9,44 +9,96 @@ var QUOTA = {
   lifetime:  { daily: 60, monthly: 200 },
 };
 
-// ── Init usage table (runs once on hook load) ─────────────────────────────────
-try {
-  $app.dao().db().newQuery(
-    "CREATE TABLE IF NOT EXISTS nex_ai_usage (" +
-    "  user_id   TEXT NOT NULL," +
-    "  date      TEXT NOT NULL," +
-    "  day_count INTEGER NOT NULL DEFAULT 0," +
-    "  PRIMARY KEY (user_id, date)" +
-    ")"
-  ).execute();
-} catch (_) {}
+// ── Ensure nex_ai_usage PocketBase collection exists ─────────────────────────
+onBeforeServe((e) => {
+  try {
+    $app.dao().findCollectionByNameOrId("nex_ai_usage");
+    // Already exists, nothing to do
+  } catch(_) {
+    // Rename old raw table if it exists so PB can claim the name
+    try {
+      $app.dao().db()
+        .newQuery("ALTER TABLE nex_ai_usage RENAME TO nex_ai_usage_legacy")
+        .execute();
+    } catch(_) {}
 
-// ── Usage helpers ─────────────────────────────────────────────────────────────
+    // Create PocketBase collection
+    var col = new Collection({
+      name: "nex_ai_usage",
+      type: "base",
+      listRule:   null,
+      viewRule:   null,
+      createRule: null,
+      updateRule: null,
+      deleteRule: null,
+    });
+    col.schema = new Schema([
+      new SchemaField({ name: "user_id",   type: "text",   required: true }),
+      new SchemaField({ name: "date",      type: "text",   required: true }),
+      new SchemaField({ name: "day_count", type: "number", required: true }),
+    ]);
+    $app.dao().saveCollection(col);
+  }
+});
+
+// ── Usage helpers (PocketBase collection API) ─────────────────────────────────
 function getDayCount(userId, today) {
   try {
-    var row = $app.dao().db()
-      .newQuery("SELECT day_count FROM nex_ai_usage WHERE user_id={:u} AND date={:d}")
-      .bind({ u: userId, d: today })
-      .one();
-    return row.day_count || 0;
-  } catch (_) { return 0; }
+    var records = $app.dao().findRecordsByFilter(
+      "nex_ai_usage",
+      "user_id = {:u} && date = {:d}",
+      "", 1, 0,
+      { u: userId, d: today }
+    );
+    return records.length > 0 ? records[0].getInt("day_count") : 0;
+  } catch(_) { return 0; }
 }
 
 function getMonthCount(userId, monthPrefix) {
   try {
-    var row = $app.dao().db()
-      .newQuery("SELECT SUM(day_count) AS total FROM nex_ai_usage WHERE user_id={:u} AND date LIKE {:m}")
-      .bind({ u: userId, m: monthPrefix + "%" })
-      .one();
-    return row.total || 0;
-  } catch (_) { return 0; }
+    var records = $app.dao().findRecordsByFilter(
+      "nex_ai_usage",
+      "user_id = {:u} && date ~ {:m}",
+      "", 0, 0,
+      { u: userId, m: monthPrefix }
+    );
+    var total = 0;
+    for (var i = 0; i < records.length; i++) {
+      total += records[i].getInt("day_count");
+    }
+    return total;
+  } catch(_) { return 0; }
 }
 
 function incrementUsage(userId, today) {
-  $app.dao().db().newQuery(
-    "INSERT INTO nex_ai_usage (user_id, date, day_count) VALUES ({:u},{:d},1) " +
-    "ON CONFLICT(user_id, date) DO UPDATE SET day_count = day_count + 1"
-  ).bind({ u: userId, d: today }).execute();
+  try {
+    var records = $app.dao().findRecordsByFilter(
+      "nex_ai_usage",
+      "user_id = {:u} && date = {:d}",
+      "", 1, 0,
+      { u: userId, d: today }
+    );
+    if (records.length > 0) {
+      var rec = records[0];
+      rec.set("day_count", rec.getInt("day_count") + 1);
+      $app.dao().saveRecord(rec);
+    } else {
+      var col = $app.dao().findCollectionByNameOrId("nex_ai_usage");
+      var rec = new Record(col);
+      rec.set("user_id", userId);
+      rec.set("date", today);
+      rec.set("day_count", 1);
+      $app.dao().saveRecord(rec);
+    }
+  } catch(e) {
+    // Fallback to raw SQL upsert so quota is never silently skipped
+    try {
+      $app.dao().db().newQuery(
+        "INSERT OR REPLACE INTO nex_ai_usage (user_id, date, day_count) " +
+        "VALUES ({:u}, {:d}, COALESCE((SELECT day_count FROM nex_ai_usage WHERE user_id={:u} AND date={:d}), 0) + 1)"
+      ).bind({ u: userId, d: today }).execute();
+    } catch(_) {}
+  }
 }
 
 // ── Python runner ─────────────────────────────────────────────────────────────
@@ -63,13 +115,12 @@ function runPython(scriptPath, payload) {
     if (s < 0 || e <= s) throw new Error("bad script output: " + text);
     return JSON.parse(text.slice(s, e + 1));
   } finally {
-    try { $os.remove(tmpPath); } catch (_) {}
+    try { $os.remove(tmpPath); } catch(_) {}
   }
 }
 
-// ── Auth helper: get record from context set by requireRecordAuth middleware ───
+// ── Auth helper ───────────────────────────────────────────────────────────────
 function getAuthFromContext(c) {
-  // requireRecordAuth() stores the verified record in context as "authRecord"
   try { return c.get("authRecord"); } catch(_) {}
   return null;
 }
@@ -77,7 +128,6 @@ function getAuthFromContext(c) {
 // ── TTS ───────────────────────────────────────────────────────────────────────
 routerAdd("POST", "/api/mnemonic/tts", (c) => {
   try {
-    // Auth is guaranteed by middleware; body read separately via c.bind()
     var body = {};
     c.bind(body);
     var text = (body.text || "").trim();
@@ -96,7 +146,6 @@ routerAdd("POST", "/api/mnemonic/tts", (c) => {
 // ── Chat (Qwen LLM + quota guard) ─────────────────────────────────────────────
 routerAdd("POST", "/api/mnemonic/chat", (c) => {
   try {
-    // Get auth record set by middleware (avoids re-reading body via requestInfo)
     var authRecord = getAuthFromContext(c);
     if (!authRecord) return c.json(401, { error: "unauthorized" });
 
