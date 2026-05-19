@@ -67,11 +67,11 @@ function runPython(scriptPath, payload) {
   }
 }
 
-// ── TTS ───────────────────────────────────────────────────────────────────────
+// ── TTS (no auth required — quota is enforced on Chat only) ──────────────────
 routerAdd("POST", "/api/mnemonic/tts", (c) => {
   try {
-    var body = {};
-    try { c.bind(body); } catch(_) {}
+    var info = $apis.requestInfo(c);
+    var body = info.body || {};
     var text = (body.text || "").trim();
     if (!text) return c.json(400, { error: "text is required" });
 
@@ -83,7 +83,7 @@ routerAdd("POST", "/api/mnemonic/tts", (c) => {
   } catch (e) {
     return c.json(500, { error: "hook_exception", message: String(e) });
   }
-}, $apis.requireRecordAuth());
+});
 
 // ── Chat (Qwen LLM + quota guard) ─────────────────────────────────────────────
 routerAdd("POST", "/api/mnemonic/chat", (c) => {
