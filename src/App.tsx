@@ -34,9 +34,15 @@ export interface MarkedWord {
   segmentIndex: number;
   /** 单词在段落中的索引 */
   wordIndex: number;
-  /** 只增不减的展示序号（从 1 开始） */
+  /** 当前生词列表里的连续展示序号（从 1 开始） */
   order: number;
 }
+
+const normalizeMarkedWords = (words: MarkedWord[]): MarkedWord[] => {
+  return [...words]
+    .sort((a, b) => a.order - b.order)
+    .map((word, index) => ({ ...word, order: index + 1 }));
+};
 
 function App() {
   const [activeView, setActiveView] = useState<ViewState>('home');
@@ -48,9 +54,8 @@ function App() {
   const [currentMaterialTitle, setCurrentMaterialTitle] = useState<string>(''); // NEW STATE for Analytics
   const [currentWaveformData, setCurrentWaveformData] = useState<number[][] | undefined>(undefined);
 
-  // 🔖 全局生词标记状态（序号只增不减发号器）
+  // 🔖 全局生词标记状态（当前列表连续编号）
   const [markedWords, setMarkedWords] = useState<MarkedWord[]>([]);
-  const currentMaxOrderRef = useRef<number>(0);
 
   // 🚀 获取到的推送令牌
   const [fcmToken, setFcmToken] = useState<string>('');
@@ -63,14 +68,13 @@ function App() {
     // 已经存在则不重复标记
     setMarkedWords(prev => {
       if (prev.some(w => w.id === word.id)) return prev;
-      currentMaxOrderRef.current += 1;
-      return [...prev, { ...word, order: currentMaxOrderRef.current }];
+      return normalizeMarkedWords([...prev, { ...word, order: prev.length + 1 }]);
     });
   };
 
   const handleUnmarkWord = (wordId: string) => {
-    // 取消标记：序号不重排，只从列表中移除
-    setMarkedWords(prev => prev.filter(w => w.id !== wordId));
+    // 取消标记后按当前列表重新连续编号，避免出现 1,3,4 这类断号
+    setMarkedWords(prev => normalizeMarkedWords(prev.filter(w => w.id !== wordId)));
   };
 
   // Ref to prevent double-click/event bubbling
@@ -542,7 +546,6 @@ function App() {
 
       // 🔖 切换材料时重置标记词
       setMarkedWords([]);
-      currentMaxOrderRef.current = 0;
 
       // 📊 Start new learning session
       sessionStartTimeRef.current = Date.now();
@@ -570,7 +573,6 @@ function App() {
       // 🔥 Trigger Phase 1 Progress & Restore Marked Words
       isInitialMarkLoadRef.current = true; // 告知 Effect 这是初始化，别急着保存
       setMarkedWords([]);
-      currentMaxOrderRef.current = 0;
 
       if (pb.authStore.isValid) {
         const userId = pb.authStore.model?.id;
@@ -581,15 +583,8 @@ function App() {
         pb.collection('user_progress').getFirstListItem(`user="${userId}" && material_id="${rawId}"`)
           .then(progress => {
             if (progress.marked_words && Array.isArray(progress.marked_words)) {
-              const restoredWords = progress.marked_words as MarkedWord[];
+              const restoredWords = normalizeMarkedWords(progress.marked_words as MarkedWord[]);
               setMarkedWords(restoredWords);
-
-              // 恢复最大计数器
-              let maxOrder = 0;
-              restoredWords.forEach(w => {
-                if (w.order > maxOrder) maxOrder = w.order;
-              });
-              currentMaxOrderRef.current = maxOrder;
               console.log(`✅ [App] Restored ${restoredWords.length} marked words from DB.`);
             }
           })
@@ -832,6 +827,9 @@ function App() {
               seek={seek}
               transcript={currentTranscript}
               markedWords={markedWords}
+              onMarkWord={handleMarkWord}
+              onUnmarkWord={handleUnmarkWord}
+              materialTitle={currentMaterialTitle}
             />
           )}
 
