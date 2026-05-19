@@ -71,8 +71,6 @@ function runPython(scriptPath, payload) {
 routerAdd("POST", "/api/mnemonic/tts", (c) => {
   try {
     var info = $apis.requestInfo(c);
-    if (!info.auth) return c.json(401, { error: "unauthorized" });
-
     var body = info.body || {};
     var text = (body.text || "").trim();
     if (!text) return c.json(400, { error: "text is required" });
@@ -85,14 +83,12 @@ routerAdd("POST", "/api/mnemonic/tts", (c) => {
   } catch (e) {
     return c.json(500, { error: "hook_exception", message: String(e) });
   }
-});
+}, $apis.requireRecordAuth());
 
 // ── Chat (Qwen LLM + quota guard) ─────────────────────────────────────────────
 routerAdd("POST", "/api/mnemonic/chat", (c) => {
   try {
     var info = $apis.requestInfo(c);
-    if (!info.auth) return c.json(401, { error: "unauthorized" });
-
     var userId = info.auth.id;
     var tier = String(info.auth.get("subscription_tier") || "free").toLowerCase();
     var quota = QUOTA[tier] || QUOTA.free;
@@ -139,14 +135,12 @@ routerAdd("POST", "/api/mnemonic/chat", (c) => {
   } catch (e) {
     return c.json(500, { error: "hook_exception", message: String(e) });
   }
-});
+}, $apis.requireRecordAuth());
 
 // ── ASR (Paraformer) ──────────────────────────────────────────────────────────
 routerAdd("POST", "/api/mnemonic/asr", (c) => {
   try {
     var info = $apis.requestInfo(c);
-    if (!info.auth) return c.json(401, { error: "unauthorized" });
-
     var body = info.body || {};
     var audioBase64 = body.audioBase64 || "";
     var mimeType = body.mimeType || "audio/mp4";
@@ -162,4 +156,4 @@ routerAdd("POST", "/api/mnemonic/asr", (c) => {
   } catch (e) {
     return c.json(500, { error: "hook_exception", message: String(e) });
   }
-});
+}, $apis.requireRecordAuth());
