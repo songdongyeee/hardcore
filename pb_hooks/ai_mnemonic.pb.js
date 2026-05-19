@@ -9,22 +9,19 @@ var QUOTA = {
   lifetime:  { daily: 60, monthly: 200 },
 };
 
-// ── Ensure nex_ai_usage table exists (raw SQL — works on all PB versions) ─────
-onBeforeServe((e) => {
-  try {
-    $app.dao().db().newQuery(
-      "CREATE TABLE IF NOT EXISTS nex_ai_usage (" +
-      "  id        TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(7))))," +
-      "  user_id   TEXT NOT NULL," +
-      "  date      TEXT NOT NULL," +
-      "  day_count INTEGER NOT NULL DEFAULT 0," +
-      "  UNIQUE(user_id, date)" +
-      ")"
-    ).execute();
-  } catch(e) {
-    // table may already exist under PB management — ignore
-  }
-});
+// ── Ensure nex_ai_usage table exists ─────────────────────────────────────────
+// (top-level code runs once when the hook file loads)
+try {
+  $app.dao().db().newQuery(
+    "CREATE TABLE IF NOT EXISTS nex_ai_usage (" +
+    "  id        TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(7))))," +
+    "  user_id   TEXT NOT NULL," +
+    "  date      TEXT NOT NULL," +
+    "  day_count INTEGER NOT NULL DEFAULT 0," +
+    "  UNIQUE(user_id, date)" +
+    ")"
+  ).execute();
+} catch(_) {}
 
 // ── Usage helpers (raw SQL — works whether table is PB-managed or raw) ────────
 function getDayCount(userId, today) {
