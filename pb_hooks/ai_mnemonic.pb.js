@@ -9,96 +9,51 @@ var QUOTA = {
   lifetime:  { daily: 60, monthly: 200 },
 };
 
-// ── Ensure nex_ai_usage PocketBase collection exists ─────────────────────────
+// ── Ensure nex_ai_usage table exists (raw SQL — works on all PB versions) ─────
 onBeforeServe((e) => {
   try {
-    $app.dao().findCollectionByNameOrId("nex_ai_usage");
-    // Already exists, nothing to do
-  } catch(_) {
-    // Rename old raw table if it exists so PB can claim the name
-    try {
-      $app.dao().db()
-        .newQuery("ALTER TABLE nex_ai_usage RENAME TO nex_ai_usage_legacy")
-        .execute();
-    } catch(_) {}
-
-    // Create PocketBase collection
-    var col = new Collection({
-      name: "nex_ai_usage",
-      type: "base",
-      listRule:   null,
-      viewRule:   null,
-      createRule: null,
-      updateRule: null,
-      deleteRule: null,
-    });
-    col.schema = new Schema([
-      new SchemaField({ name: "user_id",   type: "text",   required: true }),
-      new SchemaField({ name: "date",      type: "text",   required: true }),
-      new SchemaField({ name: "day_count", type: "number", required: true }),
-    ]);
-    $app.dao().saveCollection(col);
+    $app.dao().db().newQuery(
+      "CREATE TABLE IF NOT EXISTS nex_ai_usage (" +
+      "  id        TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(7))))," +
+      "  user_id   TEXT NOT NULL," +
+      "  date      TEXT NOT NULL," +
+      "  day_count INTEGER NOT NULL DEFAULT 0," +
+      "  UNIQUE(user_id, date)" +
+      ")"
+    ).execute();
+  } catch(e) {
+    // table may already exist under PB management — ignore
   }
 });
 
-// ── Usage helpers (PocketBase collection API) ─────────────────────────────────
+// ── Usage helpers (raw SQL — works whether table is PB-managed or raw) ────────
 function getDayCount(userId, today) {
   try {
-    var records = $app.dao().findRecordsByFilter(
-      "nex_ai_usage",
-      "user_id = {:u} && date = {:d}",
-      "", 1, 0,
-      { u: userId, d: today }
-    );
-    return records.length > 0 ? records[0].getInt("day_count") : 0;
+    var row = {};
+    $app.dao().db().newQuery(
+      "SELECT COALESCE(day_count,0) AS cnt FROM nex_ai_usage WHERE user_id={:u} AND date={:d} LIMIT 1"
+    ).bind({ u: userId, d: today }).one(row);
+    return row.cnt || 0;
   } catch(_) { return 0; }
 }
 
 function getMonthCount(userId, monthPrefix) {
   try {
-    var records = $app.dao().findRecordsByFilter(
-      "nex_ai_usage",
-      "user_id = {:u} && date ~ {:m}",
-      "", 0, 0,
-      { u: userId, m: monthPrefix }
-    );
-    var total = 0;
-    for (var i = 0; i < records.length; i++) {
-      total += records[i].getInt("day_count");
-    }
-    return total;
+    var row = {};
+    $app.dao().db().newQuery(
+      "SELECT COALESCE(SUM(day_count),0) AS cnt FROM nex_ai_usage WHERE user_id={:u} AND date LIKE {:m}"
+    ).bind({ u: userId, m: monthPrefix + "%" }).one(row);
+    return row.cnt || 0;
   } catch(_) { return 0; }
 }
 
 function incrementUsage(userId, today) {
   try {
-    var records = $app.dao().findRecordsByFilter(
-      "nex_ai_usage",
-      "user_id = {:u} && date = {:d}",
-      "", 1, 0,
-      { u: userId, d: today }
-    );
-    if (records.length > 0) {
-      var rec = records[0];
-      rec.set("day_count", rec.getInt("day_count") + 1);
-      $app.dao().saveRecord(rec);
-    } else {
-      var col = $app.dao().findCollectionByNameOrId("nex_ai_usage");
-      var rec = new Record(col);
-      rec.set("user_id", userId);
-      rec.set("date", today);
-      rec.set("day_count", 1);
-      $app.dao().saveRecord(rec);
-    }
-  } catch(e) {
-    // Fallback to raw SQL upsert so quota is never silently skipped
-    try {
-      $app.dao().db().newQuery(
-        "INSERT OR REPLACE INTO nex_ai_usage (user_id, date, day_count) " +
-        "VALUES ({:u}, {:d}, COALESCE((SELECT day_count FROM nex_ai_usage WHERE user_id={:u} AND date={:d}), 0) + 1)"
-      ).bind({ u: userId, d: today }).execute();
-    } catch(_) {}
-  }
+    $app.dao().db().newQuery(
+      "INSERT INTO nex_ai_usage (user_id, date, day_count) VALUES ({:u}, {:d}, 1) " +
+      "ON CONFLICT(user_id, date) DO UPDATE SET day_count = day_count + 1"
+    ).bind({ u: userId, d: today }).execute();
+  } catch(_) {}
 }
 
 // ── Python runner ─────────────────────────────────────────────────────────────
