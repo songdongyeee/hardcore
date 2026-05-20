@@ -1,13 +1,12 @@
-import type { AITutorService, TutorMessage, SessionContext } from './index';
-import { pb } from '@/lib/api';
+import type { AITutorService, TutorMessage, SessionContext, ChatResult, StateUpdate } from './index';
+import { pb, silentLogin } from '@/lib/api';
+import { Preferences } from '@capacitor/preferences';
 
 /**
  * Aliyun full-stack implementation.
  * ASR  → Paraformer-Realtime (via PocketBase hook)
  * LLM  → Qwen-Plus          (via PocketBase hook)
  * TTS  → CosyVoice 2.0      (via PocketBase hook, supports zh/en code-switching)
- *
- * TODO: implement when Aliyun API keys are configured in PocketBase env.
  */
 export class AliyunTutorService implements AITutorService {
   private readonly baseUrl: string;
@@ -46,19 +45,60 @@ export class AliyunTutorService implements AITutorService {
     return data.text ?? '';
   }
 
-  async chat(messages: TutorMessage[], context: SessionContext): Promise<string> {
-    const res = await fetch(`${this.baseUrl}/api/mnemonic/chat`, {
+  /** Strip markdown formatting so TTS reads clean natural speech */
+  private cleanForSpeech(text: string): string {
+    return text
+      .replace(/\*\*(.+?)\*\*/g, '$1')
+      .replace(/\*(.+?)\*/g, '$1')
+      .replace(/__(.+?)__/g, '$1')
+      .replace(/_(.+?)_/g, '$1')
+      .replace(/```[\s\S]*?```/g, '')
+      .replace(/`(.+?)`/g, '$1')
+      .replace(/^#{1,6}\s+/gm, '')
+      .replace(/^\s*[-*+]\s+/gm, '')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/[\u{1F300}-\u{1F9FF}]/gu, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  private async tryReAuth(): Promise<void> {
+    try {
+      // Try token refresh first (fast path)
+      if (pb.authStore.isValid) {
+        await pb.collection('users').authRefresh();
+        return;
+      }
+    } catch {}
+    // Fall back to silentLogin with cached RevenueCat ID
+    try {
+      const { value: cachedId } = await Preferences.get({ key: 'last_rc_id' });
+      if (cachedId) await silentLogin(cachedId);
+    } catch {}
+  }
+
+  async chat(messages: TutorMessage[], context: SessionContext): Promise<ChatResult> {
+    const makeRequest = () => fetch(`${this.baseUrl}/api/mnemonic/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...this.authHeader },
       body: JSON.stringify({
         messages,
         markedWords: context.markedWords.map(w => ({
           text: w.text,
-          sentence: (w as any).sentence ?? '',
+          sentence: context.transcript[w.segmentIndex]?.text ?? '',
         })),
         materialTitle: context.materialTitle,
+        conversationState: context.conversationState ?? null,
       }),
     });
+
+    let res = await makeRequest();
+
+    // On 401, re-authenticate once and retry
+    if (res.status === 401) {
+      await this.tryReAuth();
+      res = await makeRequest();
+    }
 
     if (res.status === 429) {
       const data = await res.json();
@@ -67,7 +107,12 @@ export class AliyunTutorService implements AITutorService {
     if (res.status === 401) throw new Error('UNAUTHORIZED');
 
     const data = await res.json();
-    return data.reply ?? '';
+    const reply = this.cleanForSpeech(data.reply ?? '');
+
+    // Backend returns stateUpdate signals; fall back to no-op if absent
+    const stateUpdate: StateUpdate = data.stateUpdate ?? { advancement: false };
+
+    return { reply, stateUpdate };
   }
 
   private currentAudio: HTMLAudioElement | null = null;
@@ -93,7 +138,7 @@ export class AliyunTutorService implements AITutorService {
         const audio = new Audio(data.audioUrl);
         this.currentAudio = audio;
         audio.onended = () => { this.currentAudio = null; resolve(); };
-        audio.onerror = (e) => { this.currentAudio = null; reject(new Error(`Audio load failed: ${data.audioUrl}`)); };
+        audio.onerror = () => { this.currentAudio = null; reject(new Error(`Audio load failed: ${data.audioUrl}`)); };
         audio.play().catch(reject);
       });
     } catch (err) {
