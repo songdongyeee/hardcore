@@ -14,6 +14,11 @@ interface MnemonicSheetProps {
   materialTitle?: string;
 }
 
+// Feature flag — temporarily hide the typewriter subtitle while we ship the
+// basic voice-only experience. The TTS audio still plays, just no text on screen.
+// When we later add streaming LLM + synced subtitle, flip this to true.
+const SHOW_SUBTITLE = false;
+
 const STATUS: Record<OrbState, { primary: string; hint: string }> = {
   connecting: { primary: '正在连接 AI 老师', hint: 'Connecting…' },
   idle:       { primary: '随时开始回答',    hint: 'Mic is open · just speak' },
@@ -376,7 +381,7 @@ export function MnemonicSheet({ isOpen, onClose, markedWords, transcript, materi
 
                   {/* Subtitle / transcript area */}
                   <div style={{ width: 300, minHeight: 50, marginTop: 14, padding: '0 8px' }}>
-                    {orbState === 'speaking' && aiSubtitle && (
+                    {SHOW_SUBTITLE && orbState === 'speaking' && aiSubtitle && (
                       <TypewriterSubtitle key={aiSubtitle} text={aiSubtitle} />
                     )}
                     {orbState === 'active' && transcriptLive && (

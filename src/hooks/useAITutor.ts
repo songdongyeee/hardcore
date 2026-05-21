@@ -321,16 +321,22 @@ export function useAITutor(context: SessionContext | null) {
     if (!context || isSessionStarted) return;
     setIsSessionStarted(true);
 
-    await openMic();
-    setBaseState('connecting');
-    // Simulate brief connection delay
-    await new Promise(r => setTimeout(r, 1200));
-
+    // Compute opening text BEFORE awaiting mic — it's a synchronous template,
+    // doesn't need the mic or any network call.
     const openingText = tutor.getOpeningMessage(context);
     const openingMsg: TutorMessage = { id: crypto.randomUUID(), role: 'ai', text: openingText };
     setMessages([openingMsg]);
     setLastAIQuestion(openingText);
-    await speak(openingText);
+
+    // Open mic in parallel with first TTS so the user doesn't perceive any wait.
+    // Mic permission prompt (if any) and TTS network call overlap.
+    setBaseState('connecting');
+    const micReady = openMic();
+
+    // Kick off TTS speech immediately — speak() handles the network fetch + audio.
+    // The "connecting" orb state stays visible only as long as the TTS request
+    // takes; no artificial setTimeout delay.
+    await Promise.all([micReady, speak(openingText)]);
 
     // After AI finishes opening, start VAD
     if (!overrideRef.current) runVadLoop();

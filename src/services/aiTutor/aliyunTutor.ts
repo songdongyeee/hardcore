@@ -19,9 +19,9 @@ export class AliyunTutorService implements AITutorService {
     if (context.markedWords.length === 0) {
       return '你好，我是 Nex！我发现你还没有标记生词。先去文章里把你不熟悉的词标记一下，我才能帮你针对性地练习和记忆。';
     }
-    const wordList = context.markedWords.map(w => `「${w.text}」`).join('、');
+    const count = context.markedWords.length;
     const firstWord = context.markedWords[0].text;
-    return `你好，我是 Nex！我看到你标记了 ${context.markedWords.length} 个词：${wordList}。我们来练练吧——在原文里，「${firstWord}」是什么意思？你还记得吗？`;
+    return `你好，我是 Nex，我看见你标记了 ${count} 个生词，我们来练习第一个吧，${firstWord}，你还记得它的意思吗？不记得没关系，我们可以通过对话来回忆。`;
   }
 
   private get authHeader(): Record<string, string> {
