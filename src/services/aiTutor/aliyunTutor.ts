@@ -93,44 +93,81 @@ export class AliyunTutorService implements AITutorService {
   }
 
   async chat(messages: TutorMessage[], context: SessionContext): Promise<ChatResult> {
-    const makeRequest = () => fetch(`${this.baseUrl}/api/mnemonic/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...this.authHeader },
-      body: JSON.stringify({
-        messages,
-        markedWords: context.markedWords.map(w => ({
-          text: w.text,
-          sentence: context.transcript[w.segmentIndex]?.text ?? '',
-        })),
-        materialTitle: context.materialTitle,
-        conversationState: context.conversationState ?? null,
-      }),
-    });
+    // ─── Architecture: PB Collection event hook ─────────────────────────────
+    // We create a record in `nex_chat_requests`. PB validates auth via the
+    // collection's Create Rule (`@request.auth.id != ""`). The server-side
+    // `onRecordAfterCreateRequest` hook synchronously runs the LLM and writes
+    // `reply`/`state_update`/`status` back to the same record before this
+    // create() call returns.
 
-    console.log('[AITutor] 💬 chat — token present:', !!pb.authStore.token, 'isValid:', pb.authStore.isValid);
-    let res = await makeRequest();
-    console.log('[AITutor] 💬 chat first response status:', res.status);
-
-    // On 401, re-authenticate once and retry
-    if (res.status === 401) {
+    const userId = pb.authStore.model?.id;
+    if (!userId) {
+      // No authStore.model → not logged in. Try one re-auth pass, then bail.
       await this.tryReAuth();
-      console.log('[AITutor] 💬 chat retry — token present:', !!pb.authStore.token);
-      res = await makeRequest();
-      console.log('[AITutor] 💬 chat retry response status:', res.status);
+      if (!pb.authStore.model?.id) {
+        throw new Error('UNAUTHORIZED');
+      }
     }
 
-    if (res.status === 429) {
-      const data = await res.json();
-      throw new Error(data.error === 'daily_limit_exceeded' ? 'DAILY_LIMIT' : 'MONTHLY_LIMIT');
+    const payload = {
+      user_id: pb.authStore.model!.id,
+      messages,
+      marked_words: context.markedWords.map(w => ({
+        text: w.text,
+        sentence: context.transcript[w.segmentIndex]?.text ?? '',
+      })),
+      material_title: context.materialTitle,
+      conversation_state: context.conversationState ?? null,
+      status: 'pending' as const,
+    };
+
+    const makeRequest = () =>
+      pb.collection('nex_chat_requests').create<{
+        id: string;
+        status: 'pending' | 'processing' | 'done' | 'error';
+        reply: string;
+        state_update: StateUpdate;
+        error_msg: string;
+      }>(payload);
+
+    console.log('[AITutor] 💬 chat — creating record, token isValid:', pb.authStore.isValid);
+    let record;
+    try {
+      record = await makeRequest();
+    } catch (err: any) {
+      // PB SDK throws ClientResponseError with .status / .response
+      const status = err?.status ?? 0;
+      console.log('[AITutor] 💬 chat first response status:', status, 'msg:', err?.message);
+      if (status === 401 || status === 403) {
+        await this.tryReAuth();
+        try {
+          record = await makeRequest();
+          console.log('[AITutor] 💬 chat retry status: ok');
+        } catch (retryErr: any) {
+          console.log('[AITutor] 💬 chat retry status:', retryErr?.status, 'msg:', retryErr?.message);
+          throw new Error('UNAUTHORIZED');
+        }
+      } else {
+        throw new Error(`chat_request_failed: ${err?.message || status}`);
+      }
     }
-    if (res.status === 401) throw new Error('UNAUTHORIZED');
 
-    const data = await res.json();
-    const reply = this.cleanForSpeech(data.reply ?? '');
+    console.log('[AITutor] 💬 chat record returned, status:', record.status, 'replyLen:', (record.reply || '').length);
 
-    // Backend returns stateUpdate signals; fall back to no-op if absent
-    const stateUpdate: StateUpdate = data.stateUpdate ?? { advancement: false };
+    // Hook ran synchronously — record should be in final state now.
+    if (record.status === 'error') {
+      const msg = record.error_msg || '';
+      if (msg.startsWith('daily_limit_exceeded'))   throw new Error('DAILY_LIMIT');
+      if (msg.startsWith('monthly_limit_exceeded')) throw new Error('MONTHLY_LIMIT');
+      throw new Error(`chat_error: ${msg}`);
+    }
+    if (record.status !== 'done') {
+      // Shouldn't happen with synchronous hook, but be defensive
+      throw new Error(`chat_unexpected_status: ${record.status}`);
+    }
 
+    const reply = this.cleanForSpeech(record.reply ?? '');
+    const stateUpdate: StateUpdate = record.state_update ?? { advancement: false };
     return { reply, stateUpdate };
   }
 

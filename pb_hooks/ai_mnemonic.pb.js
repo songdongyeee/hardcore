@@ -103,7 +103,27 @@ routerAdd("POST", "/api/mnemonic/tts", function(c) {
   }
 });
 
-routerAdd("POST", "/api/mnemonic/chat", function(c) {
+// ─── Chat (via PB Collection event, not HTTP route) ─────────────────────────
+//
+// Architecture: client creates a record in `nex_chat_requests` via PB's
+// standard Collection API (auth handled by Collection Rules). This hook fires
+// synchronously after creation, runs the LLM, and updates the record. The
+// create-response sent back to the client already includes the final reply.
+//
+// Why not routerAdd: routerAdd routes require manually re-implementing auth,
+// body parsing, quota, etc. PB Collections handle all of that natively.
+//
+// Collection schema (see PB admin):
+//   user_id (relation→users, required), messages (json, required),
+//   marked_words (json), material_title (text), conversation_state (json),
+//   status (select: pending/processing/done/error, default=pending),
+//   reply (text), state_update (json), error_msg (text), tier_at_request (text)
+//
+onRecordAfterCreateRequest((e) => {
+  if (e.collection.name !== "nex_chat_requests") return;
+
+  // runPython is defined locally — PocketBase v0.22.x goja does not let
+  // top-level function declarations be referenced inside event handlers.
   function runPython(scriptPath, payload) {
     var tmpPath = "/tmp/mn_" + Date.now() + ".json";
     $os.writeFile(tmpPath, JSON.stringify(payload));
@@ -114,114 +134,123 @@ routerAdd("POST", "/api/mnemonic/chat", function(c) {
       var chars = [];
       for (var i = 0; i < output.length; i++) { chars.push(output[i]); }
       var text = String.fromCharCode.apply(null, chars).trim();
-      // Use indexOf (first "{") so nested JSON objects don't confuse the extractor
       var s = text.indexOf("{");
-      var e = text.lastIndexOf("}");
-      if (s < 0 || e <= s) throw new Error("script output: " + text);
-      return JSON.parse(text.slice(s, e + 1));
+      var ee = text.lastIndexOf("}");
+      if (s < 0 || ee <= s) throw new Error("script output: " + text);
+      return JSON.parse(text.slice(s, ee + 1));
     } finally {
       try { $os.remove(tmpPath); } catch(_) {}
     }
   }
+
+  var record = e.record;
+  $app.logger().info("[chat-event] ENTERED", "recordId", record.id);
+
+  // Helper to mark error and save (best-effort — swallow save errors)
+  function finishWithError(errCode, errMsg) {
+    try {
+      record.set("status",    "error");
+      record.set("error_msg", String(errMsg || errCode).slice(0, 500));
+      $app.dao().saveRecord(record);
+    } catch (saveErr) {
+      $app.logger().error("[chat-event] failed to save error state", "err", String(saveErr));
+    }
+  }
+
   try {
-    var info = $apis.requestInfo(c);
-    // Manual JWT auth — info.auth is not auto-populated for custom routerAdd
-    // routes in PocketBase v0.22 unless $apis.requireRecordAuth() middleware
-    // is attached. Reading headers via info.headers (lowercased keys) instead
-    // of c.request().header.get() avoids the goja TypeError on .get().
-    var rawAuth = (info.headers && info.headers["authorization"]) || "";
-    var jwtToken = rawAuth.replace(/^Bearer\s+/i, "").trim();
-    if (!jwtToken) return c.json(401, { error: "unauthorized", detail: "no_token" });
+    // Resolve auth user from record's user_id field.
+    var userId = String(record.get("user_id") || "");
+    if (!userId) {
+      $app.logger().error("[chat-event] missing user_id", "recordId", record.id);
+      return finishWithError("missing_user_id", "user_id field required");
+    }
 
     var authRecord;
     try {
-      var jwtPayload = $security.parseUnverifiedJWT(jwtToken);
-      var tokenUserId = (jwtPayload && jwtPayload.id) ? String(jwtPayload.id) : "";
-      if (!tokenUserId) return c.json(401, { error: "unauthorized", detail: "no_id_in_token" });
-      authRecord = $app.dao().findRecordById("users", tokenUserId);
-    } catch (authErr) {
-      $app.logger().error("[mnemonic/chat] auth failed", "err", String(authErr));
-      return c.json(401, { error: "unauthorized", detail: String(authErr) });
+      authRecord = $app.dao().findRecordById("users", userId);
+    } catch (lookupErr) {
+      $app.logger().error("[chat-event] user lookup failed", "userId", userId, "err", String(lookupErr));
+      return finishWithError("user_not_found", String(lookupErr));
     }
-    if (!authRecord) return c.json(401, { error: "unauthorized", detail: "user_not_found" });
-
-    var userId = authRecord.id;
     var tier = String(authRecord.get("subscription_tier") || "free").toLowerCase();
     var quota = QUOTA[tier] || QUOTA.free;
+    record.set("tier_at_request", tier);
+
+    // Quota check
     var now = new Date();
     var today = now.toISOString().slice(0, 10);
     var monthPrefix = now.toISOString().slice(0, 7);
-    var body = info.data || {};
-    var messages = body.messages || [];
-    if (messages.length === 0) return c.json(400, { error: "messages required" });
 
     var usage;
     try {
       usage = getUsageCounts(userId, today, monthPrefix);
     } catch (dbErr) {
-      $app.logger().error("[mnemonic/chat] quota_db_error", "err", String(dbErr));
-      return c.json(500, { error: "quota_db_error", message: String(dbErr) });
+      $app.logger().error("[chat-event] quota_db_error", "err", String(dbErr));
+      return finishWithError("quota_db_error", String(dbErr));
     }
     if (usage.dayCount >= quota.daily) {
-      return c.json(429, { error: "daily_limit_exceeded", used: usage.dayCount, limit: quota.daily, tier: tier });
+      return finishWithError("daily_limit_exceeded",
+        "daily_limit_exceeded (used " + usage.dayCount + "/" + quota.daily + ", tier=" + tier + ")");
     }
     if (usage.monthCount >= quota.monthly) {
-      return c.json(429, { error: "monthly_limit_exceeded", used: usage.monthCount, limit: quota.monthly, tier: tier });
+      return finishWithError("monthly_limit_exceeded",
+        "monthly_limit_exceeded (used " + usage.monthCount + "/" + quota.monthly + ", tier=" + tier + ")");
     }
 
+    // Pull inputs from record (JSON fields come back as objects/arrays)
+    var messages = record.get("messages") || [];
+    if (!messages || messages.length === 0) {
+      return finishWithError("messages_required", "messages field is empty");
+    }
+    var markedWords       = record.get("marked_words") || [];
+    var materialTitle     = String(record.get("material_title") || "");
+    var conversationState = record.get("conversation_state") || null;
+
+    // Mark processing (mostly cosmetic — we'll overwrite below before response is sent)
+    record.set("status", "processing");
+
+    $app.logger().info("[chat-event] calling python",
+      "userId", userId, "msgs", messages.length, "tier", tier);
     var result = runPython(__hooks + "/mnemonic_chat.py", {
       messages: messages,
-      markedWords: body.markedWords || [],
-      materialTitle: body.materialTitle || "",
-      conversationState: body.conversationState || null
+      markedWords: markedWords,
+      materialTitle: materialTitle,
+      conversationState: conversationState
     });
-    if (result.error) return c.json(502, result);
+    $app.logger().info("[chat-event] python returned",
+      "hasError", !!result.error,
+      "replyLen", (result.reply || "").length);
+
+    if (result.error) {
+      $app.logger().error("[chat-event] python_error",
+        "result", JSON.stringify(result).slice(0, 500));
+      return finishWithError("llm_error", JSON.stringify(result).slice(0, 480));
+    }
+
+    // Success — write reply + stateUpdate back to record and bump usage
+    record.set("status",       "done");
+    record.set("reply",        String(result.reply || "").slice(0, 2000));
+    record.set("state_update", result.stateUpdate || {});
+    record.set("error_msg",    "");
+
+    try {
+      $app.dao().saveRecord(record);
+    } catch (saveErr) {
+      $app.logger().error("[chat-event] saveRecord failed on success", "err", String(saveErr));
+      throw saveErr; // bubble up so outer catch can mark error
+    }
+
     try {
       incrementUsage(userId, today);
     } catch (dbErr) {
-      result._usageWarning = "increment_failed: " + String(dbErr);
+      $app.logger().error("[chat-event] increment_failed", "err", String(dbErr));
+      // already saved success; don't fail the request just because counter didn't bump
     }
-
-    // Save to nex_chat_logs collection (best-effort, never blocks the reply)
-    try {
-      var convState  = body.conversationState || {};
-      var stateUpd   = result.stateUpdate || {};
-      var lastUserMsg = "";
-      var msgs = body.messages || [];
-      for (var mi = msgs.length - 1; mi >= 0; mi--) {
-        if (msgs[mi].role === "user") { lastUserMsg = msgs[mi].text || ""; break; }
-      }
-      var logsCollection = $app.dao().findCollectionByNameOrId("nex_chat_logs");
-      var logRecord = new Record(logsCollection);
-      var currentWord = "";
-      if (convState.currentWordIndex !== undefined) {
-        var mw = (body.markedWords || [])[convState.currentWordIndex];
-        currentWord = mw ? (mw.text || "") : "";
-      }
-      logRecord.set("user_id",    userId);
-      logRecord.set("material",   (body.materialTitle || "").slice(0, 200));
-      logRecord.set("word",       currentWord);
-      logRecord.set("phase",      convState.sessionPhase || "drilling");
-      logRecord.set("user_msg",   lastUserMsg.slice(0, 500));
-      logRecord.set("ai_reply",   (result.reply || "").slice(0, 1000));
-      logRecord.set("attempt",    Number(convState.attemptCount) || 0);
-      logRecord.set("word_index", Number(convState.currentWordIndex) || 0);
-      // JSON fields must be set as a string in PocketBase JS hooks
-      logRecord.set("rules",      JSON.stringify(stateUpd));
-      logRecord.set("advancement", stateUpd.advancement === true);
-      $app.dao().saveRecord(logRecord);
-    } catch (logErr) {
-      $app.logger().error("nex_chat_logs save failed",
-        "err", String(logErr),
-        "user", userId,
-        "material", (body.materialTitle || "").slice(0, 60)
-      );
-    }
-
-    return c.json(200, result);
   } catch (e) {
-    $app.logger().error("[mnemonic/chat] hook_exception", "err", String(e), "stack", (e && e.stack) ? String(e.stack) : "");
-    return c.json(500, { error: "hook_exception", message: String(e) });
+    $app.logger().error("[chat-event] hook_exception",
+      "err", String(e),
+      "stack", (e && e.stack) ? String(e.stack) : "");
+    return finishWithError("hook_exception", String(e));
   }
 });
 
