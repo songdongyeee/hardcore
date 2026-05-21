@@ -122,8 +122,57 @@ routerAdd("POST", "/api/mnemonic/tts", function(c) {
 onRecordAfterCreateRequest((e) => {
   if (e.collection.name !== "nex_chat_requests") return;
 
-  // runPython is defined locally — PocketBase v0.22.x goja does not let
-  // top-level function declarations be referenced inside event handlers.
+  // PocketBase v0.22.x goja does NOT make top-level declarations accessible
+  // inside event handlers — everything (QUOTA constants, helper functions,
+  // runPython) must be redefined inside this closure.
+
+  var QUOTA_LOCAL = {
+    free:      { daily:  5, monthly:  10 },
+    monthly:   { daily: 30, monthly: 150 },
+    quarterly: { daily: 30, monthly: 150 },
+    yearly:    { daily: 60, monthly: 200 },
+    lifetime:  { daily: 60, monthly: 200 },
+  };
+
+  function ensureUsageTableLocal() {
+    $app.dao().db().newQuery(
+      "CREATE TABLE IF NOT EXISTS nex_ai_usage (" +
+      "  id        TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(7))))," +
+      "  user_id   TEXT NOT NULL," +
+      "  date      TEXT NOT NULL," +
+      "  day_count INTEGER NOT NULL DEFAULT 0," +
+      "  UNIQUE(user_id, date)" +
+      ")"
+    ).execute();
+  }
+
+  function getUsageCountsLocal(uid, day, monthPrefix) {
+    ensureUsageTableLocal();
+    var dayRow = {};
+    $app.dao().db().newQuery(
+      "SELECT COALESCE(SUM(day_count), 0) AS day_count" +
+      "  FROM nex_ai_usage WHERE user_id = {:u} AND date = {:d}"
+    ).bind({ u: uid, d: day }).one(dayRow);
+    var dayCount = (typeof dayRow["day_count"] === "number") ? dayRow["day_count"] : 0;
+
+    var monthRow = {};
+    $app.dao().db().newQuery(
+      "SELECT COALESCE(SUM(day_count), 0) AS month_count" +
+      "  FROM nex_ai_usage WHERE user_id = {:u} AND date LIKE {:m}"
+    ).bind({ u: uid, m: monthPrefix + "%" }).one(monthRow);
+    var monthCount = (typeof monthRow["month_count"] === "number") ? monthRow["month_count"] : 0;
+
+    return { dayCount: dayCount, monthCount: monthCount };
+  }
+
+  function incrementUsageLocal(uid, day) {
+    ensureUsageTableLocal();
+    $app.dao().db().newQuery(
+      "INSERT INTO nex_ai_usage (user_id, date, day_count) VALUES ({:u}, {:d}, 1)" +
+      " ON CONFLICT(user_id, date) DO UPDATE SET day_count = day_count + 1"
+    ).bind({ u: uid, d: day }).execute();
+  }
+
   function runPython(scriptPath, payload) {
     var tmpPath = "/tmp/mn_" + Date.now() + ".json";
     $os.writeFile(tmpPath, JSON.stringify(payload));
@@ -173,7 +222,7 @@ onRecordAfterCreateRequest((e) => {
       return finishWithError("user_not_found", String(lookupErr));
     }
     var tier = String(authRecord.get("subscription_tier") || "free").toLowerCase();
-    var quota = QUOTA[tier] || QUOTA.free;
+    var quota = QUOTA_LOCAL[tier] || QUOTA_LOCAL.free;
     record.set("tier_at_request", tier);
 
     // Quota check
@@ -183,7 +232,7 @@ onRecordAfterCreateRequest((e) => {
 
     var usage;
     try {
-      usage = getUsageCounts(userId, today, monthPrefix);
+      usage = getUsageCountsLocal(userId, today, monthPrefix);
     } catch (dbErr) {
       $app.logger().error("[chat-event] quota_db_error", "err", String(dbErr));
       return finishWithError("quota_db_error", String(dbErr));
@@ -241,7 +290,7 @@ onRecordAfterCreateRequest((e) => {
     }
 
     try {
-      incrementUsage(userId, today);
+      incrementUsageLocal(userId, today);
     } catch (dbErr) {
       $app.logger().error("[chat-event] increment_failed", "err", String(dbErr));
       // already saved success; don't fail the request just because counter didn't bump
