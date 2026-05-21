@@ -148,19 +148,21 @@ onRecordAfterCreateRequest((e) => {
 
   function getUsageCountsLocal(uid, day, monthPrefix) {
     ensureUsageTableLocal();
-    var dayRow = {};
+    // PB v0.22 JSVM requires DynamicModel as the result target for .one()
+    // — plain {} fails with "Invalid variable type: must be a NullStringMap"
+    var dayRow = new DynamicModel({ day_count: 0 });
     $app.dao().db().newQuery(
       "SELECT COALESCE(SUM(day_count), 0) AS day_count" +
       "  FROM nex_ai_usage WHERE user_id = {:u} AND date = {:d}"
     ).bind({ u: uid, d: day }).one(dayRow);
-    var dayCount = (typeof dayRow["day_count"] === "number") ? dayRow["day_count"] : 0;
+    var dayCount = Number(dayRow.day_count) || 0;
 
-    var monthRow = {};
+    var monthRow = new DynamicModel({ month_count: 0 });
     $app.dao().db().newQuery(
       "SELECT COALESCE(SUM(day_count), 0) AS month_count" +
       "  FROM nex_ai_usage WHERE user_id = {:u} AND date LIKE {:m}"
     ).bind({ u: uid, m: monthPrefix + "%" }).one(monthRow);
-    var monthCount = (typeof monthRow["month_count"] === "number") ? monthRow["month_count"] : 0;
+    var monthCount = Number(monthRow.month_count) || 0;
 
     return { dayCount: dayCount, monthCount: monthCount };
   }
