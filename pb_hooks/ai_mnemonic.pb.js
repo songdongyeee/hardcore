@@ -179,15 +179,25 @@ onRecordAfterCreateRequest((e) => {
     var tmpPath = "/tmp/mn_" + Date.now() + ".json";
     $os.writeFile(tmpPath, JSON.stringify(payload));
     try {
+      // Important: redirect stderr to stdout AND force exit 0. Otherwise if
+      // Python crashes (exit != 0), $os.cmd's combinedOutput() throws a
+      // GoError BEFORE we can read the actual Python traceback. Same pattern
+      // as aliyun_asr.pb.js.
       var cmd = $os.cmd("/bin/bash", "-c",
-        "unset PYTHONHOME PYTHONPATH; /usr/bin/python3.11 '" + scriptPath + "' '" + tmpPath + "'");
+        "unset PYTHONHOME PYTHONPATH; " +
+        "/usr/bin/python3.11 '" + scriptPath + "' '" + tmpPath + "' 2>&1; exit 0");
       var output = cmd.combinedOutput();
       var chars = [];
       for (var i = 0; i < output.length; i++) { chars.push(output[i]); }
       var text = String.fromCharCode.apply(null, chars).trim();
+      // Log raw output so we can see Python tracebacks in journalctl when
+      // the JSON-extraction fails.
+      $app.logger().info("[chat-event] python_raw_output",
+        "len", text.length,
+        "head", text.slice(0, 300));
       var s = text.indexOf("{");
       var ee = text.lastIndexOf("}");
-      if (s < 0 || ee <= s) throw new Error("script output: " + text);
+      if (s < 0 || ee <= s) throw new Error("python script produced no JSON. Raw output: " + text.slice(0, 800));
       return JSON.parse(text.slice(s, ee + 1));
     } finally {
       try { $os.remove(tmpPath); } catch(_) {}
