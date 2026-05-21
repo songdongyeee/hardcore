@@ -232,31 +232,31 @@ export function useAITutor(context: SessionContext | null) {
   }, [startVoiceRecording, stopVoiceRecording]);
 
   // ── Speak helper ──────────────────────────────────────────────────────────
+  // Critical iOS audio-session behavior: when MediaStream (mic) is active,
+  // iOS puts the app in PlayAndRecord category — TTS audio routes to the
+  // receiver (quiet/tinny) and HW volume keys control ringer not media.
+  // So we close the mic right before TTS plays and reopen it for the next
+  // user turn after TTS finishes.
   const speak = useCallback(async (text: string) => {
     if (overrideRef.current === 'paused') return;
     isSpeakingRef.current = true;
     setBaseState('speaking');
     setAiSubtitle(text);
+    closeMic();
     try {
       await tutor.speak(text);
     } catch {
       // silence — speak() already falls back internally
     }
     isSpeakingRef.current = false;
-    // iOS suspends AudioContext when system audio (TTS) plays; resume it so VAD keeps working
-    const ctxState = audioCtxRef.current?.state ?? 'none';
-    console.log('[AITutor] 🔊 TTS done, AudioContext state:', ctxState);
-    if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
-      try {
-        await audioCtxRef.current.resume();
-        console.log('[AITutor] ▶️ AudioContext resumed');
-      } catch (_) { /* best-effort */ }
-    }
     if (!overrideRef.current) {
       setBaseState('listening');
       setAiSubtitle('');
+      // Reopen mic for the next user turn and resume VAD listening.
+      await openMic();
+      runVadLoop();
     }
-  }, []);
+  }, [closeMic, openMic, runVadLoop]);
 
   // ── Process user reply ────────────────────────────────────────────────────
   const processUserReply = useCallback(async (userText: string) => {
@@ -321,26 +321,18 @@ export function useAITutor(context: SessionContext | null) {
     if (!context || isSessionStarted) return;
     setIsSessionStarted(true);
 
-    // Compute opening text BEFORE awaiting mic — it's a synchronous template,
-    // doesn't need the mic or any network call.
+    // Opening message is a synchronous template — compute & display immediately.
     const openingText = tutor.getOpeningMessage(context);
     const openingMsg: TutorMessage = { id: crypto.randomUUID(), role: 'ai', text: openingText };
     setMessages([openingMsg]);
     setLastAIQuestion(openingText);
 
-    // Open mic in parallel with first TTS so the user doesn't perceive any wait.
-    // Mic permission prompt (if any) and TTS network call overlap.
+    // No openMic at session start — keeps iOS in playback-only mode for the
+    // opening TTS (clean audio, working volume keys). speak() opens the mic
+    // and starts VAD after the opening message finishes playing.
     setBaseState('connecting');
-    const micReady = openMic();
-
-    // Kick off TTS speech immediately — speak() handles the network fetch + audio.
-    // The "connecting" orb state stays visible only as long as the TTS request
-    // takes; no artificial setTimeout delay.
-    await Promise.all([micReady, speak(openingText)]);
-
-    // After AI finishes opening, start VAD
-    if (!overrideRef.current) runVadLoop();
-  }, [context, isSessionStarted, openMic, speak, runVadLoop]);
+    await speak(openingText);
+  }, [context, isSessionStarted, speak]);
 
   // ── Manual voice send (user taps "done speaking") ────────────────────────
   const stopAndSend = useCallback(() => {
@@ -361,11 +353,20 @@ export function useAITutor(context: SessionContext | null) {
   }, [textInput, processUserReply]);
 
   // ── User controls ─────────────────────────────────────────────────────────
+  // Ensure mic + VAD are running. Safe to call even if mic is already open
+  // (openMic is idempotent). Used when transitioning back to listening from
+  // muted/paused states where the mic may have been closed.
+  const resumeListening = useCallback(async () => {
+    await openMic();
+    runVadLoop();
+  }, [openMic, runVadLoop]);
+
   const toggleMute = useCallback(() => {
     setOverride(prev => {
       if (prev === 'muted') {
-        // unmute → back to listening
+        // unmute → back to listening; reopen mic if it was closed
         setBaseState('listening');
+        resumeListening();
         return null;
       }
       // mute → stop any recording in progress
@@ -379,14 +380,14 @@ export function useAITutor(context: SessionContext | null) {
       isSpeakingRef.current = false;
       return 'muted';
     });
-  }, []);
+  }, [resumeListening]);
 
   const togglePause = useCallback(() => {
     setOverride(prev => {
       if (prev === 'paused') {
-        // resume → restart VAD loop
+        // resume → reopen mic (may have been closed) + restart VAD
         setBaseState('listening');
-        setTimeout(() => runVadLoop(), 0);
+        resumeListening();
         return null;
       }
       // pause → stop everything
@@ -400,7 +401,7 @@ export function useAITutor(context: SessionContext | null) {
       }
       return 'paused';
     });
-  }, [runVadLoop]);
+  }, [resumeListening]);
 
   // ── Cleanup ───────────────────────────────────────────────────────────────
   useEffect(() => {
