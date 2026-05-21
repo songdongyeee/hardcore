@@ -258,14 +258,35 @@ onRecordAfterCreateRequest((e) => {
         "monthly_limit_exceeded (used " + usage.monthCount + "/" + quota.monthly + ", tier=" + tier + ")");
     }
 
-    // Pull inputs from record (JSON fields come back as objects/arrays)
-    var messages = record.get("messages") || [];
-    if (!messages || messages.length === 0) {
-      return finishWithError("messages_required", "messages field is empty");
+    // Pull inputs from record. JSON fields in PB v0.22 are unreliable via
+    // record.get() (may return goja-wrapped Go types or byte arrays). Use
+    // record.getString() to get the raw JSON text and parse it ourselves.
+    function parseJsonField(name, fallback) {
+      var s = "";
+      try { s = String(record.getString(name) || ""); } catch(_) {}
+      if (!s) return fallback;
+      try { return JSON.parse(s); } catch(_) { return fallback; }
     }
-    var markedWords       = record.get("marked_words") || [];
-    var materialTitle     = String(record.get("material_title") || "");
-    var conversationState = record.get("conversation_state") || null;
+
+    var messages = parseJsonField("messages", []);
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return finishWithError("messages_required", "messages field is empty or not an array");
+    }
+    var markedWords = parseJsonField("marked_words", []);
+    if (!Array.isArray(markedWords)) markedWords = [];
+
+    var materialTitle = String(record.getString("material_title") || "");
+
+    var conversationState = parseJsonField("conversation_state", null);
+    // Python expects a dict-shaped object or null — coerce anything else to null
+    if (conversationState !== null && (Array.isArray(conversationState) || typeof conversationState !== "object")) {
+      conversationState = null;
+    }
+
+    $app.logger().info("[chat-event] parsed inputs",
+      "msgs", messages.length,
+      "words", markedWords.length,
+      "hasState", conversationState !== null);
 
     // Mark processing (mostly cosmetic — we'll overwrite below before response is sent)
     record.set("status", "processing");
