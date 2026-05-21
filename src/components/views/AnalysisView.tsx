@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback, memo } from "
 import { cn } from "@/lib/utils";
 import type { MarkedWord } from "@/App";
 import { lookupOnlineDictionary } from "@/lib/onlineDictionary";
-import { ArrowRight, ChevronLeft, Volume2, X, BookOpen, Eye, EyeOff, Play, Pause, Bookmark, BookmarkX, ListChecks, Loader2, Sparkles } from "lucide-react";
+import { ArrowRight, ChevronLeft, Volume2, X, Eye, EyeOff, Play, Pause, Bookmark, BookmarkX, ListChecks, Loader2, Sparkles } from "lucide-react";
 import { StepGuideModal } from "../ui/StepGuideModal";
 import { VocabularySheet, type VocabularyItem } from "../VocabularySheet";
 import { MnemonicSheet } from "@/components/views/MnemonicSheet";
@@ -299,7 +299,6 @@ export function AnalysisView({
   }, [recitationMode, transcript]);
 
   const handleRecitationToggle = () => {
-    // Cycle: OFF -> Partial (70%) -> Full (100%) -> OFF
     setRecitationMode(prev => {
       if (prev === 'off') return 'partial';
       if (prev === 'partial') return 'full';
@@ -400,6 +399,16 @@ export function AnalysisView({
               </div>
             }
           />
+          <button
+            onClick={handleRecitationToggle}
+            title={recitationMode === 'off' ? '开启默写模式' : recitationMode === 'partial' ? '全部遮挡' : '关闭默写模式'}
+            className={cn(
+              "w-8 h-8 rounded-full flex items-center justify-center transition-colors",
+              recitationMode !== 'off' ? "text-indigo-400" : "text-zinc-600 hover:text-zinc-400"
+            )}
+          >
+            {recitationMode === 'off' ? <Eye size={16} /> : <EyeOff size={16} />}
+          </button>
           <label htmlFor="trans-toggle" className="text-xs font-medium text-zinc-500 cursor-pointer select-none">译</label>
           <button
             onClick={() => setShowTranslation(!showTranslation)}

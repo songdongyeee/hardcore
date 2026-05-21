@@ -8,9 +8,12 @@ var QUOTA = {
   lifetime:  { daily: 60, monthly: 200 },
 };
 
-// Ensure quota table exists. Wrapped in try-catch so a transient DB hiccup
-// at startup does NOT prevent the hook file from loading (which would kill TTS too).
-try {
+// NOTE: Do NOT create tables at file-load time — $app.dao() is null then in
+// PocketBase v0.22.3 (the app isn't fully bootstrapped when hook files load).
+// Instead, ensureUsageTable() is called lazily from the route handler.
+var __usageTableReady = false;
+function ensureUsageTable() {
+  if (__usageTableReady) return;
   $app.dao().db().newQuery(
     "CREATE TABLE IF NOT EXISTS nex_ai_usage (" +
     "  id        TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(7))))," +
@@ -20,9 +23,7 @@ try {
     "  UNIQUE(user_id, date)" +
     ")"
   ).execute();
-} catch(e) {
-  // Log but don't crash — quota checks will surface the error at request time.
-  $app.logger().error("nex_ai_usage table init failed", "err", String(e));
+  __usageTableReady = true;
 }
 
 /**
@@ -31,6 +32,7 @@ try {
  * bypassing quota.
  */
 function getUsageCounts(userId, today, monthPrefix) {
+  ensureUsageTable();
   // Use SUM so the query always returns exactly one row (SUM of no rows = NULL → COALESCE → 0).
   // A plain SELECT with LIMIT 1 would return zero rows for a new user, causing .one() to throw.
   var dayRow = {};
@@ -57,6 +59,7 @@ function getUsageCounts(userId, today, monthPrefix) {
  * Throws on DB error so the caller knows the count was not recorded.
  */
 function incrementUsage(userId, today) {
+  ensureUsageTable();
   $app.dao().db().newQuery(
     "INSERT INTO nex_ai_usage (user_id, date, day_count) VALUES ({:u}, {:d}, 1)" +
     " ON CONFLICT(user_id, date) DO UPDATE SET day_count = day_count + 1"
@@ -122,8 +125,26 @@ routerAdd("POST", "/api/mnemonic/chat", function(c) {
   }
   try {
     var info = $apis.requestInfo(c);
-    var authRecord = info.auth;
-    if (!authRecord) return c.json(401, { error: "unauthorized" });
+    // Manual JWT auth — info.auth is not auto-populated for custom routerAdd
+    // routes in PocketBase v0.22 unless $apis.requireRecordAuth() middleware
+    // is attached. Reading headers via info.headers (lowercased keys) instead
+    // of c.request().header.get() avoids the goja TypeError on .get().
+    var rawAuth = (info.headers && info.headers["authorization"]) || "";
+    var jwtToken = rawAuth.replace(/^Bearer\s+/i, "").trim();
+    if (!jwtToken) return c.json(401, { error: "unauthorized", detail: "no_token" });
+
+    var authRecord;
+    try {
+      var jwtPayload = $security.parseUnverifiedJWT(jwtToken);
+      var tokenUserId = (jwtPayload && jwtPayload.id) ? String(jwtPayload.id) : "";
+      if (!tokenUserId) return c.json(401, { error: "unauthorized", detail: "no_id_in_token" });
+      authRecord = $app.dao().findRecordById("users", tokenUserId);
+    } catch (authErr) {
+      $app.logger().error("[mnemonic/chat] auth failed", "err", String(authErr));
+      return c.json(401, { error: "unauthorized", detail: String(authErr) });
+    }
+    if (!authRecord) return c.json(401, { error: "unauthorized", detail: "user_not_found" });
+
     var userId = authRecord.id;
     var tier = String(authRecord.get("subscription_tier") || "free").toLowerCase();
     var quota = QUOTA[tier] || QUOTA.free;
@@ -138,6 +159,7 @@ routerAdd("POST", "/api/mnemonic/chat", function(c) {
     try {
       usage = getUsageCounts(userId, today, monthPrefix);
     } catch (dbErr) {
+      $app.logger().error("[mnemonic/chat] quota_db_error", "err", String(dbErr));
       return c.json(500, { error: "quota_db_error", message: String(dbErr) });
     }
     if (usage.dayCount >= quota.daily) {
@@ -171,27 +193,34 @@ routerAdd("POST", "/api/mnemonic/chat", function(c) {
       }
       var logsCollection = $app.dao().findCollectionByNameOrId("nex_chat_logs");
       var logRecord = new Record(logsCollection);
-      logRecord.set("user_id",   userId);
-      logRecord.set("material",  (body.materialTitle || "").slice(0, 200));
-      logRecord.set("word",      String(convState.currentWordIndex !== undefined
-                                   ? (body.markedWords || [])[convState.currentWordIndex]
-                                     ? (body.markedWords[convState.currentWordIndex].text || "")
-                                     : ""
-                                   : ""));
-      logRecord.set("phase",     convState.sessionPhase || "drilling");
-      logRecord.set("user_msg",  lastUserMsg.slice(0, 500));
-      logRecord.set("ai_reply",  (result.reply || "").slice(0, 1000));
-      logRecord.set("attempt",   Number(convState.attemptCount) || 0);
-      logRecord.set("word_index",Number(convState.currentWordIndex) || 0);
-      logRecord.set("rules",     stateUpd);
+      var currentWord = "";
+      if (convState.currentWordIndex !== undefined) {
+        var mw = (body.markedWords || [])[convState.currentWordIndex];
+        currentWord = mw ? (mw.text || "") : "";
+      }
+      logRecord.set("user_id",    userId);
+      logRecord.set("material",   (body.materialTitle || "").slice(0, 200));
+      logRecord.set("word",       currentWord);
+      logRecord.set("phase",      convState.sessionPhase || "drilling");
+      logRecord.set("user_msg",   lastUserMsg.slice(0, 500));
+      logRecord.set("ai_reply",   (result.reply || "").slice(0, 1000));
+      logRecord.set("attempt",    Number(convState.attemptCount) || 0);
+      logRecord.set("word_index", Number(convState.currentWordIndex) || 0);
+      // JSON fields must be set as a string in PocketBase JS hooks
+      logRecord.set("rules",      JSON.stringify(stateUpd));
       logRecord.set("advancement", stateUpd.advancement === true);
       $app.dao().saveRecord(logRecord);
     } catch (logErr) {
-      $app.logger().error("nex_chat_logs save failed", "err", String(logErr));
+      $app.logger().error("nex_chat_logs save failed",
+        "err", String(logErr),
+        "user", userId,
+        "material", (body.materialTitle || "").slice(0, 60)
+      );
     }
 
     return c.json(200, result);
   } catch (e) {
+    $app.logger().error("[mnemonic/chat] hook_exception", "err", String(e), "stack", (e && e.stack) ? String(e.stack) : "");
     return c.json(500, { error: "hook_exception", message: String(e) });
   }
 });

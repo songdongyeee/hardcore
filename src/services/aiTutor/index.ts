@@ -1,7 +1,27 @@
 import type { MarkedWord } from '@/App';
 import type { TranscriptSegment } from '@/data/transcript';
 
-export type OrbState = 'idle' | 'listening' | 'speaking' | 'thinking';
+export type OrbState = 'connecting' | 'idle' | 'listening' | 'active' | 'thinking' | 'speaking' | 'muted' | 'paused';
+
+export type WordStatus = 'unseen' | 'mastered' | 'failed';
+
+export interface ConversationState {
+  currentWordIndex: number;
+  wordStatus: Record<string, WordStatus>;
+  attemptCount: number;
+  sessionPhase: 'drilling' | 'wrapping';
+}
+
+export interface StateUpdate {
+  advancement: boolean;
+  wordResult?: WordStatus;
+  sessionPhase?: 'drilling' | 'wrapping';
+}
+
+export interface ChatResult {
+  reply: string;
+  stateUpdate: StateUpdate;
+}
 
 export interface TutorMessage {
   id: string;
@@ -13,6 +33,7 @@ export interface SessionContext {
   markedWords: MarkedWord[];
   transcript: TranscriptSegment[];
   materialTitle?: string;
+  conversationState?: ConversationState;
 }
 
 /**
@@ -27,7 +48,7 @@ export interface AITutorService {
   transcribeAudio(audioBlob: Blob, mimeType: string): Promise<string>;
 
   /** Send conversation history, get next AI reply */
-  chat(messages: TutorMessage[], context: SessionContext): Promise<string>;
+  chat(messages: TutorMessage[], context: SessionContext): Promise<ChatResult>;
 
   /**
    * Text-to-speech. Calls onStart when audio begins, onEnd when finished.

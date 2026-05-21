@@ -63,18 +63,33 @@ export class AliyunTutorService implements AITutorService {
   }
 
   private async tryReAuth(): Promise<void> {
-    try {
-      // Try token refresh first (fast path)
-      if (pb.authStore.isValid) {
+    const isValid = pb.authStore.isValid;
+    const hasToken = !!pb.authStore.token;
+    console.log(`[AITutor] 🔐 tryReAuth — isValid=${isValid}, hasToken=${hasToken}`);
+
+    if (isValid) {
+      try {
         await pb.collection('users').authRefresh();
+        console.log('[AITutor] 🔐 authRefresh OK, new token:', pb.authStore.token?.slice(0, 20) + '…');
         return;
+      } catch (e) {
+        console.warn('[AITutor] 🔐 authRefresh failed:', String(e));
       }
-    } catch {}
+    }
+
     // Fall back to silentLogin with cached RevenueCat ID
     try {
       const { value: cachedId } = await Preferences.get({ key: 'last_rc_id' });
-      if (cachedId) await silentLogin(cachedId);
-    } catch {}
+      console.log('[AITutor] 🔐 silentLogin attempt, cachedId:', cachedId ? cachedId.slice(0, 12) + '…' : 'null');
+      if (cachedId) {
+        await silentLogin(cachedId);
+        console.log('[AITutor] 🔐 silentLogin OK, token:', pb.authStore.token?.slice(0, 20) + '…');
+      } else {
+        console.warn('[AITutor] 🔐 no cachedId in Preferences — cannot re-authenticate');
+      }
+    } catch (e) {
+      console.error('[AITutor] 🔐 silentLogin failed:', String(e));
+    }
   }
 
   async chat(messages: TutorMessage[], context: SessionContext): Promise<ChatResult> {
@@ -92,12 +107,16 @@ export class AliyunTutorService implements AITutorService {
       }),
     });
 
+    console.log('[AITutor] 💬 chat — token present:', !!pb.authStore.token, 'isValid:', pb.authStore.isValid);
     let res = await makeRequest();
+    console.log('[AITutor] 💬 chat first response status:', res.status);
 
     // On 401, re-authenticate once and retry
     if (res.status === 401) {
       await this.tryReAuth();
+      console.log('[AITutor] 💬 chat retry — token present:', !!pb.authStore.token);
       res = await makeRequest();
+      console.log('[AITutor] 💬 chat retry response status:', res.status);
     }
 
     if (res.status === 429) {

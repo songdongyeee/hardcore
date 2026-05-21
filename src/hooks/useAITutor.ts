@@ -111,8 +111,9 @@ export function useAITutor(context: SessionContext | null) {
       analyser.fftSize = 256;
       src.connect(analyser);
       analyserRef.current = analyser;
-    } catch {
-      console.error('[VAD] Microphone access denied');
+      console.log('[AITutor] ✅ Mic opened, AudioContext state:', ctx.state);
+    } catch (err) {
+      console.error('[AITutor] ❌ Microphone access denied:', String(err));
     }
   }, []);
 
@@ -133,6 +134,7 @@ export function useAITutor(context: SessionContext | null) {
     audioChunksRef.current = [];
 
     const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
+    console.log('[AITutor] 🎙 Recording started, mimeType:', mimeType);
     const recorder = new MediaRecorder(streamRef.current, { mimeType });
     mediaRecorderRef.current = recorder;
 
@@ -142,12 +144,12 @@ export function useAITutor(context: SessionContext | null) {
 
     recorder.onstop = async () => {
       vadActiveRef.current = false;
-      // don't process if we're overridden or session ended
       if (overrideRef.current || !context) return;
 
       const blob = new Blob(audioChunksRef.current, { type: mimeType });
+      console.log('[AITutor] ⏹ Recording stopped, blob size:', blob.size, 'bytes, chunks:', audioChunksRef.current.length);
       if (blob.size < 1000) {
-        // too short, ignore
+        console.log('[AITutor] ⚠️ Blob too small, skipping');
         setBaseState('listening');
         return;
       }
@@ -155,15 +157,24 @@ export function useAITutor(context: SessionContext | null) {
       setBaseState('thinking');
       setTranscriptLive('');
       try {
+        console.log('[AITutor] 📤 Sending to ASR...');
         const transcribed = await tutor.transcribeAudio(blob, mimeType);
-        if (transcribed.trim()) await processUserReply(transcribed);
-        else setBaseState('listening');
-      } catch {
+        console.log('[AITutor] 📝 ASR result:', JSON.stringify(transcribed));
+        if (transcribed.trim()) {
+          await processUserReplyRef.current(transcribed);
+        } else {
+          console.log('[AITutor] ⚠️ ASR returned empty text');
+          setAiSubtitle('没听清，再说一遍？');
+          setBaseState('listening');
+          setTimeout(() => setAiSubtitle(''), 2500);
+        }
+      } catch (err) {
+        console.log('[AITutor] ❌ ASR error:', String(err));
         setBaseState('listening');
       }
     };
 
-    recorder.start(100); // collect 100ms chunks
+    recorder.start(100);
     setBaseState('active');
   }, [context]); // processUserReply added below after definition
 
@@ -232,6 +243,15 @@ export function useAITutor(context: SessionContext | null) {
       // silence — speak() already falls back internally
     }
     isSpeakingRef.current = false;
+    // iOS suspends AudioContext when system audio (TTS) plays; resume it so VAD keeps working
+    const ctxState = audioCtxRef.current?.state ?? 'none';
+    console.log('[AITutor] 🔊 TTS done, AudioContext state:', ctxState);
+    if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+      try {
+        await audioCtxRef.current.resume();
+        console.log('[AITutor] ▶️ AudioContext resumed');
+      } catch (_) { /* best-effort */ }
+    }
     if (!overrideRef.current) {
       setBaseState('listening');
       setAiSubtitle('');
@@ -256,6 +276,7 @@ export function useAITutor(context: SessionContext | null) {
 
     setBaseState('thinking');
     setAiSubtitle('');
+    console.log('[AITutor] 💬 Sending to LLM, user text:', userText);
     try {
       // Inject authoritative state so backend knows current word / attempt
       const contextWithState: SessionContext = {
@@ -264,6 +285,7 @@ export function useAITutor(context: SessionContext | null) {
       };
 
       const { reply, stateUpdate } = await tutor.chat(updated, contextWithState);
+      console.log('[AITutor] 🤖 LLM reply:', reply.slice(0, 80));
 
       const aiMsg: TutorMessage = { id: crypto.randomUUID(), role: 'ai', text: reply };
       setMessages(prev => [...prev, aiMsg]);
@@ -277,6 +299,7 @@ export function useAITutor(context: SessionContext | null) {
 
       await speak(reply);
     } catch (err) {
+      console.log('[AITutor] ❌ LLM/TTS error:', String(err));
       const msg = err instanceof Error ? err.message : '';
       let hint = '出错了，请稍后再试';
       if (msg === 'DAILY_LIMIT')        hint = '今日对话次数已用完，明天再来～';
@@ -312,6 +335,16 @@ export function useAITutor(context: SessionContext | null) {
     // After AI finishes opening, start VAD
     if (!overrideRef.current) runVadLoop();
   }, [context, isSessionStarted, openMic, speak, runVadLoop]);
+
+  // ── Manual voice send (user taps "done speaking") ────────────────────────
+  const stopAndSend = useCallback(() => {
+    if (!vadActiveRef.current) return;
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    mediaRecorderRef.current?.stop();
+  }, []);
 
   // ── Text send ─────────────────────────────────────────────────────────────
   const sendText = useCallback(async () => {
@@ -400,6 +433,7 @@ export function useAITutor(context: SessionContext | null) {
     textInput,
     setTextInput,
     sendText,
+    stopAndSend,
     startSession,
     isSessionStarted,
     toggleMute,

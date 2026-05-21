@@ -25,6 +25,7 @@ import argparse
 import time
 from difflib import SequenceMatcher
 from datetime import datetime
+from whisper_segment_merger import merge_whisper_segments
 
 # ============ 配置 ============
 POCKETBASE_URL = os.getenv("PB_URL", "https://zjcnex.top")
@@ -150,8 +151,9 @@ class TimestampFixer:
                 vad_filter=True
             )
             
-            # 提取句子和单词
-            raw_whisper_sentences = []
+            # Whisper returns timestamp segments, not learner-facing sentences.
+            # Keep word timestamps, then merge overly fragmented segments locally.
+            raw_whisper_segments = []
             for segment in segments:
                 words_list = []
                 if segment.words:
@@ -162,15 +164,20 @@ class TimestampFixer:
                             "end_time": int(word.end * 1000)
                         })
                 
-                raw_whisper_sentences.append({
+                raw_whisper_segments.append({
                     "text": segment.text.strip(),
                     "begin_time": int(segment.start * 1000),
                     "end_time": int(segment.end * 1000),
                     "words": words_list
                 })
+
+            merged_sentences = merge_whisper_segments(raw_whisper_segments)
             
-            self.log(f"Whisper 转写完成: 共 {len(raw_whisper_sentences)} 个句子", "SUCCESS")
-            return raw_whisper_sentences
+            self.log(
+                f"Whisper 转写完成: 原始 {len(raw_whisper_segments)} 段 → 合并后 {len(merged_sentences)} 句",
+                "SUCCESS"
+            )
+            return merged_sentences
             
         except Exception as e:
             self.log(f"Whisper 转写失败: {e}", "ERROR")

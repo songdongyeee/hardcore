@@ -8,6 +8,7 @@ const DEFAULTS = {
   location: 'core_library',
   visibility: 'private',
   language: 'en',
+  asrEngine: '',
   topic: 'General',
   difficulty: 'L1',
   wait: false,
@@ -39,6 +40,7 @@ Options:
   --location <value>          location field value (default: core_library)
   --visibility <value>        visibility field value (default: private)
   --language <value>          language field value (default: en)
+  --asr-engine <value>        Optional asr_engine field value, e.g. whisper or aliyun
   --topic <value>             topic field value (default: General)
   --difficulty <value>        difficulty field value (default: L1)
   --owner <userId>            Optional owner relation id (recommended for private per-user)
@@ -88,6 +90,10 @@ function parseArgs(argv) {
         break;
       case '--language':
         opts.language = next;
+        i += 1;
+        break;
+      case '--asr-engine':
+        opts.asrEngine = next;
         i += 1;
         break;
       case '--topic':
@@ -393,6 +399,9 @@ async function main() {
       formData.append('location', opts.location);
       formData.append('language', opts.language);
       formData.append('visibility', opts.visibility);
+      if (opts.asrEngine) {
+        formData.append('asr_engine', opts.asrEngine);
+      }
       if (opts.orderByNameNumber) {
         formData.append('custom_order', String(item.customOrder));
       }
@@ -469,6 +478,7 @@ async function main() {
         location: opts.location,
         visibility: opts.visibility,
         language: opts.language,
+        asr_engine: opts.asrEngine || null,
         topic: opts.topic,
         difficulty: opts.difficulty,
         owner: opts.owner || null,

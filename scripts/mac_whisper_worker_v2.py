@@ -15,6 +15,7 @@ import time
 import json
 import requests
 from datetime import datetime
+from whisper_segment_merger import merge_whisper_segments
 
 # ============ 配置区域 ============
 POCKETBASE_URL = "https://zjcnex.top"  # ✅ 你的 PocketBase 地址
@@ -124,9 +125,9 @@ class WhisperWorker:
                 vad_filter=True
             )
             
-            # 转换为阿里云格式
-            sentences = []
-            sentence_id = 1
+            # Whisper returns timestamp segments. Merge continuous fragments into
+            # learner-friendly sentences while preserving word timestamps.
+            raw_segments = []
             full_text_parts = []
             
             for segment in segments:
@@ -144,14 +145,14 @@ class WhisperWorker:
                 sentence_text = segment.text.strip()
                 full_text_parts.append(sentence_text)
                 
-                sentences.append({
+                raw_segments.append({
                     "begin_time": int(segment.start * 1000),
                     "end_time": int(segment.end * 1000),
                     "text": sentence_text,
-                    "sentence_id": sentence_id,
                     "words": words_list
                 })
-                sentence_id += 1
+
+            sentences = merge_whisper_segments(raw_segments)
             
             result = [{
                 "channel_id": 0,
@@ -159,7 +160,7 @@ class WhisperWorker:
                 "sentences": sentences
             }]
             
-            self.log(f"✅ 转写完成！生成 {len(sentences)} 个句子")
+            self.log(f"✅ 转写完成！原始 {len(raw_segments)} 段 → 合并后 {len(sentences)} 句")
             return result
             
         except Exception as e:

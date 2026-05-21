@@ -1,155 +1,222 @@
-import { motion, AnimatePresence } from 'framer-motion';
 import type { OrbState } from '@/services/aiTutor/index';
 
 interface VoiceOrbProps {
   state: OrbState;
-  amplitude?: number; // 0–1, driven by live audio level
+  size?: number;
+  onClick?: () => void;
 }
 
-const PALETTE: Record<OrbState, { core: string; mid: string; outer: string; ripple: string }> = {
-  idle: {
-    core: '#6366f1',
-    mid: 'rgba(99,102,241,0.28)',
-    outer: 'rgba(99,102,241,0.09)',
-    ripple: 'rgba(99,102,241,0.35)',
-  },
-  listening: {
-    core: '#22c55e',
-    mid: 'rgba(34,197,94,0.30)',
-    outer: 'rgba(34,197,94,0.09)',
-    ripple: 'rgba(34,197,94,0.35)',
-  },
-  speaking: {
-    core: '#a855f7',
-    mid: 'rgba(168,85,247,0.32)',
-    outer: 'rgba(168,85,247,0.10)',
-    ripple: 'rgba(168,85,247,0.38)',
-  },
-  thinking: {
-    core: '#f59e0b',
-    mid: 'rgba(245,158,11,0.26)',
-    outer: 'rgba(245,158,11,0.08)',
-    ripple: 'rgba(245,158,11,0.30)',
-  },
+const PALETTE: Record<OrbState, { core: string; mid: string; shell: string; halo: string }> = {
+  idle:       { core: '#818cf8', mid: '#a5b4fc', shell: '#312e81', halo: 'rgba(99,102,241,.30)' },
+  listening:  { core: '#34d399', mid: '#86efac', shell: '#064e3b', halo: 'rgba(34,197,94,.30)' },
+  active:     { core: '#34d399', mid: '#86efac', shell: '#064e3b', halo: 'rgba(34,197,94,.38)' },
+  thinking:   { core: '#fbbf24', mid: '#fde68a', shell: '#451a03', halo: 'rgba(245,158,11,.30)' },
+  speaking:   { core: '#c084fc', mid: '#f0abfc', shell: '#3b0764', halo: 'rgba(168,85,247,.40)' },
+  connecting: { core: '#a5b4fc', mid: '#c7d2fe', shell: '#1e1b4b', halo: 'rgba(129,140,248,.25)' },
+  muted:      { core: '#71717a', mid: '#a1a1aa', shell: '#18181b', halo: 'rgba(82,82,91,.10)' },
+  paused:     { core: '#3f3f46', mid: '#52525b', shell: '#09090b', halo: 'rgba(63,63,70,.05)' },
 };
 
-const IDLE_SCALE = [1, 1.06, 1];
-const LISTENING_SCALE = [0.96, 1.08, 0.96];
-const SPEAKING_SCALE = [1, 1.14, 0.95, 1.10, 1];
-const THINKING_SCALE = [1, 1.03, 1];
+const PROFILE: Record<OrbState, {
+  morph: 'soft' | 'med' | 'extreme';
+  morphDur: number;
+  rotA: number;
+  rotB: number;
+  breath: string;
+  inward: boolean;
+  rings: number;
+  voice: boolean;
+  jitter: boolean;
+}> = {
+  idle:       { morph: 'soft',    morphDur: 11, rotA:  32, rotB: -46, breath: 'halo-breath',      inward: false, rings: 0, voice: false, jitter: false },
+  listening:  { morph: 'soft',    morphDur:  9, rotA:  22, rotB: -32, breath: 'halo-breath',      inward: true,  rings: 0, voice: false, jitter: false },
+  active:     { morph: 'med',     morphDur:  5, rotA:  12, rotB: -16, breath: 'halo-breath-fast', inward: false, rings: 0, voice: true,  jitter: false },
+  thinking:   { morph: 'extreme', morphDur:  5, rotA:  10, rotB: -14, breath: 'halo-breath-fast', inward: false, rings: 0, voice: false, jitter: true  },
+  speaking:   { morph: 'med',     morphDur:  6, rotA:  16, rotB: -22, breath: 'halo-breath-fast', inward: false, rings: 3, voice: false, jitter: false },
+  connecting: { morph: 'soft',    morphDur:  8, rotA:  20, rotB: -28, breath: 'halo-breath',      inward: false, rings: 0, voice: false, jitter: false },
+  muted:      { morph: 'soft',    morphDur: 18, rotA:  60, rotB: -80, breath: 'halo-breath',      inward: false, rings: 0, voice: false, jitter: false },
+  paused:     { morph: 'soft',    morphDur:  0, rotA:   0, rotB:   0, breath: '',                 inward: false, rings: 0, voice: false, jitter: false },
+};
 
-function getScaleKeyframes(state: OrbState, amplitude: number): number[] {
-  if (state === 'speaking') {
-    const boost = 1 + amplitude * 0.18;
-    return SPEAKING_SCALE.map(v => v * boost);
-  }
-  if (state === 'listening') return LISTENING_SCALE;
-  if (state === 'thinking') return THINKING_SCALE;
-  return IDLE_SCALE;
-}
+export function VoiceOrb({ state, size = 210, onClick }: VoiceOrbProps) {
+  const c = PALETTE[state] ?? PALETTE.idle;
+  const p = PROFILE[state] ?? PROFILE.idle;
+  const frozen = p.morphDur === 0;
+  const dim = state === 'muted' || state === 'paused';
+  const clickable = state === 'speaking' || state === 'muted';
 
-function getDuration(state: OrbState): number {
-  if (state === 'speaking') return 0.9;
-  if (state === 'listening') return 1.2;
-  if (state === 'thinking') return 2.4;
-  return 3.2;
-}
+  // The halo breathes at 60% of the morph cycle speed
+  const haloAnim = frozen || !p.breath
+    ? 'none'
+    : `${p.breath} ${p.morphDur * 0.6}s ease-in-out infinite`;
 
-export function VoiceOrb({ state, amplitude = 0 }: VoiceOrbProps) {
-  const palette = PALETTE[state];
-  const scaleKF = getScaleKeyframes(state, amplitude);
-  const duration = getDuration(state);
+  // The blob silhouette morphs
+  const bodyAnim = frozen
+    ? 'none'
+    : `blob-morph-${p.morph} ${p.morphDur}s ease-in-out infinite`;
+
+  const rotADur = Math.abs(p.rotA);
+  const rotBDur = Math.abs(p.rotB);
+
+  // Ripple border color: bump up the halo opacity
+  const rippleColor = c.halo.replace(/[\d.]+\)$/, '.55)');
 
   return (
-    <div className="relative flex items-center justify-center" style={{ width: 260, height: 260 }}>
+    <div
+      onClick={clickable ? onClick : undefined}
+      style={{
+        position: 'relative',
+        width: size,
+        height: size,
+        opacity: dim ? 0.55 : 1,
+        transition: 'opacity 600ms ease',
+        cursor: clickable ? 'pointer' : 'default',
+        flexShrink: 0,
+      }}
+    >
+      {/* ── Outer halo glow ──────────────────────────────────────────────────
+          Radial gradient naturally fades to transparent — no border-radius
+          needed for circular appearance, so filter:blur works correctly on iOS.
+      */}
+      <div style={{
+        position: 'absolute',
+        top: '-14%', right: '-14%', bottom: '-14%', left: '-14%',
+        background: `radial-gradient(circle, ${c.halo} 0%, transparent 65%)`,
+        WebkitFilter: 'blur(18px)',
+        filter: 'blur(18px)',
+        animation: haloAnim,
+        pointerEvents: 'none',
+      }} />
 
-      {/* ── Outer ambient glow ── */}
-      <motion.div
-        className="absolute rounded-full"
-        style={{
-          width: 240,
-          height: 240,
-          background: `radial-gradient(circle, ${palette.outer} 0%, transparent 70%)`,
-          filter: 'blur(32px)',
-        }}
-        animate={{ scale: scaleKF, opacity: state === 'idle' ? [0.6, 1, 0.6] : 1 }}
-        transition={{ duration, repeat: Infinity, ease: 'easeInOut' }}
-      />
+      {/* ── Speaking: outward ripple rings ──────────────────────────────── */}
+      {Array.from({ length: p.rings }).map((_, i) => (
+        <div key={i} style={{
+          position: 'absolute',
+          top: 0, right: 0, bottom: 0, left: 0,
+          borderRadius: '50%',
+          border: `1.5px solid ${rippleColor}`,
+          animation: 'liquid-ring 2.6s cubic-bezier(0.16,1,0.30,1) infinite',
+          animationDelay: `${i * 0.85}s`,
+          opacity: 0,
+          pointerEvents: 'none',
+        }} />
+      ))}
 
-      {/* ── Mid glow ring ── */}
-      <motion.div
-        className="absolute rounded-full"
-        style={{
-          width: 168,
-          height: 168,
-          background: `radial-gradient(circle, ${palette.mid} 0%, transparent 75%)`,
-          filter: 'blur(16px)',
-        }}
-        animate={{ scale: scaleKF }}
-        transition={{ duration, repeat: Infinity, ease: 'easeInOut', delay: 0.1 }}
-      />
+      {/* ── Static circle clipper ─────────────────────────────────────────
+          KEY iOS FIX: This wrapper has a STATIC (non-animated) border-radius:50%
+          and overflow:hidden. iOS WkWebView correctly clips children to a static
+          border-radius. The blob animation lives INSIDE this clipper on the body
+          div, so it never needs to rely on the broken "overflow:hidden +
+          animated border-radius" path.
+      */}
+      <div style={{
+        position: 'absolute',
+        top: 0, right: 0, bottom: 0, left: 0,
+        borderRadius: '50%',
+        overflow: 'hidden',
+      }}>
+        {/* ── Blob body: animated shell background ────────────────────────
+            The blob-morph animation changes this div's border-radius,
+            making the shell color (c.shell) appear as an organic blob shape.
+            Children (inner gradients) are clipped to the parent circle clipper.
+        */}
+        <div style={{
+          position: 'absolute',
+          top: 0, right: 0, bottom: 0, left: 0,
+          background: c.shell,
+          borderRadius: '50%',
+          animation: bodyAnim,
+        }}>
+          {/* Inner gradient A — large ellipse, slowly rotates */}
+          <div style={{
+            position: 'absolute',
+            top: '-25%', right: '-25%', bottom: '-25%', left: '-25%',
+            background: `radial-gradient(ellipse 55% 65% at 30% 38%, ${c.core} 0%, ${c.core}00 55%)`,
+            animation: frozen || rotADur === 0
+              ? 'none'
+              : `liquid-rot ${rotADur}s linear infinite${p.rotA < 0 ? ' reverse' : ''}`,
+            mixBlendMode: 'screen',
+            WebkitFilter: 'blur(6px)',
+            filter: 'blur(6px)',
+          }} />
 
-      {/* ── Ripple rings (speaking only) ── */}
-      <AnimatePresence>
-        {state === 'speaking' && [0, 1, 2].map(i => (
-          <motion.div
-            key={i}
-            className="absolute rounded-full border"
-            style={{ width: 110, height: 110, borderColor: palette.ripple }}
-            initial={{ scale: 1, opacity: 0.7 }}
-            animate={{ scale: 2.6, opacity: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 1.6, repeat: Infinity, delay: i * 0.52, ease: 'easeOut' }}
-          />
-        ))}
-      </AnimatePresence>
+          {/* Inner gradient B — counter-rotates at different speed */}
+          <div style={{
+            position: 'absolute',
+            top: '-25%', right: '-25%', bottom: '-25%', left: '-25%',
+            background: `radial-gradient(ellipse 50% 60% at 68% 62%, ${c.mid} 0%, ${c.mid}00 50%)`,
+            animation: frozen || rotBDur === 0
+              ? 'none'
+              : `liquid-rot ${rotBDur}s linear infinite${p.rotB < 0 ? ' reverse' : ''}`,
+            mixBlendMode: 'screen',
+            WebkitFilter: 'blur(7px)',
+            filter: 'blur(7px)',
+          }} />
 
-      {/* ── Listening pulse ring ── */}
-      <AnimatePresence>
-        {state === 'listening' && (
-          <motion.div
-            className="absolute rounded-full border-2"
-            style={{ width: 116, height: 116, borderColor: palette.ripple }}
-            initial={{ scale: 1, opacity: 0.8 }}
-            animate={{ scale: 1.5, opacity: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 1.1, repeat: Infinity, ease: 'easeOut' }}
-          />
-        )}
-      </AnimatePresence>
+          {/* Active — voice-amplitude pulse on tight bright core */}
+          {p.voice && (
+            <div style={{
+              position: 'absolute',
+              top: '15%', right: '15%', bottom: '15%', left: '15%',
+              background: `radial-gradient(circle, ${c.mid} 0%, ${c.mid}00 60%)`,
+              animation: 'voice-amp 1.4s ease-in-out infinite',
+              mixBlendMode: 'screen',
+              WebkitFilter: 'blur(8px)',
+              filter: 'blur(8px)',
+              borderRadius: '50%',
+            }} />
+          )}
 
-      {/* ── Core sphere ── */}
-      <motion.div
-        className="relative rounded-full"
-        style={{
-          width: 108,
-          height: 108,
-          background: `radial-gradient(circle at 35% 32%, rgba(255,255,255,0.38) 0%, ${palette.core} 45%, color-mix(in srgb, ${palette.core}, #000 35%) 100%)`,
-          boxShadow: `0 0 40px 8px ${palette.mid}, 0 0 0 1px rgba(255,255,255,0.08) inset`,
-        }}
-        animate={{
-          scale: scaleKF,
-          // thinking: subtle rotation via background-position trick using filter hue
-          filter: state === 'thinking'
-            ? ['hue-rotate(0deg)', 'hue-rotate(20deg)', 'hue-rotate(0deg)']
-            : 'hue-rotate(0deg)',
-        }}
-        transition={{ duration, repeat: Infinity, ease: 'easeInOut' }}
-      >
-        {/* Inner highlight */}
-        <div
-          className="absolute rounded-full"
-          style={{
-            width: 32,
-            height: 32,
-            top: 14,
-            left: 18,
-            background: 'radial-gradient(circle, rgba(255,255,255,0.55) 0%, transparent 100%)',
-            filter: 'blur(4px)',
-          }}
-        />
-      </motion.div>
+          {/* Listening — concentric inward shimmer */}
+          {p.inward && (
+            <>
+              <div style={{
+                position: 'absolute',
+                top: 0, right: 0, bottom: 0, left: 0,
+                borderRadius: '50%',
+                background: `radial-gradient(circle, transparent 35%, ${c.mid}55 65%, transparent 85%)`,
+                animation: 'liquid-inward 2.6s ease-in-out infinite',
+                mixBlendMode: 'screen',
+              }} />
+              <div style={{
+                position: 'absolute',
+                top: 0, right: 0, bottom: 0, left: 0,
+                borderRadius: '50%',
+                background: `radial-gradient(circle, transparent 50%, ${c.core}40 75%, transparent 95%)`,
+                animation: 'liquid-inward 2.6s ease-in-out infinite',
+                animationDelay: '-1.3s',
+                mixBlendMode: 'screen',
+              }} />
+            </>
+          )}
 
+          {/* Thinking — two asymmetric jitter blobs */}
+          {p.jitter && (
+            <>
+              <div style={{
+                position: 'absolute',
+                width: '52%', height: '52%', left: '18%', top: '12%',
+                background: `radial-gradient(circle, ${c.mid} 0%, transparent 65%)`,
+                WebkitFilter: 'blur(11px)',
+                filter: 'blur(11px)',
+                borderRadius: '50%',
+                mixBlendMode: 'screen',
+                animation: 'think-jitter-1 2.4s ease-in-out infinite',
+              }} />
+              <div style={{
+                position: 'absolute',
+                width: '46%', height: '46%', right: '14%', bottom: '18%',
+                background: `radial-gradient(circle, ${c.core} 0%, transparent 65%)`,
+                WebkitFilter: 'blur(13px)',
+                filter: 'blur(13px)',
+                borderRadius: '50%',
+                mixBlendMode: 'screen',
+                animation: 'think-jitter-2 1.8s ease-in-out infinite',
+              }} />
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

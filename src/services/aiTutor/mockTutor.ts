@@ -1,4 +1,4 @@
-import type { AITutorService, TutorMessage, SessionContext } from './index';
+import type { AITutorService, TutorMessage, SessionContext, ChatResult } from './index';
 import { pb } from '@/lib/pocketbase';
 
 const AI_TURNS: string[] = [
@@ -69,10 +69,19 @@ export class MockTutorService implements AITutorService {
     return '[语音输入已识别]';
   }
 
-  async chat(messages: TutorMessage[], _context: SessionContext): Promise<string> {
+  async chat(messages: TutorMessage[], _context: SessionContext): Promise<ChatResult> {
     await new Promise(r => setTimeout(r, 900));
     const userTurns = messages.filter(m => m.role === 'user').length;
-    return AI_TURNS[Math.min(userTurns - 1, AI_TURNS.length - 1)];
+    const reply = AI_TURNS[Math.min(userTurns - 1, AI_TURNS.length - 1)];
+    // Mock: advance word every 2 user turns
+    const advancement = userTurns > 0 && userTurns % 2 === 0;
+    return {
+      reply,
+      stateUpdate: {
+        advancement,
+        wordResult: advancement ? 'mastered' : undefined,
+      },
+    };
   }
 
   async speak(text: string, onStart?: () => void, onEnd?: () => void): Promise<void> {

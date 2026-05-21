@@ -3,6 +3,7 @@ import type { TranscriptSegment } from '@/data/transcript';
 import { Preferences } from '@capacitor/preferences';
 import { CapacitorHttp } from '@capacitor/core';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
+import { RELEASE_NOTES } from '@/data/releaseNotes';
 
 export const pb = new PocketBase('https://zjcnex.top');
 
@@ -185,6 +186,8 @@ export async function getTranscriptById(id: string): Promise<{ url: string; segm
 // I missing `silentLogin` and `fetchUserProgress`.
 // I will insert them back.
 
+// import { RELEASE_NOTES } from '@/data/releaseNotes'; -> will be inserted at top
+
 export async function silentLogin(userId: string): Promise<boolean> {
     if (!userId) return false;
 
@@ -231,7 +234,6 @@ export async function silentLogin(userId: string): Promise<boolean> {
 
     // 2. If all auth failed, try to CREATE new account
     try {
-        const { RELEASE_NOTES } = await import('@/data/releaseNotes');
         await pb.collection('users').create({
             username: safeUsername,
             password: safePassword,
@@ -243,10 +245,11 @@ export async function silentLogin(userId: string): Promise<boolean> {
         console.log("✅ [SilentLogin] New account created and logged in");
         return true;
     } catch (createErr: any) {
-        // 3. 🆘 RESCUE: If creation fails because revenue_id exists, 
+        // 3. 🆘 RESCUE: If creation fails because revenue_id exists or username is already in use, 
         // it means user has an account with a password we haven't tried yet.
         if (createErr.data?.data?.revenue_id?.code === 'validation_not_unique' || 
-            createErr.data?.data?.username?.code === 'validation_not_unique') {
+            createErr.data?.data?.username?.code === 'validation_not_unique' ||
+            createErr.data?.data?.username?.code === 'validation_invalid_username') {
             
             console.warn("⚠️ [SilentLogin] Account exists but initial auth failed. Running deep rescue...");
             try {
@@ -273,10 +276,13 @@ export async function silentLogin(userId: string): Promise<boolean> {
                 console.error("❌ [SilentLogin] Rescue failed: record not found or server error", rescueErr);
             }
         }
+        
         console.error("❌ [SilentLogin] All login and rescue attempts failed", createErr);
+        // Fallback alert is handled by ProfileView / HomeView based on failure boolean
         return false;
     }
 }
+
 
 
 export async function fetchUserProgress() {
